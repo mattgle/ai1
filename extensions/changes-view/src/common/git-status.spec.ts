@@ -3,6 +3,7 @@ import {
   discardAllPrompt,
   discardPlan,
   discardPrompt,
+  isDeleted,
   isUntracked,
   parseStatusOutput,
   statusBadge,
@@ -52,6 +53,23 @@ describe("isUntracked", () => {
   it("is true for the ?? status only", () => {
     assert.strictEqual(isUntracked({ status: "??", path: "a" }), true);
     assert.strictEqual(isUntracked({ status: " M", path: "a" }), false);
+  });
+});
+
+describe("isDeleted", () => {
+  it("is true for a file deleted in the working tree and for a staged deletion", () => {
+    assert.strictEqual(isDeleted({ status: " D", path: "a.ts" }), true);
+    assert.strictEqual(isDeleted({ status: "D ", path: "a.ts" }), true);
+  });
+
+  it("is true for a renamed file that is then deleted in the working tree", () => {
+    assert.strictEqual(isDeleted({ status: "RD", path: "b.ts", sourcePath: "a.ts" }), true);
+  });
+
+  it("is false for a modified file, an added file, and an untracked file", () => {
+    assert.strictEqual(isDeleted({ status: " M", path: "a.ts" }), false);
+    assert.strictEqual(isDeleted({ status: "A ", path: "a.ts" }), false);
+    assert.strictEqual(isDeleted({ status: "??", path: "a.ts" }), false);
   });
 });
 

@@ -33,6 +33,11 @@ export function isUntracked(entry: FileChangeEntry): boolean {
   return entry.status === "??";
 }
 
+// A deleted file has no working file, so a diff editor cannot open it.
+export function isDeleted(entry: FileChangeEntry): boolean {
+  return entry.status.includes("D");
+}
+
 export type DiscardPlan = { kind: "delete"; path: string } | { kind: "git"; args: string[] };
 
 // Selects how to discard the changes of one file.

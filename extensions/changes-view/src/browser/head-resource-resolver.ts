@@ -19,6 +19,7 @@ export class HeadResourceResolver implements ResourceResolver {
       uri,
       readContents: () => this.changes.readHead(repoRootUri, path),
       dispose: () => undefined,
+      readOnly: true,
     };
   }
 }

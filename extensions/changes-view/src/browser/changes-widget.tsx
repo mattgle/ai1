@@ -1,4 +1,4 @@
-import { MessageService } from "@theia/core";
+import { Disposable, MessageService } from "@theia/core";
 import {
   codicon,
   CompositeTreeNode,
@@ -21,8 +21,9 @@ import { Message } from "@theia/core/shared/@lumino/messaging";
 import { FileService } from "@theia/filesystem/lib/browser/file-service";
 import { WorkspaceService } from "@theia/workspace/lib/browser/workspace-service";
 import { ChangesService, RepoChanges } from "../common/changes-protocol";
-import { discardAllPrompt, discardPrompt, DiscardPrompt, isUntracked, statusBadge } from "../common/git-status";
+import { discardAllPrompt, discardPrompt, DiscardPrompt, isDeleted, isUntracked, statusBadge } from "../common/git-status";
 import { encodeHeadUri } from "../common/head-uri";
+import { RefreshSequence } from "../common/refresh-sequence";
 import { shouldIgnorePath } from "../common/refresh-filter";
 import { buildRoot, FileNode, isFileNode, isRepoNode, RepoNode } from "./changes-tree";
 
@@ -49,6 +50,7 @@ export class ChangesWidget extends TreeWidget {
   protected readonly messages!: MessageService;
 
   protected refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  protected readonly sequence = new RefreshSequence();
 
   constructor(
     @inject(TreeProps) props: TreeProps,
@@ -76,6 +78,7 @@ export class ChangesWidget extends TreeWidget {
       }),
     );
     this.toDispose.push(this.workspace.onWorkspaceChanged(() => this.scheduleRefresh(0)));
+    this.toDispose.push(Disposable.create(() => clearTimeout(this.refreshTimer)));
     this.scheduleRefresh(0);
   }
 
@@ -88,12 +91,16 @@ export class ChangesWidget extends TreeWidget {
   }
 
   async refresh(): Promise<void> {
+    const token = this.sequence.start();
     let repos: RepoChanges[];
     try {
       const roots = await this.workspace.roots;
       repos = await this.changes.scan(roots.map((root) => root.resource.toString()));
     } catch (error) {
       console.error("ai1-changes: the scan failed", error);
+      return;
+    }
+    if (!this.sequence.isLatest(token) || this.isDisposed) {
       return;
     }
     this.model.root = buildRoot(repos, (nodeId) => {
@@ -221,6 +228,11 @@ export class ChangesWidget extends TreeWidget {
     }
     // HEAD has a renamed file under its old path.
     const head = encodeHeadUri(node.repoRootUri, node.entry.sourcePath ?? node.entry.path);
+    // A deleted file has no working file. Show the HEAD version alone.
+    if (isDeleted(node.entry)) {
+      open(this.openerService, head).catch((error) => this.messages.error(String(error)));
+      return;
+    }
     const label = `${working.path.base} (HEAD ↔ Working)`;
     open(this.openerService, DiffUris.encode(head, working, label)).catch((error) => this.messages.error(String(error)));
   }
