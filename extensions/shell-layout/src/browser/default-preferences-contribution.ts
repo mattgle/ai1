@@ -1,5 +1,6 @@
 import { FrontendApplicationContribution } from "@theia/core/lib/browser";
 import { PreferenceScope, PreferenceService } from "@theia/core/lib/common/preferences";
+import { PreferenceSchemaService } from "@theia/core/lib/common/preferences/preference-schema";
 import { inject, injectable } from "@theia/core/shared/inversify";
 import { DEFAULT_PREFERENCES, selectUnsetDefaults } from "./default-preferences";
 
@@ -8,15 +9,17 @@ export class DefaultPreferencesContribution implements FrontendApplicationContri
   @inject(PreferenceService)
   protected readonly preferences!: PreferenceService;
 
+  @inject(PreferenceSchemaService)
+  protected readonly schemas!: PreferenceSchemaService;
+
   async onStart(): Promise<void> {
     await this.preferences.ready;
-    const toSet = selectUnsetDefaults(DEFAULT_PREFERENCES, (name) => {
-      const inspection = this.preferences.inspect(name);
-      return {
-        known: inspection !== undefined && inspection.defaultValue !== undefined,
-        setByUser: inspection !== undefined && inspection.globalValue !== undefined,
-      };
-    });
+    await this.schemas.ready;
+    const toSet = selectUnsetDefaults(DEFAULT_PREFERENCES, (name) => ({
+      // A schema entry can have no default value, so the schema is the source of truth.
+      known: this.schemas.getSchemaProperty(name) !== undefined,
+      setByUser: this.preferences.inspect(name)?.globalValue !== undefined,
+    }));
     for (const [name, value] of Object.entries(toSet)) {
       try {
         await this.preferences.set(name, value, PreferenceScope.User);
