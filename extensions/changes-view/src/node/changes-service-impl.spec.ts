@@ -23,10 +23,15 @@ function createRepo(root: string, name: string): string {
 
 const uriOf = (fsPath: string): string => pathToFileURL(fsPath).toString();
 
+function createOutsideFolder(): string {
+  return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ai1-changes-outside-")));
+}
+
 describe("ChangesServiceImpl", () => {
   const service = new ChangesServiceImpl();
   let root: string;
   let dirty: string;
+  let outsideFolders: string[];
 
   beforeEach(() => {
     root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ai1-changes-")));
@@ -34,10 +39,14 @@ describe("ChangesServiceImpl", () => {
     dirty = createRepo(root, "dirty-repo");
     fs.writeFileSync(path.join(dirty, "index.ts"), "export const value = 2;\n");
     fs.writeFileSync(path.join(dirty, "untracked.ts"), "export {};\n");
+    outsideFolders = [];
   });
 
   afterEach(() => {
     fs.rmSync(root, { recursive: true, force: true });
+    for (const outsideFolder of outsideFolders) {
+      fs.rmSync(outsideFolder, { recursive: true, force: true });
+    }
   });
 
   it("returns only the repositories that have changes", async () => {
@@ -114,5 +123,46 @@ describe("ChangesServiceImpl", () => {
       service.discardFile(uriOf(dirty), { status: " M", path: "does-not-exist.ts" }),
       /does-not-exist/,
     );
+  });
+
+  it("rejects a discard path that leaves the repository through ..", async () => {
+    const outsideFile = path.join(root, "outside.txt");
+    fs.writeFileSync(outsideFile, "safe\n");
+
+    await assert.rejects(
+      service.discardFile(uriOf(dirty), { status: "??", path: "../outside.txt" }),
+      /outside the repository/,
+    );
+
+    assert.strictEqual(fs.existsSync(outsideFile), true);
+  });
+
+  it("rejects a discard path that is absolute and outside the repository", async () => {
+    const outsideFolder = createOutsideFolder();
+    outsideFolders.push(outsideFolder);
+    const victim = path.join(outsideFolder, "victim.txt");
+    fs.writeFileSync(victim, "safe\n");
+
+    await assert.rejects(
+      service.discardFile(uriOf(dirty), { status: "??", path: victim }),
+      /outside the repository/,
+    );
+
+    assert.strictEqual(fs.existsSync(victim), true);
+  });
+
+  it("rejects a discard path that leaves the repository through a symbolic link", async () => {
+    const outsideFolder = createOutsideFolder();
+    outsideFolders.push(outsideFolder);
+    const victim = path.join(outsideFolder, "victim.txt");
+    fs.writeFileSync(victim, "safe\n");
+    fs.symlinkSync(outsideFolder, path.join(dirty, "link"));
+
+    await assert.rejects(
+      service.discardFile(uriOf(dirty), { status: "??", path: "link/victim.txt" }),
+      /outside the repository/,
+    );
+
+    assert.strictEqual(fs.existsSync(victim), true);
   });
 });

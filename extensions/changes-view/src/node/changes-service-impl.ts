@@ -5,6 +5,7 @@ import { injectable } from "@theia/core/shared/inversify";
 import { ChangesService, FileChangeEntry, RepoChanges } from "../common/changes-protocol";
 import { discardPlan, parseStatusOutput } from "../common/git-status";
 import { readGit, runGit } from "./git-runner";
+import { resolveInsideRepo } from "./repo-path";
 
 interface RepoCandidate {
   name: string;
@@ -32,7 +33,7 @@ export class ChangesServiceImpl implements ChangesService {
     const repoPath = fileURLToPath(repoRootUri);
     const plan = discardPlan(entry);
     if (plan.kind === "delete") {
-      await fs.promises.unlink(path.join(repoPath, plan.path));
+      await fs.promises.unlink(await resolveInsideRepo(repoPath, plan.path));
     } else {
       await runGit(repoPath, plan.args);
     }
