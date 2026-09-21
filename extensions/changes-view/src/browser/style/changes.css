@@ -1,0 +1,66 @@
+.ai1-changes .ai1-changes-caption {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.ai1-changes .ai1-changes-name {
+  white-space: nowrap;
+}
+
+.ai1-changes .ai1-changes-repo .ai1-changes-name {
+  font-weight: 600;
+}
+
+.ai1-changes .ai1-changes-description {
+  overflow: hidden;
+  font-size: 0.9em;
+  opacity: 0.7;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai1-changes .ai1-changes-repo-icon {
+  margin-right: 6px;
+}
+
+.ai1-changes .ai1-changes-tail {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 8px;
+}
+
+.ai1-changes .ai1-changes-action {
+  display: none;
+  cursor: pointer;
+}
+
+.ai1-changes .theia-TreeNode:hover .ai1-changes-action {
+  display: inline-block;
+}
+
+.ai1-changes .ai1-changes-badge {
+  min-width: 12px;
+  font-size: 0.85em;
+  text-align: center;
+}
+
+.ai1-changes .ai1-changes-badge-M {
+  color: var(--theia-gitDecoration-modifiedResourceForeground);
+}
+
+.ai1-changes .ai1-changes-badge-A,
+.ai1-changes .ai1-changes-badge-U {
+  color: var(--theia-gitDecoration-untrackedResourceForeground);
+}
+
+.ai1-changes .ai1-changes-badge-D {
+  color: var(--theia-gitDecoration-deletedResourceForeground);
+}
+
+.ai1-changes .ai1-changes-badge-R {
+  color: var(--theia-gitDecoration-renamedResourceForeground);
+}
