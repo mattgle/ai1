@@ -1,0 +1,22 @@
+appId: dev.ai1.app
+productName: AI1
+electronVersion: 42.8.1
+asar: false
+npmRebuild: false
+directories:
+  output: dist
+files:
+  - package.json
+  - scripts
+  - lib
+  - src-gen
+  - plugins
+  - resources
+  - "!**/*.map"
+mac:
+  target:
+    - target: dir
+      arch:
+        - arm64
+  identity: null
+  category: public.app-category.developer-tools

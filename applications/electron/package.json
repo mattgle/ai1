@@ -32,7 +32,8 @@
   },
   "devDependencies": {
     "@theia/cli": "1.75.0",
-    "electron": "42.8.1"
+    "electron": "42.8.1",
+    "electron-builder": "26.0.0"
   },
   "scripts": {
     "rebuild": "theia rebuild:electron --cacheRoot ../..",
