@@ -4,3 +4,4 @@ package-lock.json
 .superpowers/
 applications/electron/esbuild.mjs
 applications/electron/gen-esbuild.*.mjs
+.claude/
