@@ -2,8 +2,10 @@
 // "Default preferences" section of the design document.
 export const DEFAULT_PREFERENCES: Readonly<Record<string, unknown>> = {
   "editor.formatOnSave": true,
+  // Format on save needs one formatter. Without this, Theia asks the user to select one.
   "editor.defaultFormatter": "dbaeumer.vscode-eslint",
-  "editor.codeActionsOnSave": { "source.fixAll.eslint": "explicit" },
+  // Theia 1.75.0 accepts only boolean values here. It has no "explicit" mode.
+  "editor.codeActionsOnSave": { "source.fixAll.eslint": true },
   "editor.tabSize": 2,
   "editor.minimap.enabled": false,
   "editor.stickyScroll.enabled": true,

@@ -34,9 +34,9 @@ describe("selectUnsetDefaults", () => {
 });
 
 describe("DEFAULT_PREFERENCES", () => {
-  it("runs the ESLint fixes on save in explicit mode", () => {
+  it("runs the ESLint fixes on save", () => {
     assert.deepStrictEqual(DEFAULT_PREFERENCES["editor.codeActionsOnSave"], {
-      "source.fixAll.eslint": "explicit",
+      "source.fixAll.eslint": true,
     });
   });
 
