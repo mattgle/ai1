@@ -25,7 +25,8 @@
     "@theia/search-in-workspace": "1.75.0",
     "@theia/terminal": "1.75.0",
     "@theia/vsx-registry": "1.75.0",
-    "@theia/workspace": "1.75.0"
+    "@theia/workspace": "1.75.0",
+    "ai1-material-icons": "0.1.0"
   },
   "devDependencies": {
     "@theia/cli": "1.75.0",
@@ -33,8 +34,9 @@
   },
   "scripts": {
     "rebuild": "theia rebuild:electron --cacheRoot ../..",
-    "build": "npm run rebuild && theia build --mode development",
-    "build:production": "npm run rebuild && theia build --mode production",
+    "copy:icons": "node scripts/copy-material-icons.mjs",
+    "build": "npm run copy:icons && npm run rebuild && theia build --mode development",
+    "build:production": "npm run copy:icons && npm run rebuild && theia build --mode production",
     "start": "theia start",
     "watch": "npm run rebuild && theia build --watch --mode development"
   },
