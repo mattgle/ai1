@@ -8,7 +8,7 @@ import {
   URIIconReference,
 } from "@theia/core/lib/browser/label-provider";
 import URI from "@theia/core/lib/common/uri";
-import { injectable } from "@theia/core/shared/inversify";
+import { inject, injectable } from "@theia/core/shared/inversify";
 import { FileStatNode } from "@theia/filesystem/lib/browser/file-tree";
 import { FileStat } from "@theia/filesystem/lib/common/files";
 import { buildStyleSheet, iconClass, ICON_BASE_CLASS } from "../common/material-icon-css";
@@ -17,6 +17,7 @@ import {
   MATERIAL_ICONS_MANIFEST_PATH,
   MATERIAL_ICONS_ROUTE,
   MaterialIconManifest,
+  MaterialIconsService,
 } from "../common/material-icons-protocol";
 
 type IconElement = URI | URIIconReference | FileStat | FileStatNode;
@@ -27,6 +28,9 @@ export class MaterialIconTheme implements IconTheme, IconThemeContribution, Labe
   readonly label = "Material Icon Theme";
   readonly hasFileIcons = true;
   readonly hasFolderIcons = true;
+
+  @inject(MaterialIconsService)
+  protected readonly icons!: MaterialIconsService;
 
   protected manifest: MaterialIconManifest | undefined;
   protected active = false;
@@ -96,11 +100,7 @@ export class MaterialIconTheme implements IconTheme, IconThemeContribution, Labe
       .getRestUrl()
       .toString();
     if (!this.manifest) {
-      const response = await fetch(manifestUrl);
-      if (!response.ok) {
-        throw new Error(`${manifestUrl} gives status ${response.status}`);
-      }
-      this.manifest = (await response.json()) as MaterialIconManifest;
+      this.manifest = await this.icons.getManifest();
     }
     if (!this.active) {
       return;

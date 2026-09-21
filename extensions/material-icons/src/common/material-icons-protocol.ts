@@ -18,3 +18,12 @@ export interface MaterialIconManifest {
   folder: string;
   folderExpanded: string;
 }
+
+export const MATERIAL_ICONS_SERVICE_PATH = "/services/ai1-material-icons";
+
+export const MaterialIconsService = Symbol("MaterialIconsService");
+
+export interface MaterialIconsService {
+  // Returns the icon theme manifest of the material-icon-theme package.
+  getManifest(): Promise<MaterialIconManifest>;
+}
