@@ -1,0 +1,6 @@
+docs/
+package-lock.json
+.browser_modules/
+.superpowers/
+applications/electron/esbuild.mjs
+applications/electron/gen-esbuild.*.mjs

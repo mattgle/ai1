@@ -1,0 +1,38 @@
+{
+  "private": true,
+  "name": "ai1",
+  "version": "0.1.0",
+  "description": "AI1 (All In 1): a personal IDE for work with coding agents across a meta-repo",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "extensions/*",
+    "vscode-extensions/*",
+    "applications/*",
+    "e2e"
+  ],
+  "scripts": {
+    "postinstall": "theia check:theia-version",
+    "download:plugins": "theia download:plugins",
+    "build": "npm run build --workspaces --if-present",
+    "build:production": "npm run build --workspace extensions/shell-layout --if-present && npm run build --workspace vscode-extensions/metarepo-sc --if-present && npm run build:production --workspace applications/electron",
+    "start": "npm start --workspace applications/electron",
+    "lint": "eslint .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm test --workspaces --if-present",
+    "format": "prettier --write \"**/*.{ts,js,mjs,json,md,yml}\"",
+    "format:check": "prettier --check \"**/*.{ts,js,mjs,json,md,yml}\""
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@theia/cli": "1.75.0",
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^9.0.0",
+    "prettier": "^3.0.0",
+    "typescript": "~5.4.5",
+    "typescript-eslint": "^8.0.0"
+  },
+  "theiaPluginsDir": "applications/electron/plugins",
+  "theiaPlugins": {}
+}
