@@ -49,7 +49,8 @@
       "config": {
         "applicationName": "AI1",
         "defaultTheme": "dark",
-        "defaultIconTheme": "material-icon-theme"
+        "defaultIconTheme": "material-icon-theme",
+        "preferences": {}
       }
     }
   }

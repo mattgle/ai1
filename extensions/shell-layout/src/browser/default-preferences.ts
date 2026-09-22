@@ -11,6 +11,9 @@ export const DEFAULT_PREFERENCES: Readonly<Record<string, unknown>> = {
   "editor.stickyScroll.enabled": true,
   "editor.enablePreview": false,
   "diffEditor.ignoreTrimWhitespace": false,
+  // The owner decided: AI1 is a personal IDE, and the trust dialog is not wanted.
+  // The Settings view can turn it on again.
+  "security.workspace.trust.enabled": false,
 };
 
 export interface PreferenceState {
