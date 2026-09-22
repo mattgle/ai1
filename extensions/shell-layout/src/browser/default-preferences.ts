@@ -1,5 +1,7 @@
 // The preferences that AI1 sets on the first start. The list comes from the
 // "Default preferences" section of the design document.
+// A default that must apply before the first start completes goes into the
+// front-end config of the application, not here.
 export const DEFAULT_PREFERENCES: Readonly<Record<string, unknown>> = {
   "editor.formatOnSave": true,
   // Format on save needs one formatter. Without this, Theia asks the user to select one.
@@ -11,9 +13,6 @@ export const DEFAULT_PREFERENCES: Readonly<Record<string, unknown>> = {
   "editor.stickyScroll.enabled": true,
   "editor.enablePreview": false,
   "diffEditor.ignoreTrimWhitespace": false,
-  // The owner decided: AI1 is a personal IDE, and the trust dialog is not wanted.
-  // The Settings view can turn it on again.
-  "security.workspace.trust.enabled": false,
 };
 
 export interface PreferenceState {

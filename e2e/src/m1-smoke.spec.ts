@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { TheiaApp, TheiaAppLoader, TheiaWorkspace } from "@theia/playwright";
@@ -7,8 +9,14 @@ const electronAppPath = path.resolve(__dirname, "..", "..", "applications", "ele
 const pluginsPath = path.join(electronAppPath, "plugins");
 
 let app: TheiaApp;
+let configDir: string;
 
 test.beforeAll(async ({ playwright, browser }) => {
+  // The application must not write into the real settings folder of the
+  // machine during a test run. Playwright's Electron launch inherits the
+  // runner's environment, so this folder becomes the app's settings folder.
+  configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-config-"));
+  process.env.THEIA_CONFIG_DIR = configDir;
   const workspace = new TheiaWorkspace();
   workspace.initialize();
   createMetaRepoFixture(workspace.path);
@@ -20,6 +28,7 @@ test.beforeAll(async ({ playwright, browser }) => {
 
 test.afterAll(async () => {
   await app.page.close();
+  fs.rmSync(configDir, { recursive: true, force: true });
 });
 
 test("the explorer is in the left panel", async () => {

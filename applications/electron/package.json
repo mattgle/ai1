@@ -50,7 +50,9 @@
         "applicationName": "AI1",
         "defaultTheme": "dark",
         "defaultIconTheme": "material-icon-theme",
-        "preferences": {}
+        "preferences": {
+          "security.workspace.trust.enabled": false
+        }
       }
     }
   }

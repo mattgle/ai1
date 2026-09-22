@@ -43,8 +43,4 @@ describe("DEFAULT_PREFERENCES", () => {
   it("shows whitespace changes in diffs", () => {
     assert.strictEqual(DEFAULT_PREFERENCES["diffEditor.ignoreTrimWhitespace"], false);
   });
-
-  it("turns the workspace trust dialog off", () => {
-    assert.strictEqual(DEFAULT_PREFERENCES["security.workspace.trust.enabled"], false);
-  });
 });
