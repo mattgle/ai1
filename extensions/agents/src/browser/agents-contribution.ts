@@ -1,11 +1,20 @@
-import { Command, CommandRegistry, MessageService } from "@theia/core";
-import { AbstractViewContribution, FrontendApplicationContribution, Widget } from "@theia/core/lib/browser";
+import { Command, CommandRegistry, MessageService, QuickPickService } from "@theia/core";
+import {
+  AbstractViewContribution,
+  ConfirmDialog,
+  FrontendApplicationContribution,
+  Widget,
+} from "@theia/core/lib/browser";
 import {
   TabBarToolbarContribution,
   TabBarToolbarRegistry,
 } from "@theia/core/lib/browser/shell/tab-bar-toolbar";
 import { inject, injectable } from "@theia/core/shared/inversify";
+import { FileService } from "@theia/filesystem/lib/browser/file-service";
+import { WorkspaceService } from "@theia/workspace/lib/browser/workspace-service";
+import { AgentsService, SessionSummary } from "../common/agents-protocol";
 import { AgentsModel } from "./agents-model";
+import { AgentsTerminals } from "./agents-terminals";
 import { SessionNode } from "./agents-tree";
 import { AgentsWidget } from "./agents-widget";
 
@@ -42,6 +51,21 @@ export class AgentsContribution
   @inject(MessageService)
   protected readonly messages!: MessageService;
 
+  @inject(AgentsTerminals)
+  protected readonly terminals!: AgentsTerminals;
+
+  @inject(QuickPickService)
+  protected readonly quickPick!: QuickPickService;
+
+  @inject(AgentsService)
+  protected readonly service!: AgentsService;
+
+  @inject(WorkspaceService)
+  protected readonly workspace!: WorkspaceService;
+
+  @inject(FileService)
+  protected readonly files!: FileService;
+
   constructor() {
     super({
       widgetId: AgentsWidget.ID,
@@ -58,9 +82,10 @@ export class AgentsContribution
 
   async onStart(): Promise<void> {
     const widget = await this.widget;
-    widget.onOpenSession = (node) => this.openSessionTerminal(node);
-    widget.onNewSession = (directory) => this.newSession(directory);
-    widget.onDeleteSession = (node) => this.deleteSession(node);
+    widget.onOpenSession = (node) => void this.openSessionTerminal(node);
+    widget.onNewSession = (directory) => void this.newSession(directory);
+    widget.onDeleteSession = (node) => void this.deleteSession(node);
+    await this.terminals.reopenPersistent();
   }
 
   override registerCommands(commands: CommandRegistry): void {
@@ -99,32 +124,109 @@ export class AgentsContribution
     });
   }
 
-  // Task 5 fills these five methods. Until then each one shows a message.
-  protected openSessionTerminal(_node: SessionNode): void {
-    this.messages.info("Session terminals come in the next task.");
+  protected async openSessionTerminal(node: SessionNode): Promise<void> {
+    try {
+      await this.terminals.openSession(node.session);
+    } catch (error) {
+      this.messages.error(`Open session failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
-  protected newSession(_directory?: string): void {
-    this.messages.info("New sessions come in the next task.");
+  protected async newSession(directory?: string): Promise<void> {
+    const target = directory ?? (await this.pickRepository("New session in"));
+    if (!target) {
+      return;
+    }
+    try {
+      const created = await this.service.createSession(target);
+      await this.terminals.openSession(created);
+    } catch (error) {
+      this.messages.error(`New session failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
-  protected deleteSession(_node: SessionNode): void {
-    this.messages.info("Delete comes in the next task.");
+  protected async deleteSession(node: SessionNode): Promise<void> {
+    const confirmed = await new ConfirmDialog({
+      title: "Delete session",
+      msg: `Delete the session '${node.session.title}'? You cannot undo this.`,
+      ok: "Delete",
+    }).open();
+    if (!confirmed) {
+      return;
+    }
+    try {
+      await this.service.deleteSession(node.session.id);
+    } catch (error) {
+      this.messages.error(`Delete failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
-  protected pickAndOpen(): void {
-    this.messages.info("Open Session comes in the next task.");
+  protected async pickAndOpen(): Promise<void> {
+    const session = await this.pickSession("Open session");
+    if (session) {
+      await this.terminals.openSession(session);
+    }
   }
 
-  protected pickAndDelete(): void {
-    this.messages.info("Delete Session comes in the next task.");
+  protected async pickAndDelete(): Promise<void> {
+    const session = await this.pickSession("Delete session");
+    if (session) {
+      await this.deleteSession({ session } as SessionNode);
+    }
   }
 
   protected closeIdleTerminals(): void {
-    this.messages.info("Close Idle Terminals comes in the next task.");
+    const closed = this.terminals.closeIdle();
+    this.messages.info(`Closed ${closed} idle terminal${closed === 1 ? "" : "s"}.`);
   }
 
-  protected newPersistentTerminal(): void {
-    this.messages.info("Persistent terminals come in the next task.");
+  protected async newPersistentTerminal(): Promise<void> {
+    const target = await this.pickRepository("New persistent terminal in");
+    if (!target) {
+      return;
+    }
+    try {
+      await this.terminals.newPersistent(target);
+    } catch (error) {
+      this.messages.error(
+        `tmux failed: ${error instanceof Error ? error.message : String(error)}. Install it with: brew install tmux`,
+      );
+    }
+  }
+
+  // The workspace roots and their direct child folders that hold a .git folder.
+  protected async pickRepository(placeholder: string): Promise<string | undefined> {
+    const roots = await this.workspace.roots;
+    const candidates: { label: string; description: string; path: string }[] = [];
+    for (const root of roots) {
+      const rootPath = root.resource.path.fsPath();
+      if (await this.files.exists(root.resource.resolve(".git"))) {
+        candidates.push({ label: root.resource.path.base, description: rootPath, path: rootPath });
+      }
+      const children = await this.files.resolve(root.resource).catch(() => undefined);
+      for (const child of children?.children ?? []) {
+        if (child.isDirectory && (await this.files.exists(child.resource.resolve(".git")))) {
+          candidates.push({
+            label: child.name,
+            description: child.resource.path.fsPath(),
+            path: child.resource.path.fsPath(),
+          });
+        }
+      }
+    }
+    const picked = await this.quickPick.show(candidates, { placeholder });
+    return picked?.path;
+  }
+
+  protected async pickSession(placeholder: string): Promise<SessionSummary | undefined> {
+    const items = this.agents.groups.flatMap((group) =>
+      group.sessions.map((session) => ({
+        label: session.title,
+        description: `${group.name} · ${session.status}`,
+        session,
+      })),
+    );
+    const picked = await this.quickPick.show(items, { placeholder });
+    return picked?.session;
   }
 }

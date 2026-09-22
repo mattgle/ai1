@@ -10,6 +10,7 @@ import { ContainerModule, interfaces } from "@theia/core/shared/inversify";
 import { AGENTS_SERVICE_PATH, AgentsClient, AgentsService } from "../common/agents-protocol";
 import { AgentsContribution } from "./agents-contribution";
 import { AgentsModel } from "./agents-model";
+import { AgentsTerminals } from "./agents-terminals";
 import { AgentsWidget } from "./agents-widget";
 import "../../src/browser/style/agents.css";
 
@@ -23,6 +24,7 @@ function createAgentsWidget(parent: interfaces.Container): AgentsWidget {
 
 export default new ContainerModule((bind) => {
   bind(AgentsModel).toSelf().inSingletonScope();
+  bind(AgentsTerminals).toSelf().inSingletonScope();
   bind(AgentsService)
     .toDynamicValue((context) => {
       // The proxy's client forwards to the model. The model is resolved

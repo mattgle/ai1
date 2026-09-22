@@ -12,8 +12,25 @@ const pluginsPath = path.join(electronAppPath, "plugins");
 let app: TheiaApp;
 let configDir: string;
 let sessionId: string;
+let preexistingTmuxSessions: string[];
+
+// Reads the names of the ai1-* tmux sessions from the output of `tmux ls`.
+// No tmux server running is not an error: it just means no session exists.
+function listAi1TmuxSessions(): string[] {
+  try {
+    const output = execFileSync("tmux", ["ls"], { encoding: "utf8" });
+    return output
+      .split("\n")
+      .filter((line) => line.indexOf(":") >= 0)
+      .map((line) => line.slice(0, line.indexOf(":")))
+      .filter((name) => name.startsWith("ai1-"));
+  } catch {
+    return [];
+  }
+}
 
 test.beforeAll(async ({ playwright, browser }) => {
+  preexistingTmuxSessions = listAi1TmuxSessions();
   // The application must not write into the real settings folder of the
   // machine during a test run. Playwright's Electron launch inherits the
   // runner's environment, so this folder becomes the app's settings folder.
@@ -62,6 +79,13 @@ test.afterAll(async () => {
     if (sessionId) {
       execFileSync("opencode", ["api", "DELETE", `/api/session/${sessionId}`]);
     }
+    // Kill only the ai1-* tmux sessions this test made, never one that
+    // existed before it (the owner's own sessions).
+    for (const name of listAi1TmuxSessions()) {
+      if (!preexistingTmuxSessions.includes(name)) {
+        execFileSync("tmux", ["kill-session", "-t", name]);
+      }
+    }
     fs.rmSync(configDir, { recursive: true, force: true });
   }
 });
@@ -94,4 +118,32 @@ test("the Agents view lists the fixture session under its repository", async () 
     await group.click();
   }
   await expect(card).toBeVisible();
+});
+
+test("a click on a session card opens its terminal in the center", async () => {
+  await app.page.locator("#ai1-agents .ai1-agents-card", { hasText: "ai1-e2e-session" }).click();
+  const tab = app.page.locator("#theia-main-content-panel .lm-TabBar-tab", {
+    hasText: "OC · ai1-e2e-session",
+  });
+  await expect(tab).toBeVisible();
+  await expect(app.page.locator("#theia-main-content-panel .xterm")).toBeVisible();
+});
+
+test("a second click focuses the same terminal", async () => {
+  await app.page.locator("#ai1-agents .ai1-agents-card", { hasText: "ai1-e2e-session" }).click();
+  await expect(
+    app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "OC · ai1-e2e-session" }),
+  ).toHaveCount(1);
+});
+
+test("a persistent terminal creates a tmux session", async () => {
+  await app.quickCommandPalette.type("New Persistent Terminal");
+  await app.page
+    .locator(".quick-input-widget .monaco-list-row", { hasText: "New Persistent Terminal" })
+    .click();
+  await app.page.locator(".quick-input-widget .monaco-list-row", { hasText: "dirty-repo" }).click();
+  await expect(
+    app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "sh · dirty-repo" }),
+  ).toBeVisible();
+  await expect.poll(() => execFileSync("tmux", ["ls"], { encoding: "utf8" })).toContain("ai1-");
 });
