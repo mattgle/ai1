@@ -31,4 +31,8 @@ describe("buildStyleSheet", () => {
   it("writes the shared rule one time", () => {
     assert.strictEqual(css.split(`.${ICON_BASE_CLASS}::before {`).length - 1, 1);
   });
+
+  it("keeps a space between the icon and the file name", () => {
+    assert.ok(css.includes("padding-right: var(--theia-ui-padding);"));
+  });
 });

@@ -16,6 +16,8 @@ export function buildStyleSheet(
     "  display: inline-block;",
     "  width: 16px;",
     "  height: 16px;",
+    // The same space that Theia's own icon themes keep between the icon and the name.
+    "  padding-right: var(--theia-ui-padding);",
     "  vertical-align: middle;",
     "  background-size: 16px;",
     "  background-position: left center;",
