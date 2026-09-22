@@ -22,12 +22,18 @@ test.beforeAll(async ({ playwright, browser }) => {
   const workspace = new TheiaWorkspace();
   workspace.initialize();
   createMetaRepoFixture(workspace.path);
-  // The Electron main process resolves the workspace path with `fs.realpath`
-  // before it opens the window (`electron-main-application.ts`), so on a
-  // system where the temporary folder is a symlink (`/var` on macOS) the
-  // running app's workspace root is the resolved path, not the raw one.
-  // The session directory must match the resolved root, or the Agents
-  // service filters the session out of every group.
+  // OpenCode stores `location.directory` verbatim, with no resolution of
+  // its own (fact 4a of theia-api-facts-m2.md). The Electron main process,
+  // on its side, resolves the workspace path with `fs.realpath` before it
+  // opens the window (`electron-main-application.ts`), so on a system where
+  // the temporary folder is a symlink (`/var` on macOS) the running app's
+  // workspace root is already the resolved path. This directory must equal
+  // that resolved root, or the Agents service filters the session out of
+  // every group. `AgentsServiceImpl.normalizeRoot`'s own `fs.realpathSync`
+  // call (fix round 1, defect 4) resolves symbolic links on the root's
+  // side of that comparison, for a root a real deployment might hand it
+  // unresolved; it does not touch this session directory, the other side
+  // of the comparison, so this resolution still belongs here.
   const dirtyRepo = path.join(fs.realpathSync(workspace.path), "dirty-repo");
   // The directory of a created session comes from the request body, not a
   // query parameter or the process cwd of the opencode CLI's own server.

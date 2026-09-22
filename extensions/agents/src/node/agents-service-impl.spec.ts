@@ -1,4 +1,8 @@
 import * as assert from "node:assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { pathToFileURL } from "node:url";
 import { AgentsClient, SessionSummary } from "../common/agents-protocol";
 import { AgentsServiceImpl } from "./agents-service-impl";
 import { FakeOpenCodeServer } from "./fake-opencode-server";
@@ -23,6 +27,7 @@ describe("AgentsServiceImpl", () => {
   let server: FakeOpenCodeServer;
   let service: AgentsServiceImpl;
   let client: RecordingClient;
+  let symlinkFixture: { folder: string; link: string } | undefined;
 
   beforeEach(async () => {
     server = new FakeOpenCodeServer();
@@ -65,6 +70,11 @@ describe("AgentsServiceImpl", () => {
     service.setClient(undefined);
     service.dispose();
     await server.stop();
+    if (symlinkFixture) {
+      fs.rmSync(symlinkFixture.link, { force: true });
+      fs.rmSync(symlinkFixture.folder, { recursive: true, force: true });
+      symlinkFixture = undefined;
+    }
   });
 
   it("loads the groups inside the workspace with their status", async () => {
@@ -129,6 +139,31 @@ describe("AgentsServiceImpl", () => {
     const snapshot = await service.load(["file:///m"]);
     assert.ok(!JSON.stringify(snapshot).includes(server.password));
     assert.ok(!JSON.stringify(await service.sessionCommand("ses_a", "/m/alpha")).includes(server.password));
+  });
+
+  it("finds sessions under a workspace root that is a symbolic link", async () => {
+    // A raw temp dir path can itself cross a symbolic link (macOS's `/tmp`
+    // and `/var` are both symlinks), so resolve it once up front and use
+    // that resolved path as the session's directory, matching what a real
+    // OpenCode server would report for a session created there.
+    const folder = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ai1-agents-root-")));
+    const link = path.join(path.dirname(folder), `ai1-agents-link-${Date.now()}`);
+    fs.symlinkSync(folder, link);
+    symlinkFixture = { folder, link };
+    server.sessions = [
+      {
+        id: "ses_link",
+        title: "Linked",
+        directory: folder,
+        model: { id: "m", providerID: "p" },
+        time: { created: 1, updated: 1 },
+      },
+    ];
+    const snapshot = await service.load([pathToFileURL(link).toString()]);
+    assert.deepStrictEqual(
+      snapshot.groups.map((group) => group.sessions.map((s) => s.id)),
+      [["ses_link"]],
+    );
   });
 
   it("gives the interface command line for a session", async () => {

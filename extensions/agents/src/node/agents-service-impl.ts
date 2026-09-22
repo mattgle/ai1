@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { injectable } from "@theia/core/shared/inversify";
 import { AgentsClient, AgentsService, AgentsSnapshot, SessionSummary } from "../common/agents-protocol";
@@ -14,10 +15,19 @@ interface Tracked {
 
 // Strips a trailing slash, so `isInside` and `groupSessions` compare the
 // same value. Keeps "/" for the file-system root, which would otherwise
-// strip to the empty string.
+// strip to the empty string. Resolves the result with the real file system
+// path, so a workspace root reached through a symbolic link (macOS's `/var`
+// is one, and so can a user's own link) compares equal to a session
+// directory, which OpenCode reports already resolved. Falls back to the
+// literal path when it does not exist on disk (the common case in tests).
 function normalizeRoot(root: string): string {
   const stripped = root.replace(/\/+$/, "");
-  return stripped === "" ? "/" : stripped;
+  const literal = stripped === "" ? "/" : stripped;
+  try {
+    return fs.realpathSync(literal);
+  } catch {
+    return literal;
+  }
 }
 
 // Connects to the OpenCode service on the first use. If the service does not

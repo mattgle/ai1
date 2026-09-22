@@ -1,5 +1,5 @@
 import { Command, CommandRegistry, MessageService } from "@theia/core";
-import { AbstractViewContribution, FrontendApplicationContribution } from "@theia/core/lib/browser";
+import { AbstractViewContribution, FrontendApplicationContribution, Widget } from "@theia/core/lib/browser";
 import {
   TabBarToolbarContribution,
   TabBarToolbarRegistry,
@@ -78,11 +78,16 @@ export class AgentsContribution
   }
 
   registerToolbarItems(toolbar: TabBarToolbarRegistry): void {
+    // Without a scope, a toolbar item shows on every widget's toolbar, not
+    // only the Agents view's. The command itself stays unscoped, so it is
+    // still reachable from the command palette on any widget.
+    const isAgentsWidget = (widget?: Widget): boolean => widget instanceof AgentsWidget;
     toolbar.registerItem({
       id: AgentsCommands.REFRESH.id,
       command: AgentsCommands.REFRESH.id,
       tooltip: "Refresh",
       priority: 0,
+      isVisible: isAgentsWidget,
     });
     toolbar.registerItem({
       id: AgentsCommands.NEW_SESSION.id,
@@ -90,6 +95,7 @@ export class AgentsContribution
       tooltip: "New session",
       icon: "codicon codicon-add",
       priority: 1,
+      isVisible: isAgentsWidget,
     });
   }
 

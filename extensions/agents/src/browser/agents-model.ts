@@ -9,6 +9,7 @@ import {
   SessionStatus,
   SessionSummary,
 } from "../common/agents-protocol";
+import { OncePerKey } from "../common/once-per-key";
 import { groupSessions } from "../common/session-groups";
 
 // The front-end copy of the sessions. The back end pushes one card per
@@ -23,6 +24,7 @@ export class AgentsModel implements AgentsClient {
 
   protected readonly sessions = new Map<string, SessionSummary>();
   protected readonly lastMessages = new Map<string, string>();
+  protected readonly lastMessageOnce = new OncePerKey();
   protected readonly onDidChangeEmitter = new Emitter<void>();
   readonly onDidChange: Event<void> = this.onDidChangeEmitter.event;
   readonly onDidChangeStatusEmitter = new Emitter<{
@@ -33,6 +35,8 @@ export class AgentsModel implements AgentsClient {
   readonly openTerminals = new Set<string>();
   connected = false;
   error: string | undefined;
+  protected loading: Promise<void> | undefined;
+  protected loadedOnce = false;
 
   get groups(): SessionGroup[] {
     return groupSessions([...this.sessions.values()]);
@@ -46,7 +50,19 @@ export class AgentsModel implements AgentsClient {
     return [...this.sessions.values()].filter((session) => session.status === status);
   }
 
-  async load(): Promise<void> {
+  // Two overlapping calls (for example the widget's own first load racing
+  // the first `onConnectionChanged(true)`) collapse into the one in-flight
+  // request, so a stale response cannot overwrite a newer one.
+  load(): Promise<void> {
+    if (!this.loading) {
+      this.loading = this.doLoad().finally(() => {
+        this.loading = undefined;
+      });
+    }
+    return this.loading;
+  }
+
+  protected async doLoad(): Promise<void> {
     const roots = await this.workspace.roots;
     let snapshot: AgentsSnapshot;
     try {
@@ -64,6 +80,7 @@ export class AgentsModel implements AgentsClient {
       }
     }
     this.connected = snapshot.connected;
+    this.loadedOnce = true;
     this.onDidChangeEmitter.fire();
   }
 
@@ -71,15 +88,20 @@ export class AgentsModel implements AgentsClient {
     await this.load();
   }
 
+  // A card asks for its last message on every re-render. `lastMessageOnce`
+  // guards the RPC call so a card in flight, or already answered, does not
+  // send it again.
   async ensureLastMessage(id: string): Promise<void> {
     if (this.lastMessages.has(id)) {
       return;
     }
-    const text = await this.service.lastMessage(id).catch(() => undefined);
-    if (text !== undefined) {
-      this.lastMessages.set(id, text);
-      this.onDidChangeEmitter.fire();
-    }
+    this.lastMessageOnce.run(id, async () => {
+      const text = await this.service.lastMessage(id).catch(() => undefined);
+      if (text !== undefined) {
+        this.lastMessages.set(id, text);
+        this.onDidChangeEmitter.fire();
+      }
+    });
   }
 
   onSessionChanged(summary: SessionSummary): void {
@@ -90,6 +112,9 @@ export class AgentsModel implements AgentsClient {
     }
     if (summary.status === "done" || summary.status === "failed") {
       this.lastMessages.delete(summary.id);
+      // The next `ensureLastMessage` call for this id must fetch again: the
+      // cached text (if any) came from before the session finished.
+      this.lastMessageOnce.forget(summary.id);
     }
     this.onDidChangeEmitter.fire();
   }
@@ -97,6 +122,7 @@ export class AgentsModel implements AgentsClient {
   onSessionRemoved(id: string): void {
     this.sessions.delete(id);
     this.lastMessages.delete(id);
+    this.lastMessageOnce.forget(id);
     this.openTerminals.delete(id);
     this.onDidChangeEmitter.fire();
   }
@@ -104,8 +130,12 @@ export class AgentsModel implements AgentsClient {
   onConnectionChanged(connected: boolean): void {
     const wasConnected = this.connected;
     this.connected = connected;
-    if (connected && !wasConnected) {
-      // Events could be lost during the cut. A full load repairs the state.
+    // The widget's own first load already populates the model; only a
+    // reconnect after a cut needs a repair load (events could be lost
+    // during the cut). The reentrancy guard in `load()` would also collapse
+    // a duplicate first-connect load into the widget's own call, but
+    // skipping it here avoids starting it at all.
+    if (connected && !wasConnected && this.loadedOnce) {
       void this.load();
     }
     this.onDidChangeEmitter.fire();
