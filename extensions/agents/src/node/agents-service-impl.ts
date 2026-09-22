@@ -4,7 +4,9 @@ import { injectable } from "@theia/core/shared/inversify";
 import { AgentsClient, AgentsService, AgentsSnapshot, SessionSummary } from "../common/agents-protocol";
 import { groupSessions } from "../common/session-groups";
 import { applyEvent, computeStatus, SessionFacts } from "../common/session-status";
+import { TmuxSession } from "../common/tmux-list";
 import { discoverConnection, ensureService, OpenCodeClient, RawSession } from "./opencode-client";
+import { resolveProgram } from "./resolve-program";
 import { listTmuxSessions, tmuxNewCommand } from "./tmux-runner";
 
 interface Tracked {
@@ -67,10 +69,16 @@ export class AgentsServiceImpl implements AgentsService {
   protected roots: string[] = [];
   protected connect: () => Promise<OpenCodeClient> = connectWithStart;
   protected retry: { retryMs?: number } = {};
+  protected resolvePath: (name: "opencode" | "tmux") => string = resolveProgram;
 
-  init(connect: () => Promise<OpenCodeClient>, retry: { retryMs?: number } = {}): void {
+  init(
+    connect: () => Promise<OpenCodeClient>,
+    retry: { retryMs?: number } = {},
+    resolvePath: (name: "opencode" | "tmux") => string = resolveProgram,
+  ): void {
     this.connect = connect;
     this.retry = retry;
+    this.resolvePath = resolvePath;
   }
 
   setClient(client: AgentsClient | undefined): void {
@@ -145,14 +153,15 @@ export class AgentsServiceImpl implements AgentsService {
   }
 
   async sessionCommand(id: string, directory: string): Promise<{ program: string; args: string[] }> {
-    return { program: "opencode", args: ["--session", id, directory] };
+    return { program: this.resolvePath("opencode"), args: ["--session", id, directory] };
   }
 
-  async tmuxCommand(name: string, directory: string): Promise<{ program: string; args: string[] }> {
-    return tmuxNewCommand(name, directory);
+  async tmuxCommand(name: string, directory?: string): Promise<{ program: string; args: string[] }> {
+    const command = tmuxNewCommand(name, directory);
+    return { ...command, program: this.resolvePath("tmux") };
   }
 
-  tmuxSessions(): Promise<string[]> {
+  tmuxSessions(): Promise<TmuxSession[]> {
     return listTmuxSessions();
   }
 

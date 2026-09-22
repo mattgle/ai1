@@ -59,9 +59,11 @@ describe("AgentsServiceImpl", () => {
     server.active.add("ses_a");
     server.messages.set("ses_b", ["hello", "world"]);
     service = new AgentsServiceImpl();
-    service.init(() => Promise.resolve(new OpenCodeClient({ baseUrl, password: server.password })), {
-      retryMs: 20,
-    });
+    service.init(
+      () => Promise.resolve(new OpenCodeClient({ baseUrl, password: server.password })),
+      { retryMs: 20 },
+      (name) => `/fake/bin/${name}`,
+    );
     client = new RecordingClient();
     service.setClient(client);
   });
@@ -166,11 +168,46 @@ describe("AgentsServiceImpl", () => {
     );
   });
 
-  it("gives the interface command line for a session", async () => {
+  it("gives the interface command line for a session, with the resolved absolute path", async () => {
     assert.deepStrictEqual(await service.sessionCommand("ses_a", "/m/alpha"), {
-      program: "opencode",
+      program: "/fake/bin/opencode",
       args: ["--session", "ses_a", "/m/alpha"],
     });
+  });
+
+  it("rejects sessionCommand with the install message when opencode is not on PATH", async () => {
+    // `sessionCommand` never connects, so the connect factory here is a
+    // stand-in that must not be called.
+    service.init(
+      () => Promise.reject(new Error("not used")),
+      {},
+      () => {
+        throw new Error("OpenCode is not installed. Install it with: brew install opencode");
+      },
+    );
+    await assert.rejects(service.sessionCommand("ses_a", "/m/alpha"), /OpenCode is not installed/);
+  });
+
+  it("gives the tmux command line, with the resolved absolute path, omitting -c with no directory", async () => {
+    assert.deepStrictEqual(await service.tmuxCommand("ai1-1", "/m/alpha"), {
+      program: "/fake/bin/tmux",
+      args: ["new", "-A", "-s", "ai1-1", "-c", "/m/alpha"],
+    });
+    assert.deepStrictEqual(await service.tmuxCommand("ai1-1"), {
+      program: "/fake/bin/tmux",
+      args: ["new", "-A", "-s", "ai1-1"],
+    });
+  });
+
+  it("rejects tmuxCommand with the install message when tmux is not on PATH", async () => {
+    service.init(
+      () => Promise.reject(new Error("not used")),
+      {},
+      () => {
+        throw new Error("tmux is not installed. Install it with: brew install tmux");
+      },
+    );
+    await assert.rejects(service.tmuxCommand("ai1-1", "/m/alpha"), /tmux is not installed/);
   });
 });
 

@@ -49,16 +49,19 @@ const SERVICE_CONFIG = path.join(os.homedir(), ".config", "opencode", "service.j
 const PAGE_SIZE = 100;
 const MAX_SESSION_PAGES = 50;
 
+// The message shown when `program` (its bare name, such as "opencode" or
+// "tmux") cannot be found. Shared with the back end's absolute-path
+// resolution (`resolve-program.ts`), so both paths give the same wording.
+export function notInstalledMessage(program: string): string {
+  return `${program === "opencode" ? "OpenCode" : program} is not installed. Install it with: brew install ${program}`;
+}
+
 // Runs one command and gives its stdout. A failure rejects with the stderr text.
 export function runCommand(program: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(program, args, { encoding: "utf8" }, (error, stdout, stderr) => {
       if (error && (error as NodeJS.ErrnoException).code === "ENOENT") {
-        reject(
-          new Error(
-            `${program === "opencode" ? "OpenCode" : program} is not installed. Install it with: brew install ${program}`,
-          ),
-        );
+        reject(new Error(notInstalledMessage(program)));
       } else if (error) {
         reject(new Error(stderr.trim() || error.message));
       } else {

@@ -8,19 +8,6 @@ import { AgentsModel } from "./agents-model";
 export const SESSION_TERMINAL_KIND = "ai1-session";
 export const SHELL_TERMINAL_KIND = "ai1-tmux";
 
-// A terminal widget execs its shellPath directly: no login shell, no shell
-// profile, and the new process is the pty's own session leader. `opencode`'s
-// interface (and, empirically, `tmux` too) exits at once (code 1, no output)
-// under that direct exec, but runs correctly as an ordinary child of a shell
-// (a plain terminal window, or `script`, both proven to work). `sh -c 'exec
-// "$@"' -- program arg...` runs the real program as `sh`'s child, byte-safe
-// regardless of spaces or shell metacharacters in an argument (`"$@"` keeps
-// each argument a separate word; nothing here is interpolated into the
-// command string).
-function shellWrap(program: string, args: string[]): { program: string; args: string[] } {
-  return { program: "/bin/sh", args: ["-c", 'exec "$@"', "--", program, ...args] };
-}
-
 // Opens and tracks the terminal tabs of sessions and of persistent shells.
 // A session tab runs the OpenCode interface on an existing session. A closed
 // tab loses nothing: the session lives in the service.
@@ -43,8 +30,7 @@ export class AgentsTerminals {
       await this.terminals.open(existing, { mode: "activate" });
       return;
     }
-    const raw = await this.service.sessionCommand(session.id, session.directory);
-    const command = shellWrap(raw.program, raw.args);
+    const command = await this.service.sessionCommand(session.id, session.directory);
     const terminal = await this.terminals.newTerminal({
       title: `OC · ${session.title}`,
       useServerTitle: false,
@@ -57,21 +43,29 @@ export class AgentsTerminals {
       // terminal in the bottom panel, not the center, per
       // `TerminalShellHandler.onWillOpenTerminal` in the installed source.
       location: TerminalLocation.Editor,
+      // The session lives in the service, not in this tab: Theia must never
+      // store or restore it as part of the workbench layout. A restored tab
+      // would try to reconnect to a process id from a previous run, which no
+      // longer exists.
+      isTransient: true,
     });
     this.bySession.set(session.id, terminal);
-    this.model.openTerminals.add(session.id);
-    terminal.onTerminalDidClose(() => this.forget(session.id));
-    terminal.onDidDispose(() => this.forget(session.id));
+    this.model.markTerminalOpen(session.id);
+    terminal.onTerminalDidClose(() => this.forget(session.id, terminal));
+    terminal.onDidDispose(() => this.forget(session.id, terminal));
     await terminal.start();
     await this.terminals.open(terminal, { mode: "activate" });
   }
 
-  // Closes the tabs of the sessions that are not working and not blocked.
+  // Closes the tabs of the sessions that are not working and not blocked. A
+  // session the model does not know (for example one it has not loaded yet)
+  // counts as busy, so its tab stays: closing it would be a guess.
   closeIdle(): number {
     let closed = 0;
+    const known = new Map(this.model.groups.flatMap((group) => group.sessions).map((s) => [s.id, s]));
     for (const [id, terminal] of [...this.bySession]) {
-      const session = this.model.groups.flatMap((group) => group.sessions).find((s) => s.id === id);
-      const busy = session && (session.status === "working" || session.status === "blocked");
+      const session = known.get(id);
+      const busy = !session || session.status === "working" || session.status === "blocked";
       if (!busy) {
         terminal.dispose();
         closed += 1;
@@ -80,24 +74,36 @@ export class AgentsTerminals {
     return closed;
   }
 
+  // Disposes the tab of a session, if one is open. Called after a delete.
+  closeSession(id: string): void {
+    const terminal = this.bySession.get(id);
+    if (terminal && !terminal.isDisposed) {
+      terminal.dispose();
+    }
+  }
+
   async newPersistent(directory: string): Promise<void> {
-    const name = nextTmuxName(await this.service.tmuxSessions());
+    const existing = await this.service.tmuxSessions();
+    const name = nextTmuxName(existing.map((session) => session.name));
     await this.openTmux(name, directory);
   }
 
-  // On start, each existing ai1-* tmux session gets its tab again.
+  // On start, each existing ai1-* tmux session gets its tab again. One
+  // session's failure does not stop the others.
   async reopenPersistent(): Promise<void> {
-    for (const name of await this.service.tmuxSessions()) {
-      await this.openTmux(name, undefined, false);
+    for (const session of await this.service.tmuxSessions()) {
+      try {
+        await this.openTmux(session.name, session.directory, false);
+      } catch (error) {
+        console.warn(
+          `ai1-agents: could not reopen the tmux session '${session.name}': ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     }
   }
 
   protected async openTmux(name: string, directory: string | undefined, activate = true): Promise<void> {
-    const raw = await this.service.tmuxCommand(name, directory ?? "");
-    const rawArgs = directory
-      ? raw.args
-      : raw.args.filter((arg, i, all) => arg !== "-c" && all[i - 1] !== "-c");
-    const command = shellWrap(raw.program, rawArgs);
+    const command = await this.service.tmuxCommand(name, directory);
     const terminal = await this.terminals.newTerminal({
       title: `sh · ${directory ? directory.slice(directory.lastIndexOf("/") + 1) : name}`,
       useServerTitle: false,
@@ -107,13 +113,21 @@ export class AgentsTerminals {
       destroyTermOnClose: true,
       kind: SHELL_TERMINAL_KIND,
       location: TerminalLocation.Editor,
+      // The shell lives in tmux, not in this tab: see the note on
+      // `openSession` above. Reopening asks tmux by name instead.
+      isTransient: true,
     });
     await terminal.start();
     await this.terminals.open(terminal, { mode: activate ? "activate" : "open" });
   }
 
-  protected forget(id: string): void {
-    this.bySession.delete(id);
-    this.model.openTerminals.delete(id);
+  // Only forgets `terminal` if it is still the current tab of `id`: a
+  // reopened session's new terminal must not be dropped by the old one's
+  // delayed close/dispose event.
+  protected forget(id: string, terminal: TerminalWidget): void {
+    if (this.bySession.get(id) === terminal) {
+      this.bySession.delete(id);
+      this.model.markTerminalClosed(id);
+    }
   }
 }

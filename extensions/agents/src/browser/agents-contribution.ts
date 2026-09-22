@@ -80,12 +80,24 @@ export class AgentsContribution
     await this.openView({ reveal: false });
   }
 
+  // The application shell is not attached yet during `onStart`
+  // (`FrontendApplicationContribution.onStart`'s own doc comment), so a
+  // terminal tab cannot be added to it here. `onDidInitializeLayout` runs
+  // once the shell is attached and the layout (restored or default) is
+  // settled.
   async onStart(): Promise<void> {
     const widget = await this.widget;
     widget.onOpenSession = (node) => void this.openSessionTerminal(node);
     widget.onNewSession = (directory) => void this.newSession(directory);
-    widget.onDeleteSession = (node) => void this.deleteSession(node);
-    await this.terminals.reopenPersistent();
+    widget.onDeleteSession = (node) => void this.deleteSession(node.session);
+  }
+
+  onDidInitializeLayout(): void {
+    void this.terminals.reopenPersistent().catch((error) => {
+      console.warn(
+        `ai1-agents: could not reopen persistent terminals: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
   }
 
   override registerCommands(commands: CommandRegistry): void {
@@ -145,17 +157,18 @@ export class AgentsContribution
     }
   }
 
-  protected async deleteSession(node: SessionNode): Promise<void> {
+  protected async deleteSession(session: SessionSummary): Promise<void> {
     const confirmed = await new ConfirmDialog({
       title: "Delete session",
-      msg: `Delete the session '${node.session.title}'? You cannot undo this.`,
+      msg: `Delete the session '${session.title}'? You cannot undo this.`,
       ok: "Delete",
     }).open();
     if (!confirmed) {
       return;
     }
     try {
-      await this.service.deleteSession(node.session.id);
+      await this.service.deleteSession(session.id);
+      this.terminals.closeSession(session.id);
     } catch (error) {
       this.messages.error(`Delete failed: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -163,15 +176,20 @@ export class AgentsContribution
 
   protected async pickAndOpen(): Promise<void> {
     const session = await this.pickSession("Open session");
-    if (session) {
+    if (!session) {
+      return;
+    }
+    try {
       await this.terminals.openSession(session);
+    } catch (error) {
+      this.messages.error(`Open session failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
   protected async pickAndDelete(): Promise<void> {
     const session = await this.pickSession("Delete session");
     if (session) {
-      await this.deleteSession({ session } as SessionNode);
+      await this.deleteSession(session);
     }
   }
 
@@ -188,9 +206,10 @@ export class AgentsContribution
     try {
       await this.terminals.newPersistent(target);
     } catch (error) {
-      this.messages.error(
-        `tmux failed: ${error instanceof Error ? error.message : String(error)}. Install it with: brew install tmux`,
-      );
+      // The back end's own message already carries an install hint when it
+      // applies (see `resolve-program.ts`); showing it as-is avoids saying
+      // "brew install tmux" twice.
+      this.messages.error(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -214,11 +233,18 @@ export class AgentsContribution
         }
       }
     }
+    if (candidates.length === 0) {
+      this.messages.info("No repository in this workspace.");
+      return undefined;
+    }
     const picked = await this.quickPick.show(candidates, { placeholder });
     return picked?.path;
   }
 
   protected async pickSession(placeholder: string): Promise<SessionSummary | undefined> {
+    if (!this.agents.loaded) {
+      await this.agents.load();
+    }
     const items = this.agents.groups.flatMap((group) =>
       group.sessions.map((session) => ({
         label: session.title,

@@ -42,12 +42,30 @@ export class AgentsModel implements AgentsClient {
     return groupSessions([...this.sessions.values()]);
   }
 
+  // Whether the first `load()` has completed at least once.
+  get loaded(): boolean {
+    return this.loadedOnce;
+  }
+
   lastMessageOf(id: string): string | undefined {
     return this.lastMessages.get(id);
   }
 
   sessionsWithStatus(status: SessionStatus): SessionSummary[] {
     return [...this.sessions.values()].filter((session) => session.status === status);
+  }
+
+  // `AgentsTerminals` calls these so the widget's "N terminals open" summary
+  // updates; mutating the `openTerminals` set directly fires no change event.
+  markTerminalOpen(id: string): void {
+    this.openTerminals.add(id);
+    this.onDidChangeEmitter.fire();
+  }
+
+  markTerminalClosed(id: string): void {
+    if (this.openTerminals.delete(id)) {
+      this.onDidChangeEmitter.fire();
+    }
   }
 
   // Two overlapping calls (for example the widget's own first load racing

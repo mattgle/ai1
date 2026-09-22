@@ -75,17 +75,22 @@ test.beforeAll(async ({ playwright, browser }) => {
 test.afterAll(async () => {
   try {
     await app.page.close();
-  } finally {
     if (sessionId) {
       execFileSync("opencode", ["api", "DELETE", `/api/session/${sessionId}`]);
     }
     // Kill only the ai1-* tmux sessions this test made, never one that
-    // existed before it (the owner's own sessions).
+    // existed before it (the owner's own sessions). Each kill is its own
+    // try/catch, so one failure does not stop the rest of the cleanup.
     for (const name of listAi1TmuxSessions()) {
       if (!preexistingTmuxSessions.includes(name)) {
-        execFileSync("tmux", ["kill-session", "-t", name]);
+        try {
+          execFileSync("tmux", ["kill-session", "-t", name]);
+        } catch (error) {
+          console.warn(`could not kill tmux session '${name}':`, error);
+        }
       }
     }
+  } finally {
     fs.rmSync(configDir, { recursive: true, force: true });
   }
 });

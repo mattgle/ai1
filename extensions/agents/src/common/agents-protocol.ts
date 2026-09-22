@@ -1,3 +1,5 @@
+import { TmuxSession } from "./tmux-list";
+
 export const AGENTS_SERVICE_PATH = "/services/ai1-agents";
 
 export const AgentsService = Symbol("AgentsService");
@@ -40,9 +42,11 @@ export interface AgentsService {
   deleteSession(id: string): Promise<void>;
   // The command line of the interface process for a session terminal.
   sessionCommand(id: string, directory: string): Promise<{ program: string; args: string[] }>;
-  // The command line of a new persistent shell, and the list of the ones that exist.
-  tmuxCommand(name: string, directory: string): Promise<{ program: string; args: string[] }>;
-  tmuxSessions(): Promise<string[]>;
+  // The command line of a new persistent shell. `directory` is omitted when
+  // reattaching to an existing session with no particular directory in mind.
+  tmuxCommand(name: string, directory?: string): Promise<{ program: string; args: string[] }>;
+  // The AI1 tmux sessions that exist, with their directory when known.
+  tmuxSessions(): Promise<TmuxSession[]>;
 }
 // The RPC transport sets the client of the back-end service. The interface has
 // no setClient method; the implementation class of Task 3 has one.
