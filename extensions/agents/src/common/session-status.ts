@@ -14,12 +14,20 @@ export interface SessionFacts {
 }
 
 // The event type names come from the OpenCode event stream.
-// The permission names are verified in Task 3.
+// session.execution.started, session.execution.succeeded, and
+// session.execution.interrupted are verified live in Task 3 (a prompt run
+// and an interrupt of a running prompt). session.execution.failed did not
+// occur in a live run (every probe either succeeded or was interrupted);
+// its name stays the plan's best guess, unverified. The permission names
+// did not occur in a live run either (no prompt raised a permission
+// request with the owner's config in the time budget); they stay the
+// plan's names, unverified.
 export const EVENT_EXECUTION_STARTED = "session.execution.started";
 export const EVENT_EXECUTION_SUCCEEDED = "session.execution.succeeded";
-export const EVENT_EXECUTION_FAILED = "session.execution.failed"; // verified in Task 3
-export const EVENT_PERMISSION_REQUESTED = "session.permission.requested"; // verified in Task 3
-export const EVENT_PERMISSION_REPLIED = "session.permission.replied"; // verified in Task 3
+export const EVENT_EXECUTION_INTERRUPTED = "session.execution.interrupted";
+export const EVENT_EXECUTION_FAILED = "session.execution.failed"; // unverified
+export const EVENT_PERMISSION_REQUESTED = "session.permission.requested"; // unverified
+export const EVENT_PERMISSION_REPLIED = "session.permission.replied"; // unverified
 
 // blocked wins over working; working wins over an old outcome.
 export function computeStatus(facts: SessionFacts): SessionStatus {
@@ -44,6 +52,8 @@ export function applyEvent(facts: SessionFacts, type: string): SessionFacts {
       return { ...facts, running: true };
     case EVENT_EXECUTION_SUCCEEDED:
       return { ...facts, running: false, outcome: "succeeded" };
+    case EVENT_EXECUTION_INTERRUPTED:
+      return { ...facts, running: false, outcome: "interrupted" };
     case EVENT_EXECUTION_FAILED:
       return { ...facts, running: false, outcome: "failed" };
     case EVENT_PERMISSION_REQUESTED:

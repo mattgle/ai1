@@ -44,8 +44,10 @@ export class FakeOpenCodeServer {
     await new Promise<void>((resolve) => this.server.close(() => resolve()));
   }
 
+  // The live envelope carries the payload under `data`, with `sessionID`
+  // inside it, not under `properties`.
   pushEvent(type: string, properties: Record<string, unknown>): void {
-    const data = JSON.stringify({ type, properties });
+    const data = JSON.stringify({ type, data: properties });
     for (const stream of this.streams) {
       if (stream.destroyed) {
         continue;
@@ -96,7 +98,10 @@ export class FakeOpenCodeServer {
         return;
       }
       if (this.repeatCursor) {
-        json(200, { data: this.sessions.slice(0, 1).map(toSessionRecord), cursor: "1" });
+        json(200, {
+          data: this.sessions.slice(0, 1).map(toSessionRecord),
+          cursor: { previous: null, next: "1" },
+        });
         return;
       }
       if (this.endlessPages) {
@@ -108,22 +113,27 @@ export class FakeOpenCodeServer {
           model: { id: "m", providerID: "p" },
           time: { created: 0, updated: 0 },
         }));
-        json(200, { data: sessions.map(toSessionRecord), cursor: String(page + 1) });
+        json(200, {
+          data: sessions.map(toSessionRecord),
+          cursor: { previous: null, next: String(page + 1) },
+        });
         return;
       }
       const limit = Number(url.searchParams.get("limit") ?? 100);
       const cursor = Number(url.searchParams.get("cursor") ?? 0);
       const page = this.sessions.slice(cursor, cursor + limit);
-      const next = cursor + limit < this.sessions.length ? String(cursor + limit) : undefined;
-      json(200, { data: page.map(toSessionRecord), cursor: next });
+      const next = cursor + limit < this.sessions.length ? String(cursor + limit) : null;
+      json(200, { data: page.map(toSessionRecord), cursor: { previous: null, next } });
       return;
     }
     if (method === "POST" && url.pathname === "/api/session") {
-      const input = JSON.parse(body || "{}") as { title?: string };
+      // The live service reads the directory from the body's
+      // `location.directory`, not from a `?directory=` query parameter.
+      const input = JSON.parse(body || "{}") as { title?: string; location?: { directory?: string } };
       const session: FakeSession = {
         id: `ses_${this.sessions.length + 1}`,
         title: input.title ?? "New session",
-        directory: url.searchParams.get("directory") ?? "/m/alpha",
+        directory: input.location?.directory ?? "/m/alpha",
         model: { id: "m", providerID: "p" },
         time: { created: 1, updated: 1 },
       };
@@ -147,16 +157,18 @@ export class FakeOpenCodeServer {
         return;
       }
       if (method === "GET" && parts[3] === "message") {
+        // The live message list has no `total`; a client counts by paging.
+        // Each entry's role is its own `type`, not `info.role`; a user
+        // entry carries `text` directly, an assistant entry carries its
+        // text in `content`.
         const texts = this.messages.get(id) ?? [];
-        const limit = Number(url.searchParams.get("limit") ?? texts.length);
-        const ordered = url.searchParams.get("order") === "desc" ? [...texts].reverse() : texts;
-        json(200, {
-          data: ordered.slice(0, limit).map((text, index) => ({
-            info: { id: `msg_${index}`, role: index % 2 === 0 ? "user" : "assistant" },
-            parts: [{ type: "text", text }],
-          })),
-          total: texts.length,
-        });
+        const records = texts.map((text, index) => toMessageRecord(text, index));
+        const ordered = url.searchParams.get("order") === "desc" ? [...records].reverse() : records;
+        const limit = Number(url.searchParams.get("limit") ?? ordered.length);
+        const offset = Number(url.searchParams.get("cursor") ?? 0);
+        const page = ordered.slice(offset, offset + limit);
+        const next = offset + limit < ordered.length ? String(offset + limit) : null;
+        json(200, { data: page, cursor: { previous: null, next } });
         return;
       }
     }
@@ -169,4 +181,15 @@ export class FakeOpenCodeServer {
 function toSessionRecord(session: FakeSession): unknown {
   const { directory, ...rest } = session;
   return { ...rest, location: { directory } };
+}
+
+// Maps one stored message text to the live message record shape. The
+// index picks the role, alternating user, assistant, user, ...
+function toMessageRecord(text: string, index: number): unknown {
+  const id = `msg_${index}`;
+  const time = { created: index };
+  if (index % 2 === 0) {
+    return { id, time, type: "user", text };
+  }
+  return { id, time, type: "assistant", content: [{ type: "text", text }] };
 }

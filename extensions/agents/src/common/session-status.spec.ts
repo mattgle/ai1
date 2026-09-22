@@ -48,6 +48,11 @@ describe("applyEvent", () => {
       running: false,
       outcome: "failed",
     });
+    assert.deepStrictEqual(applyEvent(running, "session.execution.interrupted"), {
+      ...base,
+      running: false,
+      outcome: "interrupted",
+    });
   });
 
   it("sets and clears the pending permission", () => {

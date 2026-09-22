@@ -28,9 +28,19 @@ interface SessionRecord {
   outcome?: RawSession["outcome"];
 }
 
+// A message list entry. The role lives in `type` directly, not under
+// `info.role`. A user entry carries its text directly in `text`; an
+// assistant entry carries its text blocks in `content`. Verified in Task 3.
 interface MessageRecord {
-  info?: { role?: string };
-  parts?: { type?: string; text?: string }[];
+  type?: string;
+  text?: string;
+  content?: { type?: string; text?: string }[];
+}
+
+// The opaque pagination cursor of a list response. Verified in Task 3: it
+// is an object with `next`, not a plain string.
+interface PageCursor {
+  next?: string | null;
 }
 
 export type EventHandler = (type: string, properties: Record<string, unknown>) => void;
@@ -95,15 +105,16 @@ export class OpenCodeClient {
       if (cursor) {
         query.set("cursor", cursor);
       }
-      const page = await this.get<{ data: SessionRecord[]; cursor?: string }>(`/api/session?${query}`);
+      const page = await this.get<{ data: SessionRecord[]; cursor?: PageCursor }>(`/api/session?${query}`);
       if (page.data.length === 0) {
         return all;
       }
       all.push(...page.data.map(toRawSession));
-      if (!page.cursor || page.cursor === cursor) {
+      const next = page.cursor?.next ?? undefined;
+      if (!next || next === cursor) {
         return all;
       }
-      cursor = page.cursor;
+      cursor = next;
     }
     console.warn(
       `ai1-agents: the session list stopped after ${MAX_SESSION_PAGES} pages; older sessions are not shown.`,
@@ -123,25 +134,42 @@ export class OpenCodeClient {
 
   async lastMessageText(id: string): Promise<string | undefined> {
     const page = await this.get<{ data: MessageRecord[] }>(`/api/session/${id}/message?limit=1&order=desc`);
-    const parts = page.data[0]?.parts ?? [];
-    const text = parts.find((part) => part.type === "text" && part.text)?.text;
-    return text;
+    return textOf(page.data[0]);
   }
 
+  // The message list has no `total`; count by paging with limit=100.
   async messageCount(id: string): Promise<number> {
-    const page = await this.get<{ data: MessageRecord[]; total?: number }>(
-      `/api/session/${id}/message?limit=1`,
-    );
-    return page.total ?? page.data.length;
+    let count = 0;
+    let cursor: string | undefined;
+    for (let pages = 0; pages < MAX_SESSION_PAGES; pages += 1) {
+      const query = new URLSearchParams({ limit: String(PAGE_SIZE) });
+      if (cursor) {
+        query.set("cursor", cursor);
+      }
+      const page = await this.get<{ data: MessageRecord[]; cursor?: PageCursor }>(
+        `/api/session/${id}/message?${query}`,
+      );
+      count += page.data.length;
+      const next = page.cursor?.next ?? undefined;
+      if (page.data.length === 0 || !next || next === cursor) {
+        return count;
+      }
+      cursor = next;
+    }
+    return count;
   }
 
+  // The session location is a body field, `location.directory`; a
+  // `?directory=` query parameter is ignored by the live service.
   async createSession(title?: string, directory?: string): Promise<RawSession> {
-    const query = directory ? `?${new URLSearchParams({ directory })}` : "";
-    const created = await this.request<{ data: SessionRecord }>(
-      "POST",
-      `/api/session${query}`,
-      title ? { title } : {},
-    );
+    const body: { title?: string; location?: { directory: string } } = {};
+    if (title) {
+      body.title = title;
+    }
+    if (directory) {
+      body.location = { directory };
+    }
+    const created = await this.request<{ data: SessionRecord }>("POST", "/api/session", body);
     return toRawSession(created.data);
   }
 
@@ -166,9 +194,12 @@ export class OpenCodeClient {
       }
       const parser = new SseParser((event) => {
         try {
-          const parsed = JSON.parse(event.data) as { type?: string; properties?: Record<string, unknown> };
+          // The envelope carries the event payload under `data`, not
+          // `properties`, and `sessionID` lives inside that `data` object.
+          // Verified live in Task 3.
+          const parsed = JSON.parse(event.data) as { type?: string; data?: Record<string, unknown> };
           if (parsed.type) {
-            onEvent(parsed.type, parsed.properties ?? {});
+            onEvent(parsed.type, parsed.data ?? {});
           }
         } catch {
           // A line that is not JSON is a keep-alive; nothing to do.
@@ -281,4 +312,24 @@ function toRawSession(record: SessionRecord): RawSession {
     time: { created: record.time?.created ?? 0, updated: record.time?.updated ?? 0 },
     outcome: record.outcome,
   };
+}
+
+// A user entry carries its text directly; an assistant entry carries its
+// text in the last text block of `content`.
+function textOf(record: MessageRecord | undefined): string | undefined {
+  if (!record) {
+    return undefined;
+  }
+  if (record.type === "user") {
+    return record.text;
+  }
+  if (record.type === "assistant") {
+    const blocks = record.content ?? [];
+    for (let i = blocks.length - 1; i >= 0; i -= 1) {
+      if (blocks[i].type === "text" && blocks[i].text) {
+        return blocks[i].text;
+      }
+    }
+  }
+  return undefined;
 }
