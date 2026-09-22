@@ -94,6 +94,37 @@ describe("OpenCodeClient", () => {
   it("rejects when the opencode binary is missing", async () => {
     await assert.rejects(runCommand("ai1-no-such-program", []), /is not installed/);
   });
+
+  it("ignores a response that arrives after dispose", async () => {
+    const seen: string[] = [];
+    const states: boolean[] = [];
+    const subscription = client.subscribe(
+      (type) => seen.push(type),
+      (connected) => states.push(connected),
+      { retryMs: 20 },
+    );
+    await until(() => states.includes(true));
+    subscription.dispose();
+    const seenBefore = seen.length;
+    const statesBefore = states.length;
+    server.dropStreams();
+    server.pushEvent("session.execution.started", { sessionID: "ses_a" });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.strictEqual(seen.length, seenBefore);
+    assert.strictEqual(states.length, statesBefore);
+  });
+
+  it("rejects with a clear message when the body is not JSON", async () => {
+    server.brokenSessionBody = true;
+    await assert.rejects(client.listSessions(), /not JSON/);
+  });
+
+  it("stops listing sessions when the server repeats the cursor", async () => {
+    server.repeatCursor = true;
+    const sessions = await client.listSessions();
+    assert.ok(sessions.length > 0);
+    assert.ok(server.requests.filter((r) => r === "GET /api/session").length <= 50);
+  });
 });
 
 async function until(condition: () => boolean, timeoutMs = 3000): Promise<void> {

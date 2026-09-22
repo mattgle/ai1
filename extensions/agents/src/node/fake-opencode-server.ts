@@ -20,6 +20,8 @@ export class FakeOpenCodeServer {
   pending = new Set<string>();
   messages = new Map<string, string[]>();
   requests: string[] = [];
+  brokenSessionBody = false;
+  repeatCursor = false;
   private readonly server: http.Server;
   private readonly streams = new Set<http.ServerResponse>();
 
@@ -44,7 +46,14 @@ export class FakeOpenCodeServer {
   pushEvent(type: string, properties: Record<string, unknown>): void {
     const data = JSON.stringify({ type, properties });
     for (const stream of this.streams) {
-      stream.write(`data: ${data}\n\n`);
+      if (stream.destroyed) {
+        continue;
+      }
+      try {
+        stream.write(`data: ${data}\n\n`);
+      } catch {
+        // The socket closed between the read of `streams` and the write.
+      }
     }
   }
 
@@ -81,6 +90,14 @@ export class FakeOpenCodeServer {
     };
     const parts = url.pathname.split("/").filter(Boolean);
     if (method === "GET" && url.pathname === "/api/session") {
+      if (this.brokenSessionBody) {
+        response.writeHead(200, { "content-type": "application/json" }).end("not json");
+        return;
+      }
+      if (this.repeatCursor) {
+        json(200, { data: this.sessions.slice(0, 1).map(toSessionRecord), cursor: "1" });
+        return;
+      }
       const limit = Number(url.searchParams.get("limit") ?? 100);
       const cursor = Number(url.searchParams.get("cursor") ?? 0);
       const page = this.sessions.slice(cursor, cursor + limit);

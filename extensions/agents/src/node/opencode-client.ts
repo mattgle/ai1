@@ -37,6 +37,7 @@ export type EventHandler = (type: string, properties: Record<string, unknown>) =
 
 const SERVICE_CONFIG = path.join(os.homedir(), ".config", "opencode", "service.json");
 const PAGE_SIZE = 100;
+const MAX_SESSION_PAGES = 50;
 
 // Runs one command and gives its stdout. A failure rejects with the stderr text.
 export function runCommand(program: string, args: string[]): Promise<string> {
@@ -60,7 +61,10 @@ export function runCommand(program: string, args: string[]): Promise<string> {
 // Reads the service URL and the password. The password stays in this process.
 export async function discoverConnection(): Promise<Connection> {
   const status = (await runCommand("opencode", ["service", "status"])).trim();
-  const baseUrl = status.split("\n").find((line) => line.startsWith("http"));
+  const baseUrl = status
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line.startsWith("http"));
   if (!baseUrl) {
     throw new Error(`The OpenCode service does not run. Output: ${status}`);
   }
@@ -86,15 +90,21 @@ export class OpenCodeClient {
   async listSessions(): Promise<RawSession[]> {
     const all: RawSession[] = [];
     let cursor: string | undefined;
-    do {
+    for (let pages = 0; pages < MAX_SESSION_PAGES; pages += 1) {
       const query = new URLSearchParams({ limit: String(PAGE_SIZE), order: "desc" });
       if (cursor) {
         query.set("cursor", cursor);
       }
       const page = await this.get<{ data: SessionRecord[]; cursor?: string }>(`/api/session?${query}`);
+      if (page.data.length === 0) {
+        break;
+      }
       all.push(...page.data.map(toRawSession));
+      if (!page.cursor || page.cursor === cursor) {
+        break;
+      }
       cursor = page.cursor;
-    } while (cursor);
+    }
     return all;
   }
 
@@ -162,6 +172,10 @@ export class OpenCodeClient {
         }
       });
       request = http.get(this.url("/api/event"), { headers: this.headers() }, (response) => {
+        if (disposed) {
+          response.resume();
+          return;
+        }
         if (response.statusCode !== 200) {
           response.resume();
           retry();
@@ -170,7 +184,12 @@ export class OpenCodeClient {
         wait = options.retryMs ?? 1000;
         onState(true);
         response.setEncoding("utf8");
-        response.on("data", (chunk: string) => parser.push(chunk));
+        response.on("data", (chunk: string) => {
+          if (disposed) {
+            return;
+          }
+          parser.push(chunk);
+        });
         response.on("end", retry);
         response.on("error", retry);
       });
@@ -222,8 +241,16 @@ export class OpenCodeClient {
             reject(
               new Error(`OpenCode ${method} ${route} gave ${response.statusCode}: ${text.slice(0, 200)}`),
             );
+          } else if (!text) {
+            resolve(undefined as T);
           } else {
-            resolve((text ? JSON.parse(text) : undefined) as T);
+            try {
+              resolve(JSON.parse(text) as T);
+            } catch {
+              reject(
+                new Error(`OpenCode ${method} ${route} gave a body that is not JSON: ${text.slice(0, 100)}`),
+              );
+            }
           }
         });
       });
