@@ -26,6 +26,7 @@
     "@theia/terminal": "1.75.0",
     "@theia/vsx-registry": "1.75.0",
     "@theia/workspace": "1.75.0",
+    "ai1-agents": "0.1.0",
     "ai1-changes-view": "0.1.0",
     "ai1-material-icons": "0.1.0",
     "ai1-shell-layout": "0.1.0"
