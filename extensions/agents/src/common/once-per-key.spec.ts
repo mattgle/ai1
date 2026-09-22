@@ -46,6 +46,21 @@ describe("OncePerKey", () => {
     assert.strictEqual(calls, 1);
   });
 
+  it("does not keep the key done after the task fails, so a later call runs it again", async () => {
+    const once = new OncePerKey();
+    let calls = 0;
+    once.run("a", async () => {
+      calls += 1;
+      throw new Error("the request failed");
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const later = once.run("a", async () => {
+      calls += 1;
+    });
+    assert.strictEqual(later, true);
+    assert.strictEqual(calls, 2);
+  });
+
   it("forgets a key, so a later call runs the task again", async () => {
     const once = new OncePerKey();
     let calls = 0;

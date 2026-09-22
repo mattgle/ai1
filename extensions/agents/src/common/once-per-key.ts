@@ -1,6 +1,8 @@
 // Runs an async task at most one time per key: a second call while the task
-// is in flight, or after it has settled, does nothing. `forget` re-arms a
-// key, for a caller that has its own reason to want the task to run again.
+// is in flight, or after it has succeeded, does nothing. A task that fails
+// does not keep its key, so a later call tries again; the error is dropped.
+// `forget` re-arms a key, for a caller that has its own reason to want the
+// task to run again.
 export class OncePerKey {
   protected readonly inFlight = new Set<string>();
   protected readonly done = new Set<string>();
@@ -10,10 +12,16 @@ export class OncePerKey {
       return false;
     }
     this.inFlight.add(key);
-    void task().finally(() => {
-      this.inFlight.delete(key);
-      this.done.add(key);
-    });
+    void task()
+      .then(
+        () => {
+          this.done.add(key);
+        },
+        () => undefined,
+      )
+      .finally(() => {
+        this.inFlight.delete(key);
+      });
     return true;
   }
 

@@ -96,7 +96,9 @@ export class AgentsModel implements AgentsClient {
       return;
     }
     this.lastMessageOnce.run(id, async () => {
-      const text = await this.service.lastMessage(id).catch(() => undefined);
+      // A failed request rejects, so `lastMessageOnce` lets a later
+      // re-render try again.
+      const text = await this.service.lastMessage(id);
       if (text !== undefined) {
         this.lastMessages.set(id, text);
         this.onDidChangeEmitter.fire();
