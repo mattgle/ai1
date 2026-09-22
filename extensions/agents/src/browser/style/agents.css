@@ -1,0 +1,79 @@
+.ai1-agents .ai1-agents-summary {
+  padding: 4px var(--theia-ui-padding);
+  color: var(--theia-descriptionForeground);
+  font-size: var(--theia-ui-font-size0);
+}
+.ai1-agents .ai1-agents-caption {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.ai1-agents .ai1-agents-group {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 6px;
+}
+.ai1-agents .ai1-agents-name {
+  font-weight: 600;
+}
+.ai1-agents .ai1-agents-description,
+.ai1-agents .ai1-agents-last,
+.ai1-agents .ai1-agents-meta {
+  color: var(--theia-descriptionForeground);
+  font-size: var(--theia-ui-font-size0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ai1-agents .ai1-agents-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ai1-agents .theia-TreeNode {
+  height: auto;
+  align-items: flex-start;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+.ai1-agents .ai1-agents-status {
+  margin-top: 2px;
+  margin-right: var(--theia-ui-padding);
+}
+.ai1-agents .ai1-agents-status-working {
+  color: var(--theia-progressBar-background);
+}
+.ai1-agents .ai1-agents-status-blocked {
+  color: var(--theia-editorWarning-foreground);
+}
+.ai1-agents .ai1-agents-status-done {
+  color: var(--theia-testing-iconPassed);
+}
+.ai1-agents .ai1-agents-status-failed {
+  color: var(--theia-editorError-foreground);
+}
+.ai1-agents .ai1-agents-tail {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.ai1-agents .ai1-agents-action {
+  visibility: hidden;
+  cursor: pointer;
+}
+.ai1-agents .theia-TreeNode:hover .ai1-agents-action {
+  visibility: visible;
+}
+.ai1-agents .ai1-agents-badge {
+  background: var(--theia-badge-background);
+  color: var(--theia-badge-foreground);
+  border-radius: 10px;
+  padding: 0 6px;
+  font-size: var(--theia-ui-font-size0);
+}
+.ai1-agents .ai1-agents-error {
+  color: var(--theia-editorError-foreground);
+  white-space: pre-wrap;
+}
