@@ -12,6 +12,14 @@ interface Tracked {
   messageCount: number;
 }
 
+// Strips a trailing slash, so `isInside` and `groupSessions` compare the
+// same value. Keeps "/" for the file-system root, which would otherwise
+// strip to the empty string.
+function normalizeRoot(root: string): string {
+  const stripped = root.replace(/\/+$/, "");
+  return stripped === "" ? "/" : stripped;
+}
+
 // Connects to the OpenCode service on the first use. If the service does not
 // run, starts it one time and waits up to 10 seconds.
 async function connectWithStart(): Promise<OpenCodeClient> {
@@ -65,7 +73,7 @@ export class AgentsServiceImpl implements AgentsService {
   }
 
   async load(workspaceRootUris: string[]): Promise<AgentsSnapshot> {
-    this.roots = workspaceRootUris.map((uri) => fileURLToPath(uri));
+    this.roots = workspaceRootUris.map((uri) => normalizeRoot(fileURLToPath(uri)));
     const api = await this.apiClient();
     const [sessions, active, pending] = await Promise.all([
       api.listSessions(),

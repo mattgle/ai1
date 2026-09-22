@@ -79,6 +79,17 @@ describe("AgentsServiceImpl", () => {
     assert.strictEqual(snapshot.groups[0].sessions[0].messageCount, 2);
   });
 
+  it("gives the same groups for a workspace root with a trailing slash", async () => {
+    const snapshot = await service.load(["file:///m/"]);
+    assert.deepStrictEqual(
+      snapshot.groups.map((group) => [group.name, group.sessions.map((s) => `${s.id}:${s.status}`)]),
+      [
+        ["beta", ["ses_b:done"]],
+        ["alpha", ["ses_a:working"]],
+      ],
+    );
+  });
+
   it("gives the last message on demand", async () => {
     await service.load(["file:///m"]);
     assert.strictEqual(await service.lastMessage("ses_b"), "world");
@@ -89,6 +100,10 @@ describe("AgentsServiceImpl", () => {
     await until(() => client.connection.includes(true));
     server.pushEvent("session.execution.started", { sessionID: "ses_b" });
     await until(() => client.changed.some((s) => s.id === "ses_b" && s.status === "working"));
+    const cardsAfterStart = client.changed.filter((s) => s.id === "ses_b").length;
+    server.pushEvent("session.step.streamed", { sessionID: "ses_b" });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.strictEqual(client.changed.filter((s) => s.id === "ses_b").length, cardsAfterStart);
     server.pushEvent("session.execution.succeeded", { sessionID: "ses_b" });
     await until(() => client.changed.some((s) => s.id === "ses_b" && s.status === "done"));
   });
