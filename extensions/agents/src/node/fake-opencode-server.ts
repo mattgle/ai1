@@ -22,6 +22,7 @@ export class FakeOpenCodeServer {
   requests: string[] = [];
   brokenSessionBody = false;
   repeatCursor = false;
+  endlessPages = false;
   private readonly server: http.Server;
   private readonly streams = new Set<http.ServerResponse>();
 
@@ -96,6 +97,18 @@ export class FakeOpenCodeServer {
       }
       if (this.repeatCursor) {
         json(200, { data: this.sessions.slice(0, 1).map(toSessionRecord), cursor: "1" });
+        return;
+      }
+      if (this.endlessPages) {
+        const page = Number(url.searchParams.get("cursor") ?? 0);
+        const sessions = Array.from({ length: 100 }, (_, i) => ({
+          id: `endless_${page}_${i}`,
+          title: `Endless ${page}_${i}`,
+          directory: "/m/alpha",
+          model: { id: "m", providerID: "p" },
+          time: { created: 0, updated: 0 },
+        }));
+        json(200, { data: sessions.map(toSessionRecord), cursor: String(page + 1) });
         return;
       }
       const limit = Number(url.searchParams.get("limit") ?? 100);

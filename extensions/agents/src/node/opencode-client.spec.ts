@@ -125,6 +125,23 @@ describe("OpenCodeClient", () => {
     assert.ok(sessions.length > 0);
     assert.ok(server.requests.filter((r) => r === "GET /api/session").length <= 50);
   });
+
+  it("warns once when the session list reaches its page cap", async () => {
+    server.endlessPages = true;
+    const calls: unknown[][] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      calls.push(args);
+    };
+    try {
+      const sessions = await client.listSessions();
+      assert.strictEqual(sessions.length, 5000);
+      assert.strictEqual(calls.length, 1);
+      assert.ok(String(calls[0][0]).includes("50 pages"));
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
 });
 
 async function until(condition: () => boolean, timeoutMs = 3000): Promise<void> {

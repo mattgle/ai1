@@ -97,14 +97,17 @@ export class OpenCodeClient {
       }
       const page = await this.get<{ data: SessionRecord[]; cursor?: string }>(`/api/session?${query}`);
       if (page.data.length === 0) {
-        break;
+        return all;
       }
       all.push(...page.data.map(toRawSession));
       if (!page.cursor || page.cursor === cursor) {
-        break;
+        return all;
       }
       cursor = page.cursor;
     }
+    console.warn(
+      `ai1-agents: the session list stopped after ${MAX_SESSION_PAGES} pages; older sessions are not shown.`,
+    );
     return all;
   }
 
