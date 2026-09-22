@@ -1,0 +1,17 @@
+node_modules
+.browser_modules
+lib
+dist
+src-gen
+gen-webpack.config.js
+gen-webpack.node.config.js
+applications/electron/esbuild.mjs
+applications/electron/gen-esbuild.*.mjs
+*.log
+*.tsbuildinfo
+.DS_Store
+applications/electron/plugins
+applications/electron/resources/material-icons
+applications/electron/webpack.config.js
+e2e/test-results
+e2e/playwright-report

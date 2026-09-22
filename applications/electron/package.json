@@ -1,0 +1,70 @@
+{
+  "private": true,
+  "name": "ai1-electron",
+  "productName": "AI1",
+  "version": "0.1.0",
+  "description": "AI1 desktop application",
+  "main": "scripts/ai1-electron-main.js",
+  "dependencies": {
+    "@theia/core": "1.75.0",
+    "@theia/editor": "1.75.0",
+    "@theia/electron": "1.75.0",
+    "@theia/file-search": "1.75.0",
+    "@theia/filesystem": "1.75.0",
+    "@theia/keymaps": "1.75.0",
+    "@theia/markers": "1.75.0",
+    "@theia/messages": "1.75.0",
+    "@theia/monaco": "1.75.0",
+    "@theia/navigator": "1.75.0",
+    "@theia/outline-view": "1.75.0",
+    "@theia/plugin-ext": "1.75.0",
+    "@theia/plugin-ext-vscode": "1.75.0",
+    "@theia/preferences": "1.75.0",
+    "@theia/process": "1.75.0",
+    "@theia/scm": "1.75.0",
+    "@theia/search-in-workspace": "1.75.0",
+    "@theia/terminal": "1.75.0",
+    "@theia/vsx-registry": "1.75.0",
+    "@theia/workspace": "1.75.0",
+    "ai1-changes-view": "0.1.0",
+    "ai1-material-icons": "0.1.0",
+    "ai1-shell-layout": "0.1.0"
+  },
+  "devDependencies": {
+    "@theia/cli": "1.75.0",
+    "electron": "42.8.1",
+    "electron-builder": "26.0.0"
+  },
+  "scripts": {
+    "rebuild": "theia rebuild:electron --cacheRoot ../..",
+    "copy:icons": "node scripts/copy-material-icons.mjs",
+    "build": "npm run copy:icons && npm run rebuild && theia build --mode development",
+    "build:production": "npm run copy:icons && npm run rebuild && theia build --mode production",
+    "start": "theia start",
+    "watch": "npm run rebuild && theia build --watch --mode development"
+  },
+  "theia": {
+    "target": "electron",
+    "frontend": {
+      "config": {
+        "applicationName": "AI1",
+        "defaultTheme": "dark",
+        "defaultIconTheme": "material-icon-theme",
+        "preferences": {
+          "editor.formatOnSave": true,
+          "editor.defaultFormatter": "dbaeumer.vscode-eslint",
+          "eslint.format.enable": true,
+          "editor.codeActionsOnSave": {
+            "source.fixAll.eslint": true
+          },
+          "editor.tabSize": 2,
+          "editor.minimap.enabled": false,
+          "editor.stickyScroll.enabled": true,
+          "editor.enablePreview": false,
+          "diffEditor.ignoreTrimWhitespace": false,
+          "security.workspace.trust.enabled": false
+        }
+      }
+    }
+  }
+}

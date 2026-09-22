@@ -1,0 +1,54 @@
+{
+  "private": true,
+  "name": "ai1",
+  "version": "0.1.0",
+  "description": "AI1 (All In 1): a personal IDE for work with coding agents across a meta-repo",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "extensions/*",
+    "applications/*",
+    "e2e"
+  ],
+  "scripts": {
+    "postinstall": "theia check:theia-version",
+    "download:plugins": "theia download:plugins",
+    "build": "npm run build --workspaces --if-present",
+    "build:production": "npm run build --workspace extensions/material-icons && npm run build --workspace extensions/changes-view && npm run build --workspace extensions/shell-layout && npm run build:production --workspace applications/electron",
+    "start": "npm start --workspace applications/electron",
+    "lint": "eslint .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm test --workspaces --if-present",
+    "test:e2e": "npm run test:e2e --workspace e2e",
+    "format": "prettier --write \"**/*.{ts,js,mjs,json,md,yml}\"",
+    "format:check": "prettier --check \"**/*.{ts,js,mjs,json,md,yml}\""
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@theia/cli": "1.75.0",
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^9.0.0",
+    "prettier": "^3.0.0",
+    "typescript": "~5.4.5",
+    "typescript-eslint": "^8.0.0"
+  },
+  "theiaPluginsDir": "applications/electron/plugins",
+  "theiaPlugins": {
+    "vscode.typescript": "https://open-vsx.org/api/vscode/typescript/1.95.3/file/vscode.typescript-1.95.3.vsix",
+    "vscode.typescript-language-features": "https://open-vsx.org/api/vscode/typescript-language-features/1.95.3/file/vscode.typescript-language-features-1.95.3.vsix",
+    "vscode.javascript": "https://open-vsx.org/api/vscode/javascript/1.95.3/file/vscode.javascript-1.95.3.vsix",
+    "vscode.json": "https://open-vsx.org/api/vscode/json/1.95.3/file/vscode.json-1.95.3.vsix",
+    "vscode.json-language-features": "https://open-vsx.org/api/vscode/json-language-features/1.95.3/file/vscode.json-language-features-1.95.3.vsix",
+    "vscode.css": "https://open-vsx.org/api/vscode/css/1.95.3/file/vscode.css-1.95.3.vsix",
+    "vscode.css-language-features": "https://open-vsx.org/api/vscode/css-language-features/1.95.3/file/vscode.css-language-features-1.95.3.vsix",
+    "vscode.html": "https://open-vsx.org/api/vscode/html/1.95.3/file/vscode.html-1.95.3.vsix",
+    "vscode.html-language-features": "https://open-vsx.org/api/vscode/html-language-features/1.95.3/file/vscode.html-language-features-1.95.3.vsix",
+    "vscode.markdown": "https://open-vsx.org/api/vscode/markdown/1.95.3/file/vscode.markdown-1.95.3.vsix",
+    "vscode.markdown-language-features": "https://open-vsx.org/api/vscode/markdown-language-features/1.95.3/file/vscode.markdown-language-features-1.95.3.vsix",
+    "vscode.git-base": "https://open-vsx.org/api/vscode/git-base/1.95.3/file/vscode.git-base-1.95.3.vsix",
+    "vscode.git": "https://open-vsx.org/api/vscode/git/1.95.3/file/vscode.git-1.95.3.vsix",
+    "vscode.theme-defaults": "https://open-vsx.org/api/vscode/theme-defaults/1.95.3/file/vscode.theme-defaults-1.95.3.vsix",
+    "dbaeumer.vscode-eslint": "https://open-vsx.org/api/dbaeumer/vscode-eslint/3.0.34/file/dbaeumer.vscode-eslint-3.0.34.vsix"
+  }
+}
