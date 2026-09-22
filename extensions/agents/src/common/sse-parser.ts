@@ -12,7 +12,7 @@ export class SseParser {
   constructor(private readonly onEvent: (event: SseEvent) => void) {}
 
   push(chunk: string): void {
-    this.buffer += chunk.replace(/\r\n/g, "\n");
+    this.buffer = (this.buffer + chunk).replace(/\r\n/g, "\n");
     let end = this.buffer.indexOf("\n\n");
     while (end >= 0) {
       const block = this.buffer.slice(0, end);

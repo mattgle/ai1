@@ -4,6 +4,7 @@ export const AI1_TMUX_PREFIX = "ai1-";
 export function parseTmuxList(output: string): string[] {
   return output
     .split("\n")
+    .filter((line) => line.indexOf(":") >= 0)
     .map((line) => line.slice(0, line.indexOf(":")))
     .filter((name) => name.startsWith(AI1_TMUX_PREFIX));
 }

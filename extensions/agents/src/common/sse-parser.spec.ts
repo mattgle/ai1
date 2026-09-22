@@ -35,4 +35,12 @@ describe("SseParser", () => {
     parser.push("data: x\r\n\r\n");
     assert.strictEqual(events[0].data, "x");
   });
+
+  it("joins a CRLF that arrives split across two chunks", () => {
+    const events: { event: string; data: string }[] = [];
+    const parser = new SseParser((event) => events.push(event));
+    parser.push("data: x\r");
+    parser.push("\n\r\n");
+    assert.deepStrictEqual(events, [{ event: "message", data: "x" }]);
+  });
 });

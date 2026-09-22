@@ -1,0 +1,254 @@
+import { execFile } from "node:child_process";
+import * as fs from "node:fs";
+import * as http from "node:http";
+import * as os from "node:os";
+import * as path from "node:path";
+import { SseParser } from "../common/sse-parser";
+
+export interface Connection {
+  baseUrl: string;
+  password: string;
+}
+
+export interface RawSession {
+  id: string;
+  title: string;
+  directory: string;
+  model: { id: string; providerID: string };
+  time: { created: number; updated: number };
+  outcome?: "succeeded" | "failed" | "interrupted";
+}
+
+interface SessionRecord {
+  id: string;
+  title?: string;
+  location?: { directory?: string };
+  model?: { id?: string; providerID?: string };
+  time?: { created?: number; updated?: number };
+  outcome?: RawSession["outcome"];
+}
+
+interface MessageRecord {
+  info?: { role?: string };
+  parts?: { type?: string; text?: string }[];
+}
+
+export type EventHandler = (type: string, properties: Record<string, unknown>) => void;
+
+const SERVICE_CONFIG = path.join(os.homedir(), ".config", "opencode", "service.json");
+const PAGE_SIZE = 100;
+
+// Runs one command and gives its stdout. A failure rejects with the stderr text.
+export function runCommand(program: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(program, args, { encoding: "utf8" }, (error, stdout, stderr) => {
+      if (error && (error as NodeJS.ErrnoException).code === "ENOENT") {
+        reject(
+          new Error(
+            `${program === "opencode" ? "OpenCode" : program} is not installed. Install it with: brew install ${program}`,
+          ),
+        );
+      } else if (error) {
+        reject(new Error(stderr.trim() || error.message));
+      } else {
+        resolve(stdout);
+      }
+    });
+  });
+}
+
+// Reads the service URL and the password. The password stays in this process.
+export async function discoverConnection(): Promise<Connection> {
+  const status = (await runCommand("opencode", ["service", "status"])).trim();
+  const baseUrl = status.split("\n").find((line) => line.startsWith("http"));
+  if (!baseUrl) {
+    throw new Error(`The OpenCode service does not run. Output: ${status}`);
+  }
+  let password: string | undefined;
+  try {
+    password = (JSON.parse(fs.readFileSync(SERVICE_CONFIG, "utf8")) as { password?: string }).password;
+  } catch {
+    password = undefined;
+  }
+  if (!password) {
+    throw new Error(`AI1 cannot authenticate with the OpenCode service. No password in ${SERVICE_CONFIG}.`);
+  }
+  return { baseUrl, password };
+}
+
+export async function ensureService(): Promise<void> {
+  await runCommand("opencode", ["service", "start"]);
+}
+
+export class OpenCodeClient {
+  constructor(private readonly connection: Connection) {}
+
+  async listSessions(): Promise<RawSession[]> {
+    const all: RawSession[] = [];
+    let cursor: string | undefined;
+    do {
+      const query = new URLSearchParams({ limit: String(PAGE_SIZE), order: "desc" });
+      if (cursor) {
+        query.set("cursor", cursor);
+      }
+      const page = await this.get<{ data: SessionRecord[]; cursor?: string }>(`/api/session?${query}`);
+      all.push(...page.data.map(toRawSession));
+      cursor = page.cursor;
+    } while (cursor);
+    return all;
+  }
+
+  async activeIds(): Promise<Set<string>> {
+    const active = await this.get<{ data: Record<string, unknown> }>("/api/session/active");
+    return new Set(Object.keys(active.data));
+  }
+
+  async pendingPermissionSessionIds(): Promise<Set<string>> {
+    const pending = await this.get<{ data: { sessionID: string }[] }>("/api/permission/request");
+    return new Set(pending.data.map((item) => item.sessionID));
+  }
+
+  async lastMessageText(id: string): Promise<string | undefined> {
+    const page = await this.get<{ data: MessageRecord[] }>(`/api/session/${id}/message?limit=1&order=desc`);
+    const parts = page.data[0]?.parts ?? [];
+    const text = parts.find((part) => part.type === "text" && part.text)?.text;
+    return text;
+  }
+
+  async messageCount(id: string): Promise<number> {
+    const page = await this.get<{ data: MessageRecord[]; total?: number }>(
+      `/api/session/${id}/message?limit=1`,
+    );
+    return page.total ?? page.data.length;
+  }
+
+  async createSession(title?: string, directory?: string): Promise<RawSession> {
+    const query = directory ? `?${new URLSearchParams({ directory })}` : "";
+    const created = await this.request<{ data: SessionRecord }>(
+      "POST",
+      `/api/session${query}`,
+      title ? { title } : {},
+    );
+    return toRawSession(created.data);
+  }
+
+  async deleteSession(id: string): Promise<void> {
+    await this.request("DELETE", `/api/session/${id}`);
+  }
+
+  // Opens the event stream and keeps it open. On a cut it reconnects with a
+  // growing wait. onState gets false on a cut and true on each (re)connect.
+  subscribe(
+    onEvent: EventHandler,
+    onState: (connected: boolean) => void,
+    options: { retryMs?: number; maxRetryMs?: number } = {},
+  ): { dispose(): void } {
+    let disposed = false;
+    let request: http.ClientRequest | undefined;
+    let wait = options.retryMs ?? 1000;
+    const maxWait = options.maxRetryMs ?? 30_000;
+    const connect = (): void => {
+      if (disposed) {
+        return;
+      }
+      const parser = new SseParser((event) => {
+        try {
+          const parsed = JSON.parse(event.data) as { type?: string; properties?: Record<string, unknown> };
+          if (parsed.type) {
+            onEvent(parsed.type, parsed.properties ?? {});
+          }
+        } catch {
+          // A line that is not JSON is a keep-alive; nothing to do.
+        }
+      });
+      request = http.get(this.url("/api/event"), { headers: this.headers() }, (response) => {
+        if (response.statusCode !== 200) {
+          response.resume();
+          retry();
+          return;
+        }
+        wait = options.retryMs ?? 1000;
+        onState(true);
+        response.setEncoding("utf8");
+        response.on("data", (chunk: string) => parser.push(chunk));
+        response.on("end", retry);
+        response.on("error", retry);
+      });
+      request.on("error", retry);
+    };
+    let retryTimer: NodeJS.Timeout | undefined;
+    const retry = (): void => {
+      if (disposed || retryTimer) {
+        return;
+      }
+      onState(false);
+      retryTimer = setTimeout(() => {
+        retryTimer = undefined;
+        connect();
+      }, wait);
+      wait = Math.min(wait * 2, maxWait);
+    };
+    connect();
+    return {
+      dispose: () => {
+        disposed = true;
+        if (retryTimer) {
+          clearTimeout(retryTimer);
+        }
+        request?.destroy();
+      },
+    };
+  }
+
+  private get<T>(route: string): Promise<T> {
+    return this.request<T>("GET", route);
+  }
+
+  private request<T>(method: string, route: string, body?: unknown): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const payload = body === undefined ? undefined : JSON.stringify(body);
+      const headers: Record<string, string> = this.headers();
+      if (payload !== undefined) {
+        headers["content-type"] = "application/json";
+      }
+      const request = http.request(this.url(route), { method, headers }, (response) => {
+        let text = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk: string) => (text += chunk));
+        response.on("end", () => {
+          if (response.statusCode === 401) {
+            reject(new Error("AI1 cannot authenticate with the OpenCode service (401)."));
+          } else if (response.statusCode && response.statusCode >= 400) {
+            reject(
+              new Error(`OpenCode ${method} ${route} gave ${response.statusCode}: ${text.slice(0, 200)}`),
+            );
+          } else {
+            resolve((text ? JSON.parse(text) : undefined) as T);
+          }
+        });
+      });
+      request.on("error", reject);
+      request.end(payload);
+    });
+  }
+
+  private url(route: string): string {
+    return `${this.connection.baseUrl}${route}`;
+  }
+
+  private headers(): Record<string, string> {
+    const token = Buffer.from(`opencode:${this.connection.password}`).toString("base64");
+    return { authorization: `Basic ${token}`, accept: "application/json, text/event-stream" };
+  }
+}
+
+function toRawSession(record: SessionRecord): RawSession {
+  return {
+    id: record.id,
+    title: record.title ?? "(no title)",
+    directory: record.location?.directory ?? "",
+    model: { id: record.model?.id ?? "?", providerID: record.model?.providerID ?? "?" },
+    time: { created: record.time?.created ?? 0, updated: record.time?.updated ?? 0 },
+    outcome: record.outcome,
+  };
+}

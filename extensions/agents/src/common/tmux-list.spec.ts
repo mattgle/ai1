@@ -11,6 +11,10 @@ describe("parseTmuxList", () => {
   it("gives an empty list for the no-server message", () => {
     assert.deepStrictEqual(parseTmuxList("no server running on /tmp/tmux-501/default"), []);
   });
+
+  it("gives an empty list for a line with no colon", () => {
+    assert.deepStrictEqual(parseTmuxList("ai1-5 zombie"), []);
+  });
 });
 
 describe("nextTmuxName", () => {
