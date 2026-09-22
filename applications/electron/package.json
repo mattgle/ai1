@@ -51,6 +51,17 @@
         "defaultTheme": "dark",
         "defaultIconTheme": "material-icon-theme",
         "preferences": {
+          "editor.formatOnSave": true,
+          "editor.defaultFormatter": "dbaeumer.vscode-eslint",
+          "eslint.format.enable": true,
+          "editor.codeActionsOnSave": {
+            "source.fixAll.eslint": true
+          },
+          "editor.tabSize": 2,
+          "editor.minimap.enabled": false,
+          "editor.stickyScroll.enabled": true,
+          "editor.enablePreview": false,
+          "diffEditor.ignoreTrimWhitespace": false,
           "security.workspace.trust.enabled": false
         }
       }

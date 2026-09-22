@@ -28,7 +28,7 @@
     "clean": "rimraf lib",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "tsc && mocha \"lib/**/default-preferences.spec.js\" \"lib/**/ai-features-off-state.spec.js\" \"lib/**/ai-command-filter.spec.js\" \"lib/**/ai-free-layout-provider.spec.js\""
+    "test": "tsc && mocha \"lib/**/ai-features-off-state.spec.js\" \"lib/**/ai-command-filter.spec.js\" \"lib/**/ai-free-layout-provider.spec.js\""
   },
   "theiaExtensions": [
     {

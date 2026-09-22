@@ -1,4 +1,5 @@
 import * as assert from "node:assert";
+import URI from "@theia/core/lib/common/uri";
 import { decodeHeadUri, encodeHeadUri, HEAD_SCHEME } from "./head-uri";
 
 describe("head URI", () => {
@@ -19,5 +20,14 @@ describe("head URI", () => {
   it("round-trips a path with spaces and special characters", () => {
     const uri = encodeHeadUri("file:///work/my%20repo", "docs/a b&c?.md");
     assert.strictEqual(decodeHeadUri(uri).path, "docs/a b&c?.md");
+  });
+
+  it("round-trips through a string, for a path with a space, a percent sign, and a hash", () => {
+    const uri = encodeHeadUri("file:///work/payments-api", "docs/a b%c#d.md");
+    const parsed = new URI(uri.toString());
+    assert.deepStrictEqual(decodeHeadUri(parsed), {
+      repoRootUri: "file:///work/payments-api",
+      path: "docs/a b%c#d.md",
+    });
   });
 });

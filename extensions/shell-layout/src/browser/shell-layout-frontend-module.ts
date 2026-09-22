@@ -6,16 +6,12 @@ import { PreferenceLayoutProvider } from "@theia/preferences/lib/browser/util/pr
 import { AiCommandsOffContribution } from "./ai-commands-off-contribution";
 import { AiFeaturesOffService } from "./ai-features-off-service";
 import { AiFreeLayoutProvider } from "./ai-free-layout-provider";
-import { DefaultPreferencesContribution } from "./default-preferences-contribution";
 import { HideAiPlaceholderContribution } from "./hide-ai-placeholder-contribution";
 import { ShellLayoutContribution } from "./shell-layout-contribution";
 
 export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
   bind(ShellLayoutContribution).toSelf().inSingletonScope();
   bind(FrontendApplicationContribution).toService(ShellLayoutContribution);
-
-  bind(DefaultPreferencesContribution).toSelf().inSingletonScope();
-  bind(FrontendApplicationContribution).toService(DefaultPreferencesContribution);
 
   bind(HideAiPlaceholderContribution).toSelf().inSingletonScope();
   bind(PreferenceContribution).toService(HideAiPlaceholderContribution);
