@@ -3,6 +3,7 @@ import { FrontendApplicationContribution } from "@theia/core/lib/browser";
 import { PreferenceContribution } from "@theia/core/lib/common/preferences/preference-schema";
 import { ContainerModule } from "@theia/core/shared/inversify";
 import { PreferenceLayoutProvider } from "@theia/preferences/lib/browser/util/preference-layout";
+import { AiCommandsOffContribution } from "./ai-commands-off-contribution";
 import { AiFeaturesOffService } from "./ai-features-off-service";
 import { AiFreeLayoutProvider } from "./ai-free-layout-provider";
 import { DefaultPreferencesContribution } from "./default-preferences-contribution";
@@ -27,4 +28,7 @@ export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
   // the new service. A second contribution binding is not necessary.
   bind(AiFeaturesOffService).toSelf().inSingletonScope();
   rebind(AIActivationService).toService(AiFeaturesOffService);
+
+  bind(AiCommandsOffContribution).toSelf().inSingletonScope();
+  bind(FrontendApplicationContribution).toService(AiCommandsOffContribution);
 });

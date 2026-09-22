@@ -58,8 +58,12 @@ test("a single click on a changed file opens a diff in the center", async () => 
   await expect(diff).toContainText("value = 2");
 });
 
-test("no Theia AI user interface shows", async () => {
-  await expect(app.page.locator("[id*='ai-chat'], [id*='ai-configuration']")).toHaveCount(0);
+test("the command palette lists no AI command", async () => {
+  await app.quickCommandPalette.type("AI:");
+  await expect(app.page.locator(".quick-input-widget")).toBeVisible();
+  const rows = app.page.locator(".quick-input-widget .monaco-list-row");
+  await expect(rows.filter({ hasText: "AI:" })).toHaveCount(0);
+  await app.quickCommandPalette.hide();
 });
 
 test("the Source Control view is not open on the first start", async () => {
@@ -81,5 +85,8 @@ test("the Settings view has no AI entry", async () => {
   await row.click();
   const settings = app.page.locator("#settings_widget");
   await expect(settings).toBeVisible();
+  // Wait for the category tree to render before the negative check, so the
+  // check cannot pass only because the tree is still empty.
+  await expect(settings.getByText("Text Editor", { exact: true }).first()).toBeVisible();
   await expect(settings).not.toContainText("AI Features");
 });
