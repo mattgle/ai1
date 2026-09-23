@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { TheiaApp, TheiaAppLoader, TheiaWorkspace } from "@theia/playwright";
+import { clickTab } from "./click-tab";
 import { createMetaRepoFixture } from "./meta-repo-fixture";
 import { removeTempDir } from "./remove-temp-dir";
 
@@ -219,7 +220,7 @@ test.afterAll(async () => {
 // Agents view is not the visible one yet.
 async function showAgentsView(): Promise<void> {
   if (!(await app.page.locator("#ai1-agents").isVisible())) {
-    await app.page.locator("#shell-tab-ai1-agents").click();
+    await clickTab(app.page.locator("#shell-tab-ai1-agents"));
   }
 }
 
@@ -370,7 +371,7 @@ test("closing and reopening the Agents view keeps the card callbacks and the bad
   // right-click "Close" targets the exact tab the click landed on instead
   // (the same adapter, but its event now DOES have that tab as its DOM
   // target), which is what a real user would do to close a side-panel view.
-  await app.page.locator("#shell-tab-ai1-agents").click({ button: "right" });
+  await clickTab(app.page.locator("#shell-tab-ai1-agents"), { button: "right" });
   await app.page.locator(".lm-Menu-item", { hasText: /^Close$/ }).click();
   await expect(app.page.locator("#ai1-agents")).toHaveCount(0);
 
@@ -434,7 +435,7 @@ test("a real permission request still shows a notice while the Agents view is cl
   // `AgentsContribution.onStart` loads the model on its own, independent of
   // the widget's own `init()`.
   await showAgentsView();
-  await app.page.locator("#shell-tab-ai1-agents").click({ button: "right" });
+  await clickTab(app.page.locator("#shell-tab-ai1-agents"), { button: "right" });
   await app.page.locator(".lm-Menu-item", { hasText: /^Close$/ }).click();
   await expect(app.page.locator("#ai1-agents")).toHaveCount(0);
 

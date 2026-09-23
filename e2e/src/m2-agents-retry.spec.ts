@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { _electron as electron, expect, test } from "@playwright/test";
 import { TheiaApp, TheiaWorkspace } from "@theia/playwright";
+import { clickTab } from "./click-tab";
 import { createMetaRepoFixture } from "./meta-repo-fixture";
 import { removeTempDir } from "./remove-temp-dir";
 
@@ -170,7 +171,7 @@ function fakeOpencodeCallCount(): number {
 
 test("the Agents view shows a Retry button on a load error, and Retry runs a fresh gated load", async () => {
   if (!(await app.page.locator("#ai1-agents").isVisible())) {
-    await app.page.locator("#shell-tab-ai1-agents").click();
+    await clickTab(app.page.locator("#shell-tab-ai1-agents"));
   }
   const error = app.page.locator("#ai1-agents .ai1-agents-error");
   await expect(error).toBeVisible({ timeout: 30_000 });
