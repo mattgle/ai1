@@ -37,6 +37,15 @@ export class FakeOpenCodeServer {
   // Directories for which the permission-request route answers 500, like
   // the live service does for a directory it does not have on disk.
   brokenPermissionDirectories = new Set<string>();
+  // Session ids for which the message-list route answers 404, like the live
+  // service does for a session it no longer has (deleted after AI1 already
+  // tracked it).
+  goneSessionIds = new Set<string>();
+  // Delays every message-list answer by this many milliseconds, so a test
+  // can observe how many such requests are in flight at once.
+  messageRequestDelayMs = 0;
+  concurrentMessageRequests = 0;
+  maxConcurrentMessageRequests = 0;
   private readonly server: http.Server;
   private readonly streams = new Set<http.ServerResponse>();
 
@@ -213,18 +222,35 @@ export class FakeOpenCodeServer {
         return;
       }
       if (method === "GET" && parts[3] === "message") {
+        if (this.goneSessionIds.has(id)) {
+          json(404, { error: "not found" });
+          return;
+        }
         // The live message list has no `total`; a client counts by paging.
         // Each entry's role is its own `type`, not `info.role`; a user
         // entry carries `text` directly, an assistant entry carries its
         // text in `content`.
-        const texts = this.messages.get(id) ?? [];
-        const records = texts.map((text, index) => toMessageRecord(text, index));
-        const ordered = url.searchParams.get("order") === "desc" ? [...records].reverse() : records;
-        const limit = Number(url.searchParams.get("limit") ?? ordered.length);
-        const offset = Number(url.searchParams.get("cursor") ?? 0);
-        const page = ordered.slice(offset, offset + limit);
-        const next = offset + limit < ordered.length ? String(offset + limit) : null;
-        json(200, { data: page, cursor: { previous: null, next } });
+        const answer = (): void => {
+          const texts = this.messages.get(id) ?? [];
+          const records = texts.map((text, index) => toMessageRecord(text, index));
+          const ordered = url.searchParams.get("order") === "desc" ? [...records].reverse() : records;
+          const limit = Number(url.searchParams.get("limit") ?? ordered.length);
+          const offset = Number(url.searchParams.get("cursor") ?? 0);
+          const page = ordered.slice(offset, offset + limit);
+          const next = offset + limit < ordered.length ? String(offset + limit) : null;
+          json(200, { data: page, cursor: { previous: null, next } });
+          this.concurrentMessageRequests -= 1;
+        };
+        this.concurrentMessageRequests += 1;
+        this.maxConcurrentMessageRequests = Math.max(
+          this.maxConcurrentMessageRequests,
+          this.concurrentMessageRequests,
+        );
+        if (this.messageRequestDelayMs > 0) {
+          setTimeout(answer, this.messageRequestDelayMs);
+        } else {
+          answer();
+        }
         return;
       }
     }

@@ -45,9 +45,33 @@ interface PageCursor {
 
 export type EventHandler = (type: string, properties: Record<string, unknown>) => void;
 
+// An OpenCode HTTP error, with the response's own status code, so a caller
+// can act on one particular status (for example `AgentsServiceImpl.lastMessage`,
+// which treats a 404 for one session as "the session is gone", the same as
+// a live `session.deleted` event) without parsing the message text.
+export class OpenCodeHttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "OpenCodeHttpError";
+  }
+}
+
 const SERVICE_CONFIG = path.join(os.homedir(), ".config", "opencode", "service.json");
+// The same file, for a message a widget can show on screen: `~` for the
+// home folder, never the real, absolute path (which carries the owner's
+// user name).
+const SERVICE_CONFIG_DISPLAY = "~/.config/opencode/service.json";
 const PAGE_SIZE = 100;
 const MAX_SESSION_PAGES = 50;
+// The spec value (`2026-09-22-ai1-m2-agents-design.md`, "Initial load"):
+// the session list stops at 200 sessions, newest first. Reached on the
+// second page in the ordinary case (`PAGE_SIZE` 100), well before
+// `MAX_SESSION_PAGES` below, which stays as a second, outer safety net for
+// a service that answers with pages smaller than `PAGE_SIZE`.
+const MAX_SESSIONS = 200;
 
 // The message shown when `program` (its bare name, such as "opencode" or
 // "tmux") cannot be found. Shared with the back end's absolute-path
@@ -93,7 +117,9 @@ export async function discoverConnection(): Promise<Connection> {
     password = undefined;
   }
   if (!password) {
-    throw new Error(`AI1 cannot authenticate with the OpenCode service. No password in ${SERVICE_CONFIG}.`);
+    throw new Error(
+      `AI1 cannot authenticate with the OpenCode service. No password in ${SERVICE_CONFIG_DISPLAY}.`,
+    );
   }
   return { baseUrl, password };
 }
@@ -133,6 +159,14 @@ export class OpenCodeClient {
       }
       all.push(...page.data.map(toRawSession));
       const next = page.cursor?.next ?? undefined;
+      if (all.length >= MAX_SESSIONS) {
+        if (next && next !== cursor) {
+          console.warn(
+            `ai1-agents: the session list stopped at ${MAX_SESSIONS} sessions; older sessions are not shown.`,
+          );
+        }
+        return all.slice(0, MAX_SESSIONS);
+      }
       if (!next || next === cursor) {
         return all;
       }
@@ -318,10 +352,18 @@ export class OpenCodeClient {
         response.on("data", (chunk: string) => (text += chunk));
         response.on("end", () => {
           if (response.statusCode === 401) {
-            reject(new Error("AI1 cannot authenticate with the OpenCode service (401)."));
+            reject(
+              new OpenCodeHttpError(
+                401,
+                `AI1 cannot authenticate with the OpenCode service (401). Check the password in ${SERVICE_CONFIG_DISPLAY}.`,
+              ),
+            );
           } else if (response.statusCode && response.statusCode >= 400) {
             reject(
-              new Error(`OpenCode ${method} ${route} gave ${response.statusCode}: ${text.slice(0, 200)}`),
+              new OpenCodeHttpError(
+                response.statusCode,
+                `OpenCode ${method} ${route} gave ${response.statusCode}: ${text.slice(0, 200)}`,
+              ),
             );
           } else if (!text) {
             resolve(undefined as T);

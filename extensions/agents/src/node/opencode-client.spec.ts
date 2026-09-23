@@ -1,4 +1,5 @@
 import * as assert from "node:assert";
+import * as os from "node:os";
 import { FakeOpenCodeServer } from "./fake-opencode-server";
 import { OpenCodeClient, runCommand } from "./opencode-client";
 
@@ -33,8 +34,8 @@ describe("OpenCodeClient", () => {
     await server.stop();
   });
 
-  it("lists all sessions across pages", async () => {
-    server.sessions = Array.from({ length: 250 }, (_, i) => ({
+  it("lists all sessions across pages, below the session cap", async () => {
+    server.sessions = Array.from({ length: 150 }, (_, i) => ({
       id: `ses_${i}`,
       title: `${i}`,
       directory: "/m/alpha",
@@ -42,8 +43,8 @@ describe("OpenCodeClient", () => {
       time: { created: i, updated: i },
     }));
     const sessions = await client.listSessions();
-    assert.strictEqual(sessions.length, 250);
-    assert.strictEqual(server.requests.filter((r) => r === "GET /api/session").length, 3);
+    assert.strictEqual(sessions.length, 150);
+    assert.strictEqual(server.requests.filter((r) => r === "GET /api/session").length, 2);
   });
 
   it("reads the active ids and the pending permission request ids, grouped by session and scoped by directory", async () => {
@@ -73,9 +74,17 @@ describe("OpenCodeClient", () => {
     assert.ok(!server.sessions.some((session) => session.id === created.id));
   });
 
-  it("rejects with a clear message on 401", async () => {
+  it("rejects with a clear message on 401 that names the credentials file, with ~ for the home folder", async () => {
     const wrong = new OpenCodeClient({ baseUrl: server.baseUrl, password: "no" });
-    await assert.rejects(wrong.listSessions(), /401|authenticate/);
+    await assert.rejects(wrong.listSessions(), /401/);
+    await assert.rejects(wrong.listSessions(), /~\/\.config\/opencode\/service\.json/);
+    // Never the real, absolute path -- that would put the owner's user name
+    // in a message a widget can show on screen.
+    await assert.rejects(wrong.listSessions(), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.ok(!error.message.includes(os.homedir()));
+      return true;
+    });
   });
 
   it("rejects a request the service never answers, within its own configured timeout", async () => {
@@ -157,7 +166,11 @@ describe("OpenCodeClient", () => {
     assert.ok(server.requests.filter((r) => r === "GET /api/session").length <= 50);
   });
 
-  it("warns once when the session list reaches its page cap", async () => {
+  it("stops the session list at 200 sessions, the spec value, and warns once", async () => {
+    // The fake server's endless pages never stop on their own (see
+    // `endlessPages` in `fake-opencode-server.ts`), so a list that actually
+    // ends at 200 proves the client stops itself there, rather than merely
+    // running out of data to page through.
     server.endlessPages = true;
     const calls: unknown[][] = [];
     const originalWarn = console.warn;
@@ -166,9 +179,12 @@ describe("OpenCodeClient", () => {
     };
     try {
       const sessions = await client.listSessions();
-      assert.strictEqual(sessions.length, 5000);
+      assert.strictEqual(sessions.length, 200);
+      // 100 sessions per page: the cap is reached exactly on the second
+      // page, so a third page is never requested.
+      assert.strictEqual(server.requests.filter((r) => r === "GET /api/session").length, 2);
       assert.strictEqual(calls.length, 1);
-      assert.ok(String(calls[0][0]).includes("50 pages"));
+      assert.ok(String(calls[0][0]).includes("200 sessions"));
     } finally {
       console.warn = originalWarn;
     }

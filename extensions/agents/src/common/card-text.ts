@@ -22,3 +22,12 @@ export function oneLine(text: string, limit: number): string {
   const collapsed = text.replace(/\s+/g, " ").trim();
   return collapsed.length > limit ? `${collapsed.slice(0, limit - 1)}…` : collapsed;
 }
+
+// The text shown at the top of the Agents view while the event stream is
+// down. One function, used by the widget's own summary line above the tree
+// and by its "no sessions" empty state, so the two can never disagree about
+// when to show it -- the empty state used to skip it, hiding the
+// reconnecting state whenever the workspace has no session to show yet.
+export function reconnectingPrefix(connected: boolean): string {
+  return connected ? "" : "Reconnecting… ";
+}

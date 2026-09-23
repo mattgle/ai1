@@ -113,6 +113,48 @@ describe("AgentsServiceImpl", () => {
     assert.strictEqual(await service.lastMessage("ses_b"), "world");
   });
 
+  it("removes the card and stops retrying when a session's last message gives 404 (the session is gone)", async () => {
+    await service.load(["file:///m"]);
+    server.goneSessionIds.add("ses_b");
+    const text = await service.lastMessage("ses_b");
+    assert.strictEqual(text, undefined);
+    assert.ok(client.removed.includes("ses_b"), "the card must go, the same path as session.deleted");
+    assert.strictEqual(client.removed.filter((id) => id === "ses_b").length, 1);
+    const messageRequestsBefore = server.requests.filter(
+      (r) => r === "GET /api/session/ses_b/message",
+    ).length;
+    assert.ok(messageRequestsBefore > 0);
+    // Not tracked any more, so a second call for the same id must not hit
+    // the server again -- the request is not retried.
+    const text2 = await service.lastMessage("ses_b");
+    assert.strictEqual(text2, undefined);
+    assert.strictEqual(
+      server.requests.filter((r) => r === "GET /api/session/ses_b/message").length,
+      messageRequestsBefore,
+      "a second call for an already-removed session must not make a further request",
+    );
+  });
+
+  it("limits the message-count calls of a load to 4 at a time", async () => {
+    server.sessions = Array.from({ length: 10 }, (_, i) => ({
+      id: `ses_load_${i}`,
+      title: `${i}`,
+      directory: "/m/alpha",
+      model: { id: "m", providerID: "p" },
+      time: { created: i, updated: i },
+    }));
+    server.messageRequestDelayMs = 30;
+    await service.load(["file:///m"]);
+    assert.ok(
+      server.maxConcurrentMessageRequests <= 4,
+      `expected at most 4 concurrent message-count requests, saw ${server.maxConcurrentMessageRequests}`,
+    );
+    assert.ok(
+      server.maxConcurrentMessageRequests > 1,
+      "the test itself must exercise real concurrency, or it would prove nothing",
+    );
+  });
+
   it("queues an event that arrives while a load is in flight, and applies it after the rebuild", async () => {
     // The session list itself is delayed, so the event below reaches
     // `onEvent` well before `tracked` is rebuilt from the delayed answer.

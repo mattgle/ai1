@@ -189,11 +189,12 @@ session is no longer blocked.
 
 | Case | Behavior |
 |---|---|
-| `opencode` is not in the PATH | The view shows "OpenCode is not installed" and the install command (`brew install anomalyco/tap/opencode-v2`, the owner's OpenCode v2 tap; the plain `opencode` formula installs the old 1.x line). No retry. |
-| The service does not start | A message with the output of `opencode service start` and a button "Retry". |
-| No password in `service.json`, or 401 | "AI1 cannot authenticate with the OpenCode service" and the path of the file. |
-| The event stream is cut | "Reconnecting" in the view; a growing wait from 1 to 30 seconds; a full load after the reconnect. |
-| A call for one session fails (404, the session was deleted) | The card goes. No notice. |
+| `opencode` is not in the PATH | The view shows "OpenCode is not installed" and the install command (`brew install anomalyco/tap/opencode-v2`, the owner's OpenCode v2 tap; the plain `opencode` formula installs the old 1.x line), with a Retry button. |
+| The service does not start | A message with the output of `opencode service start` and a Retry button. |
+| No password in `service.json`, or 401 | The view shows "AI1 cannot authenticate with the OpenCode service" and the exact name of the credentials file, `~/.config/opencode/service.json`, never the full path. A Retry button shows too. |
+| A load error of any other kind | The view shows the error message, with a Retry button. A click on Retry runs a fresh load, the same as the Refresh command. |
+| The event stream is cut | "Reconnecting…" shows in the view, also when the view lists no session yet. The wait grows from 1 to 30 seconds. A full load runs after the reconnect. |
+| A call for one session fails (404, the session was deleted) | The card goes, the same way a `session.deleted` event removes it. AI1 does not ask again for that session. No notice shows. |
 | `tmux` is not in the PATH | "New Persistent Terminal" shows the install command. Theia's own terminal stays available. |
 | `opencode --session` exits with an error in a tab | The tab keeps the error output, as any terminal. |
 

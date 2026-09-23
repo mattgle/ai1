@@ -6,7 +6,7 @@ import { mapLimit } from "../common/concurrency-limit";
 import { groupSessions } from "../common/session-groups";
 import { applyEvent, computeStatus, SessionFacts } from "../common/session-status";
 import { TmuxSession } from "../common/tmux-list";
-import { RawSession } from "./opencode-client";
+import { OpenCodeHttpError, RawSession } from "./opencode-client";
 import { Disposable, OpenCodeHub } from "./opencode-hub";
 import { resolveProgram } from "./resolve-program";
 import { listTmuxSessions, tmuxNewCommand } from "./tmux-runner";
@@ -21,6 +21,11 @@ interface Tracked {
 // directory) run at once during a load, so a workspace with many
 // repositories does not fire one HTTP request per repository all at once.
 const PERMISSION_CHECK_CONCURRENCY = 4;
+
+// How many `messageCount` calls (one per tracked session) run at once
+// during a load, so a workspace with many sessions does not fire one HTTP
+// request per session all at once.
+const MESSAGE_COUNT_CONCURRENCY = 4;
 
 // How many events `onEvent` queues while a load is in progress (see
 // `load`) before it gives up on replaying them one by one. Nothing today
@@ -267,11 +272,9 @@ export class AgentsServiceImpl implements AgentsService {
       });
     }
     const inside = [...this.tracked.values()];
-    await Promise.all(
-      inside.map(async (t) => {
-        t.messageCount = await api.messageCount(t.raw.id).catch(() => 0);
-      }),
-    );
+    await mapLimit(inside, MESSAGE_COUNT_CONCURRENCY, async (t) => {
+      t.messageCount = await api.messageCount(t.raw.id).catch(() => 0);
+    });
     return {
       groups: groupSessions(
         inside.map((t) => this.summary(t)),
@@ -281,8 +284,31 @@ export class AgentsServiceImpl implements AgentsService {
     };
   }
 
+  // A session already removed from `tracked` (its card is already gone,
+  // the same as after a live `session.deleted`) is not asked about again:
+  // no further request, no further retry.
   async lastMessage(id: string): Promise<string | undefined> {
-    return (await this.hub.apiClient()).lastMessageText(id);
+    if (!this.tracked.has(id)) {
+      return undefined;
+    }
+    const api = await this.hub.apiClient();
+    try {
+      return await api.lastMessageText(id);
+    } catch (error) {
+      // A 404 means the session is gone on the OpenCode side -- the same
+      // case a live `session.deleted` event reports. The card goes the
+      // same way: removed from `tracked`, with a removal notice to the
+      // client, so a later render of that same card (if any is still in
+      // flight) shows nothing, and this method's own guard above stops any
+      // further request for this id from here on.
+      if (error instanceof OpenCodeHttpError && error.status === 404) {
+        if (this.tracked.delete(id)) {
+          this.notifyRemoved(id);
+        }
+        return undefined;
+      }
+      throw error;
+    }
   }
 
   async createSession(directory: string, title?: string): Promise<SessionSummary> {

@@ -155,6 +155,10 @@ export class AgentsContribution
     widget.onOpenSession = (node) => void this.openSessionTerminal(node);
     widget.onNewSession = (directory) => void this.newSession(directory);
     widget.onDeleteSession = (node) => void this.deleteSession(node.session);
+    // The same path as the Refresh command: `refresh()` already carries the
+    // command's own catch, which shows a message on a failure `load()`
+    // itself throws instead of merely recording in `this.agents.error`.
+    widget.onRetry = () => void this.refresh();
     const subscription = this.agents.onDidChange(() => this.applyBadge(widget));
     // Without this, the subscription above outlives its widget: it would
     // keep calling `applyBadge` on a disposed widget forever, and keep

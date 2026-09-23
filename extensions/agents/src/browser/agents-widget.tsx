@@ -14,7 +14,7 @@ import { inject, injectable, postConstruct } from "@theia/core/shared/inversify"
 import * as React from "@theia/core/shared/react";
 import { Message } from "@theia/core/shared/@lumino/messaging";
 import { SessionStatus } from "../common/agents-protocol";
-import { cardThirdLine, oneLine } from "../common/card-text";
+import { cardThirdLine, oneLine, reconnectingPrefix } from "../common/card-text";
 import { clampVisiblePerGroup, DEFAULT_VISIBLE_PER_GROUP } from "../common/visible-per-group";
 import { AgentsModel } from "./agents-model";
 import { VISIBLE_PER_GROUP } from "./agents-preferences";
@@ -42,6 +42,11 @@ export class AgentsWidget extends TreeWidget {
   onOpenSession: (node: SessionNode) => void = () => undefined;
   onNewSession: (directory: string) => void = () => undefined;
   onDeleteSession: (node: SessionNode) => void = () => undefined;
+  // Wired by `AgentsContribution.wireWidget` to its own `refresh()`, the
+  // Refresh command's own handler body -- so a click on Retry runs exactly
+  // the same load, through the same gate, with the same error handling, as
+  // the Refresh command.
+  onRetry: () => void = () => undefined;
   visiblePerGroup = DEFAULT_VISIBLE_PER_GROUP;
 
   constructor(
@@ -106,16 +111,28 @@ export class AgentsWidget extends TreeWidget {
 
   protected override renderTree(model: TreeModel): React.ReactNode {
     if (this.agents.error) {
-      return <div className="theia-widget-noInfo ai1-agents-error">{this.agents.error}</div>;
+      return (
+        <div className="theia-widget-noInfo ai1-agents-error">
+          <div>{this.agents.error}</div>
+          <button className="theia-button ai1-agents-retry" onClick={() => this.onRetry()}>
+            Retry
+          </button>
+        </div>
+      );
     }
     const root = model.root;
     if (!CompositeTreeNode.is(root) || root.children.length === 0) {
-      return <div className="theia-widget-noInfo">No OpenCode sessions in this workspace.</div>;
+      return (
+        <div className="theia-widget-noInfo">
+          {reconnectingPrefix(this.agents.connected)}
+          No OpenCode sessions in this workspace.
+        </div>
+      );
     }
     return (
       <React.Fragment>
         <div className="ai1-agents-summary">
-          {this.agents.connected ? "" : "Reconnecting… "}
+          {reconnectingPrefix(this.agents.connected)}
           {this.agents.openTerminals.size} terminals open
         </div>
         {super.renderTree(model)}
