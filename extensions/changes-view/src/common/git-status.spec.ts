@@ -10,18 +10,46 @@ import {
 } from "./git-status";
 
 describe("parseStatusOutput", () => {
-  it("parses a modified file", () => {
-    assert.deepStrictEqual(parseStatusOutput(" M src/index.ts\n"), [{ status: " M", path: "src/index.ts" }]);
+  it("parses a modified file from a \\0-separated record", () => {
+    assert.deepStrictEqual(parseStatusOutput(" M src/index.ts\0"), [{ status: " M", path: "src/index.ts" }]);
   });
 
-  it("parses a rename into the new path and the source path", () => {
-    assert.deepStrictEqual(parseStatusOutput("R  old/a.ts -> new/b.ts\n"), [
+  it("parses a rename into two records, the new path first, then the source path", () => {
+    assert.deepStrictEqual(parseStatusOutput("R  new/b.ts\0old/a.ts\0"), [
       { status: "R ", path: "new/b.ts", sourcePath: "old/a.ts" },
     ]);
   });
 
-  it("parses many lines and skips empty ones", () => {
-    const entries = parseStatusOutput("?? notes.md\n M a.ts\n\n");
+  it("parses a rename with R in the second status column, as `git add -N` reports it", () => {
+    assert.deepStrictEqual(parseStatusOutput(" R moved.txt\0old.txt\0"), [
+      { status: " R", path: "moved.txt", sourcePath: "old.txt" },
+    ]);
+  });
+
+  it("parses a rename that is staged and then modified again, status RM", () => {
+    assert.deepStrictEqual(parseStatusOutput("RM new.txt\0old.txt\0"), [
+      { status: "RM", path: "new.txt", sourcePath: "old.txt" },
+    ]);
+  });
+
+  it("keeps a source path with a slash intact", () => {
+    assert.deepStrictEqual(parseStatusOutput("R  new.ts\0old/sub/path.ts\0"), [
+      { status: "R ", path: "new.ts", sourcePath: "old/sub/path.ts" },
+    ]);
+  });
+
+  it("parses a copy into the copy path and copyOf, not sourcePath", () => {
+    assert.deepStrictEqual(parseStatusOutput("C  copy.ts\0src.ts\0"), [
+      { status: "C ", path: "copy.ts", copyOf: "src.ts" },
+    ]);
+  });
+
+  it("parses a path with a quote and a space, unquoted because of core.quotepath=off", () => {
+    assert.deepStrictEqual(parseStatusOutput('A  we "ird".ts\0'), [{ status: "A ", path: 'we "ird".ts' }]);
+  });
+
+  it("parses many records and skips the trailing empty one", () => {
+    const entries = parseStatusOutput("?? notes.md\0 M a.ts\0");
     assert.deepStrictEqual(
       entries.map((entry) => entry.path),
       ["notes.md", "a.ts"],
@@ -85,11 +113,69 @@ describe("discardPlan", () => {
     });
   });
 
-  it("checks out HEAD for other tracked files", () => {
+  it("restores a staged new file, so a file that HEAD does not have is removed", () => {
+    assert.deepStrictEqual(discardPlan({ status: "A ", path: "n.ts" }), {
+      kind: "git",
+      args: ["restore", "--source=HEAD", "--staged", "--worktree", "--", "n.ts"],
+    });
+  });
+
+  it("restores a file with an unstaged change", () => {
     assert.deepStrictEqual(discardPlan({ status: " M", path: "a.ts" }), {
       kind: "git",
-      args: ["checkout", "HEAD", "--", "a.ts"],
+      args: ["restore", "--source=HEAD", "--staged", "--worktree", "--", "a.ts"],
     });
+  });
+
+  it("restores a file with a staged change", () => {
+    assert.deepStrictEqual(discardPlan({ status: "M ", path: "a.ts" }), {
+      kind: "git",
+      args: ["restore", "--source=HEAD", "--staged", "--worktree", "--", "a.ts"],
+    });
+  });
+
+  it("restores the two paths of a rename that has R in the second status column", () => {
+    assert.deepStrictEqual(discardPlan({ status: " R", path: "moved.txt", sourcePath: "old.txt" }), {
+      kind: "git",
+      args: ["restore", "--source=HEAD", "--staged", "--worktree", "--", "old.txt", "moved.txt"],
+    });
+  });
+
+  it("restores only the copy path of a copy, never the source it copied from", () => {
+    assert.deepStrictEqual(discardPlan({ status: "C ", path: "copy.ts", copyOf: "src.ts" }), {
+      kind: "git",
+      args: ["restore", "--source=HEAD", "--staged", "--worktree", "--", "copy.ts"],
+    });
+  });
+
+  it("removes an unmerged path with 'restore' for a rename/rename conflict's original name (DD)", () => {
+    assert.deepStrictEqual(discardPlan({ status: "DD", path: "original.txt" }), {
+      kind: "git",
+      args: ["rm", "-f", "--quiet", "--", "original.txt"],
+    });
+  });
+
+  it("removes an unmerged path added only by them (UA), since restore fails on an unmerged path", () => {
+    assert.deepStrictEqual(discardPlan({ status: "UA", path: "theirs-name.txt" }), {
+      kind: "git",
+      args: ["rm", "-f", "--quiet", "--", "theirs-name.txt"],
+    });
+  });
+
+  it("removes an unmerged path deleted by us (DU)", () => {
+    assert.deepStrictEqual(discardPlan({ status: "DU", path: "f.txt" }), {
+      kind: "git",
+      args: ["rm", "-f", "--quiet", "--", "f.txt"],
+    });
+  });
+
+  it("keeps the restore form for the unmerged codes where HEAD has a version (AA, AU, UD, UU)", () => {
+    for (const status of ["AA", "AU", "UD", "UU"]) {
+      assert.deepStrictEqual(discardPlan({ status, path: "f.txt" }), {
+        kind: "git",
+        args: ["restore", "--source=HEAD", "--staged", "--worktree", "--", "f.txt"],
+      });
+    }
   });
 });
 
@@ -108,6 +194,44 @@ describe("discardPrompt", () => {
 
   it("asks to discard the changes of a tracked file", () => {
     assert.strictEqual(discardPrompt({ status: " M", path: "a.ts" }).ok, "Discard changes");
+  });
+
+  it("asks to delete a staged new file, the same wording as an untracked file", () => {
+    const prompt = discardPrompt({ status: "A ", path: "src/new.ts" });
+    assert.strictEqual(prompt.ok, "Delete file");
+    assert.ok(prompt.msg.includes("new.ts"));
+  });
+
+  it("asks to delete a staged new file that was then modified again, status AM", () => {
+    assert.strictEqual(discardPrompt({ status: "AM", path: "a.ts" }).ok, "Delete file");
+  });
+
+  it("asks to resolve 'both added' (AA) to HEAD, not to delete, since HEAD has a version", () => {
+    const prompt = discardPrompt({ status: "AA", path: "new.txt" });
+    assert.strictEqual(prompt.ok, "Resolve to HEAD version");
+    assert.ok(!prompt.msg.toLowerCase().includes("removed"));
+  });
+
+  it("asks to resolve 'added by us' (AU) to HEAD, not to delete, since HEAD has a version", () => {
+    const prompt = discardPrompt({ status: "AU", path: "new.txt" });
+    assert.strictEqual(prompt.ok, "Resolve to HEAD version");
+    assert.ok(!prompt.msg.toLowerCase().includes("removed"));
+  });
+
+  it("asks to resolve 'added by them' (UA) to HEAD, and says the file is removed", () => {
+    const prompt = discardPrompt({ status: "UA", path: "new.txt" });
+    assert.strictEqual(prompt.ok, "Resolve to HEAD version");
+    assert.ok(prompt.msg.toLowerCase().includes("removed"));
+  });
+
+  it("asks to resolve 'both modified' (UU) to HEAD", () => {
+    assert.strictEqual(discardPrompt({ status: "UU", path: "a.ts" }).ok, "Resolve to HEAD version");
+  });
+
+  it("asks to delete a copy, since the discard removes only the copy path", () => {
+    const prompt = discardPrompt({ status: "C ", path: "copy.ts", copyOf: "src.ts" });
+    assert.strictEqual(prompt.ok, "Delete file");
+    assert.ok(prompt.msg.includes("copy.ts"));
   });
 });
 
