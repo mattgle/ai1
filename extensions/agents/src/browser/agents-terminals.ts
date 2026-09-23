@@ -4,11 +4,13 @@ import { TerminalService } from "@theia/terminal/lib/browser/base/terminal-servi
 import { TerminalLocation, TerminalWidget } from "@theia/terminal/lib/browser/base/terminal-widget";
 import { AgentsService, SessionSummary } from "../common/agents-protocol";
 import { IdentityMap } from "../common/identity-map";
+import { settleWithin } from "../common/settle-within";
 import { nextTmuxName } from "../common/tmux-list";
 import { AgentsModel } from "./agents-model";
 
 export const SESSION_TERMINAL_KIND = "ai1-session";
 export const SHELL_TERMINAL_KIND = "ai1-tmux";
+const CLOSE_LIMIT_MS = 1500;
 
 // Opens and tracks the terminal tabs of sessions and of persistent shells.
 // A session tab runs the OpenCode interface on an existing session. A closed
@@ -109,60 +111,27 @@ export class AgentsTerminals {
     }
   }
 
-  // Closes the back-end process of every tracked tab directly, and waits for
-  // it. Called from the contribution's `onWillStop`, which is the one
-  // lifecycle hook whose async work Theia actually awaits before a reload or
-  // a window close proceeds (`DefaultWindowService.isSafeToShutDown`,
-  // awaited by `ElectronWindowService`'s close-request handler before the
-  // window is allowed to reload or close).
-  //
-  // `onStop` looked like the right place for this and is not, confirmed by
-  // hand (see the report): a plain `terminal.dispose()` call from `onStop`
-  // does not kill the back-end process on a reload. Two things combine to
-  // cause that. First, `TerminalWidgetImpl.storeState()` sets
-  // `closeOnDispose = false` unconditionally, before its own transient check
-  // (`node_modules/@theia/terminal/src/browser/terminal-widget-impl.ts`), so
-  // the widget's own `dispose()` (whenever it runs) skips its own
-  // `shellTerminalServer.close(...)` call. Second, and the part that
-  // actually breaks `onStop`: on a reload, something disposes every
-  // transient terminal widget before `onStop` contributions run at all (the
-  // maps are already empty by the time `onStop` runs), and closing through
-  // `IShellTerminalServer` directly from that earlier disposal, as a
-  // stand-in, does not reliably complete either -- the whole sequence
-  // (`ShellLayoutRestorer.storeLayout`, then `stopContributions`) runs
-  // synchronously from the `pagehide` event, with no `await` anywhere in
-  // Theia's own code between "safe to shut down" and the actual unload, so
-  // an RPC call started there has no guaranteed time to reach the back end.
-  // `onWillStop`'s `action`, by contrast, is awaited by
-  // `isSafeToShutDown()` itself, before that synchronous sequence starts.
-  //
-  // This only helps when the reload goes through Theia's own window service
-  // (the "Reload Window" command, or a real window close): a raw page
-  // reload triggered outside Theia (for example Playwright's own
-  // `page.reload()`) bypasses `isSafeToShutDown` and goes straight to the
-  // same synchronous `pagehide` path as `onStop`, so `onWillStop` cannot
-  // help there either -- also confirmed by hand, see the report.
-  //
-  // Closing a tmux client this way does not kill the tmux session itself,
-  // which is correct: the session is meant to outlive the app.
-  async closeAllBackends(): Promise<void> {
-    const all = [...this.bySession.values(), ...this.byTmux.values()];
-    await Promise.all(
-      all.map((terminal) => this.shellTerminalServer.close(terminal.terminalId).catch(() => undefined)),
-    );
+  hasTerminals(): boolean {
+    return !this.bySession.values().next().done || !this.byTmux.values().next().done;
   }
 
-  // A best-effort companion to `closeAllBackends`, for the ordinary case (a
-  // user closes one tab): explicitly closes that one terminal's back-end
-  // process, instead of relying on the widget's own `dispose()` and its
-  // `closeOnDispose` flag.
-  disposeAll(): void {
-    for (const terminal of [...this.bySession.values(), ...this.byTmux.values()]) {
-      this.shellTerminalServer.close(terminal.terminalId).catch(() => undefined);
-      if (!terminal.isDisposed) {
-        terminal.dispose();
-      }
-    }
+  // Closes the back-end process of every tracked tab. The contribution calls
+  // it from `onWillStop`, the only stop hook that Theia awaits before a
+  // reload or a close (`DefaultWindowService.isSafeToShutDown`). A transient
+  // tab does not do it by itself: `TerminalWidgetImpl.storeState` sets
+  // `closeOnDispose = false` before its transient check, and Theia disposes
+  // the tabs before `onStop` runs. A reload from outside Theia's window
+  // service (for example Playwright's `page.reload()`) skips this path.
+  //
+  // `isSafeToShutDown` has no time limit, and an RPC call to a dead back end
+  // waits for a reconnect that never comes, so the wait has a limit here.
+  // Closing a tmux client does not kill its tmux session.
+  async closeAllBackends(): Promise<void> {
+    const all = [...this.bySession.values(), ...this.byTmux.values()];
+    await settleWithin(
+      Promise.all(all.map((terminal) => this.shellTerminalServer.close(terminal.terminalId))),
+      CLOSE_LIMIT_MS,
+    );
   }
 
   protected async openTmux(name: string, directory: string | undefined, activate = true): Promise<void> {

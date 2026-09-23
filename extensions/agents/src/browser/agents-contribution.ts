@@ -102,26 +102,27 @@ export class AgentsContribution
     });
   }
 
-  // The reliable place to close the back-end process of every open session
-  // and persistent-shell tab: `isSafeToShutDown()` awaits this `action`
-  // before a reload or a window close proceeds. See the long comment on
-  // `AgentsTerminals.closeAllBackends` for why `onStop` (below) cannot do
-  // this reliably by itself. `action` always returns `true`: this never
-  // asks the user to confirm anything, it only needs the time to run.
-  onWillStop(): OnWillStopAction {
+  // Closes the back-end process of every open session and persistent-shell
+  // tab before a reload or a close (see `AgentsTerminals.closeAllBackends`).
+  // `action` always returns `true`: it never asks the user to confirm, it
+  // only needs the time to run, and that time has a limit.
+  //
+  // With no tab open, there is no veto, so Theia's own exit confirmation
+  // (`application.confirmExit`) works as usual. With `confirmExit: "never"`,
+  // Theia skips every veto and the processes stay until the back end stops.
+  // The high priority runs this after every veto that can cancel the close.
+  onWillStop(): OnWillStopAction | undefined {
+    if (!this.terminals.hasTerminals()) {
+      return undefined;
+    }
     return {
       action: async () => {
         await this.terminals.closeAllBackends();
         return true;
       },
       reason: "AI1 agent terminals",
+      priority: 1000,
     };
-  }
-
-  // A best-effort companion to `onWillStop`, for a path that does not go
-  // through it (see `AgentsTerminals.disposeAll`).
-  onStop(): void {
-    this.terminals.disposeAll();
   }
 
   override registerCommands(commands: CommandRegistry): void {
