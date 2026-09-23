@@ -15,7 +15,7 @@
     "postinstall": "theia check:theia-version",
     "download:plugins": "theia download:plugins",
     "build": "npm run build --workspaces --if-present",
-    "build:production": "npm run build --workspace extensions/material-icons && npm run build --workspace extensions/changes-view && npm run build --workspace extensions/shell-layout && npm run build --workspace extensions/agents && npm run build:production --workspace applications/electron",
+    "build:production": "npm run build --workspace extensions/material-icons && npm run build --workspace extensions/changes-view && npm run build --workspace extensions/shell-layout && npm run build --workspace extensions/agents && npm run build --workspace extensions/browser-pane && npm run build:production --workspace applications/electron",
     "start": "npm start --workspace applications/electron",
     "lint": "eslint .",
     "typecheck": "npm run typecheck --workspaces --if-present",
