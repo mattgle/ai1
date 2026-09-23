@@ -1,0 +1,37 @@
+{
+  "name": "ai1-agents",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The OpenCode sessions of the workspace, their status, and persistent terminals",
+  "license": "EPL-2.0",
+  "files": [
+    "lib",
+    "src"
+  ],
+  "main": "lib/common/agents-protocol.js",
+  "dependencies": {
+    "@theia/core": "1.75.0",
+    "@theia/filesystem": "1.75.0",
+    "@theia/terminal": "1.75.0",
+    "@theia/workspace": "1.75.0"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^20.0.0",
+    "@types/react": "^19.0.0",
+    "mocha": "^10.0.0",
+    "rimraf": "^5.0.0"
+  },
+  "scripts": {
+    "clean": "rimraf lib",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "tsc && mocha \"lib/common/*.spec.js\" \"lib/node/*.spec.js\" \"lib/browser/*.spec.js\""
+  },
+  "theiaExtensions": [
+    {
+      "frontend": "lib/browser/agents-frontend-module",
+      "backend": "lib/node/agents-backend-module"
+    }
+  ]
+}

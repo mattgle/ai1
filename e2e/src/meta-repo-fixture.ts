@@ -2,8 +2,14 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+// This is test data, not the owner's commit: it must not sign, so the test
+// does not depend on the owner's desktop signing agent.
 function git(cwd: string, ...args: string[]): void {
-  execFileSync("git", ["-c", "user.name=AI1 Test", "-c", "user.email=test@ai1.invalid", ...args], { cwd });
+  execFileSync(
+    "git",
+    ["-c", "commit.gpgsign=false", "-c", "user.name=AI1 Test", "-c", "user.email=test@ai1.invalid", ...args],
+    { cwd },
+  );
 }
 
 function createRepo(root: string, name: string): string {

@@ -4,12 +4,14 @@ import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { TheiaApp, TheiaAppLoader, TheiaWorkspace } from "@theia/playwright";
 import { createMetaRepoFixture } from "./meta-repo-fixture";
+import { removeTempDir } from "./remove-temp-dir";
 
 const electronAppPath = path.resolve(__dirname, "..", "..", "applications", "electron");
 const pluginsPath = path.join(electronAppPath, "plugins");
 
 let app: TheiaApp;
 let configDir: string;
+let userDataDir: string;
 
 test.beforeAll(async ({ playwright, browser }) => {
   // The application must not write into the real settings folder of the
@@ -17,18 +19,56 @@ test.beforeAll(async ({ playwright, browser }) => {
   // runner's environment, so this folder becomes the app's settings folder.
   configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-config-"));
   process.env.THEIA_CONFIG_DIR = configDir;
+  // Electron's own user-data folder (its default is the real `AI1` folder
+  // under the machine's application support directory) holds the browser's
+  // `localStorage`, which is where the workbench layout lives (Theia's
+  // `ShellLayoutRestorer` uses `LocalStorageService`, backed by
+  // `window.localStorage`). Two flags are needed to fully redirect it, not
+  // one: `--electronUserData` is the app's own flag
+  // (`ElectronMainApplication.start()` in `@theia/core/src/electron-main/
+  // electron-main-application.ts`), applied by calling `app.setPath(
+  // 'userData', ...)`, but too late for `electronStore` (an `electron-store`
+  // instance, same file), a class field initializer that reads
+  // `app.getPath('userData')` at construction time, before `start()` runs;
+  // its file (`config.json`, the window's position and size) would still go
+  // to the real folder without also passing Chromium's own native
+  // `--user-data-dir`, which every Electron process reads before any of the
+  // app's own code runs (this also covers `DevToolsActivePort`, written by
+  // Chromium's own DevTools activation, which Playwright's Electron support
+  // needs). Confirmed by hand: only with both flags does a full run leave
+  // the real folder's newest file time unchanged.
+  userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-userdata-"));
   const workspace = new TheiaWorkspace();
   workspace.initialize();
   createMetaRepoFixture(workspace.path);
   app = await TheiaAppLoader.load(
-    { playwright, browser, useElectron: { electronAppPath, pluginsPath } },
+    {
+      playwright,
+      browser,
+      useElectron: {
+        launchOptions: {
+          additionalArgs: [
+            "--no-sandbox",
+            "--no-cluster",
+            `--user-data-dir=${userDataDir}`,
+            `--electronUserData=${userDataDir}`,
+          ],
+          electronAppPath,
+          pluginsPath,
+        },
+      },
+    },
     workspace,
   );
 });
 
 test.afterAll(async () => {
-  await app.page.close();
-  fs.rmSync(configDir, { recursive: true, force: true });
+  try {
+    await app.page.close();
+  } finally {
+    fs.rmSync(configDir, { recursive: true, force: true });
+    await removeTempDir(userDataDir);
+  }
 });
 
 test("the explorer is in the left panel", async () => {

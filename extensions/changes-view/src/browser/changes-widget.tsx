@@ -20,9 +20,18 @@ import * as React from "@theia/core/shared/react";
 import { Message } from "@theia/core/shared/@lumino/messaging";
 import { FileService } from "@theia/filesystem/lib/browser/file-service";
 import { WorkspaceService } from "@theia/workspace/lib/browser/workspace-service";
+import { branchLabel } from "../common/branch-label";
 import { ChangesService, RepoChanges } from "../common/changes-protocol";
-import { discardAllPrompt, discardPrompt, DiscardPrompt, isDeleted, isUntracked, statusBadge } from "../common/git-status";
+import {
+  discardAllPrompt,
+  discardPrompt,
+  DiscardPrompt,
+  isDeleted,
+  isUntracked,
+  statusBadge,
+} from "../common/git-status";
 import { encodeHeadUri } from "../common/head-uri";
+import { RefreshGate } from "../common/refresh-gate";
 import { RefreshSequence } from "../common/refresh-sequence";
 import { shouldIgnorePath } from "../common/refresh-filter";
 import { buildRoot, FileNode, isFileNode, isRepoNode, RepoNode } from "./changes-tree";
@@ -51,6 +60,10 @@ export class ChangesWidget extends TreeWidget {
 
   protected refreshTimer: ReturnType<typeof setTimeout> | undefined;
   protected readonly sequence = new RefreshSequence();
+  protected readonly refreshGate = new RefreshGate();
+  // Set by a failed scan, for example a missing git program. renderTree shows
+  // it in place of "No changes to show" until the next scan succeeds.
+  protected error: string | undefined;
 
   constructor(
     @inject(TreeProps) props: TreeProps,
@@ -87,10 +100,37 @@ export class ChangesWidget extends TreeWidget {
     if (this.refreshTimer) {
       clearTimeout(this.refreshTimer);
     }
-    this.refreshTimer = setTimeout(() => this.refresh(), delay);
+    // `refresh()` runs detached from any caller here: catch its promise so a
+    // rejection (for example a bug in `runScan` that this method does not
+    // already catch) cannot become an unhandled rejection.
+    this.refreshTimer = setTimeout(() => {
+      this.refresh().catch((error) => console.error("ai1-changes: the refresh failed", error));
+    }, delay);
   }
 
+  // The in-flight gate: a refresh that arrives while a scan is running does
+  // not start its own scan. It only marks that one more scan is needed, which
+  // runs once the current scan ends. This keeps a write burst that the
+  // debounce does not filter (for example many files under `/lib/`) down to
+  // one scan at a time instead of one scan per event. `finally` calls
+  // `refreshGate.end()` even when `runScan` throws, so an unexpected error
+  // cannot leave the gate locked and the view stuck refusing every refresh.
   async refresh(): Promise<void> {
+    if (!this.refreshGate.start()) {
+      return;
+    }
+    let again = false;
+    try {
+      await this.runScan();
+    } finally {
+      again = this.refreshGate.end();
+    }
+    if (again && !this.isDisposed) {
+      await this.refresh();
+    }
+  }
+
+  protected async runScan(): Promise<void> {
     const token = this.sequence.start();
     let repos: RepoChanges[];
     try {
@@ -98,11 +138,16 @@ export class ChangesWidget extends TreeWidget {
       repos = await this.changes.scan(roots.map((root) => root.resource.toString()));
     } catch (error) {
       console.error("ai1-changes: the scan failed", error);
+      if (this.sequence.isLatest(token) && !this.isDisposed) {
+        this.error = error instanceof Error ? error.message : String(error);
+        this.model.root = buildRoot([], () => undefined);
+      }
       return;
     }
     if (!this.sequence.isLatest(token) || this.isDisposed) {
       return;
     }
+    this.error = undefined;
     this.model.root = buildRoot(repos, (nodeId) => {
       const previous = this.model.getNode(nodeId);
       return ExpandableTreeNode.is(previous) ? previous.expanded : undefined;
@@ -135,7 +180,8 @@ export class ChangesWidget extends TreeWidget {
   protected override renderTree(model: TreeModel): React.ReactNode {
     const root = model.root;
     if (!CompositeTreeNode.is(root) || root.children.length === 0) {
-      return <div className="theia-widget-noInfo">No changes to show. Edited files show here when you save them.</div>;
+      const text = this.error ?? "No changes to show. Edited files show here when you save them.";
+      return <div className="theia-widget-noInfo">{text}</div>;
     }
     return super.renderTree(model);
   }
@@ -153,9 +199,12 @@ export class ChangesWidget extends TreeWidget {
   protected override renderCaption(node: TreeNode, _props: NodeProps): React.ReactNode {
     if (isRepoNode(node)) {
       return (
-        <div className="ai1-changes-caption ai1-changes-repo" title={new URI(node.repo.rootUri).path.fsPath()}>
+        <div
+          className="ai1-changes-caption ai1-changes-repo"
+          title={new URI(node.repo.rootUri).path.fsPath()}
+        >
           <span className="ai1-changes-name">{node.repo.name}</span>
-          <span className="ai1-changes-description">{node.repo.branch || "(detached)"}</span>
+          <span className="ai1-changes-description">{branchLabel(node.repo)}</span>
         </div>
       );
     }
@@ -234,11 +283,15 @@ export class ChangesWidget extends TreeWidget {
       return;
     }
     const label = `${working.path.base} (HEAD ↔ Working)`;
-    open(this.openerService, DiffUris.encode(head, working, label)).catch((error) => this.messages.error(String(error)));
+    open(this.openerService, DiffUris.encode(head, working, label)).catch((error) =>
+      this.messages.error(String(error)),
+    );
   }
 
   protected async discardFile(node: FileNode): Promise<void> {
-    await this.confirmAndRun(discardPrompt(node.entry), () => this.changes.discardFile(node.repoRootUri, node.entry));
+    await this.confirmAndRun(discardPrompt(node.entry), () =>
+      this.changes.discardFile(node.repoRootUri, node.entry),
+    );
   }
 
   protected async discardAll(node: RepoNode): Promise<void> {
@@ -255,7 +308,9 @@ export class ChangesWidget extends TreeWidget {
     try {
       await run();
     } catch (error) {
-      this.messages.error(`${prompt.title} failed: ${error instanceof Error ? error.message : String(error)}`);
+      this.messages.error(
+        `${prompt.title} failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
     await this.refresh();
   }

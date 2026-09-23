@@ -15,14 +15,14 @@
     "postinstall": "theia check:theia-version",
     "download:plugins": "theia download:plugins",
     "build": "npm run build --workspaces --if-present",
-    "build:production": "npm run build --workspace extensions/material-icons && npm run build --workspace extensions/changes-view && npm run build --workspace extensions/shell-layout && npm run build:production --workspace applications/electron",
+    "build:production": "npm run build --workspace extensions/material-icons && npm run build --workspace extensions/changes-view && npm run build --workspace extensions/shell-layout && npm run build --workspace extensions/agents && npm run build:production --workspace applications/electron",
     "start": "npm start --workspace applications/electron",
     "lint": "eslint .",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm test --workspaces --if-present",
     "test:e2e": "npm run test:e2e --workspace e2e",
-    "format": "prettier --write \"**/*.{ts,js,mjs,json,md,yml}\"",
-    "format:check": "prettier --check \"**/*.{ts,js,mjs,json,md,yml}\""
+    "format": "prettier --write \"**/*.{ts,tsx,js,mjs,json,md,yml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,json,md,yml}\""
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

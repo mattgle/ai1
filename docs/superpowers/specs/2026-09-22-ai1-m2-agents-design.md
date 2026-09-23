@@ -149,9 +149,10 @@ Two levels:
   directory), a badge with the session count, and a button "new session". The
   groups sort by their newest session. A group starts expanded when one of its
   sessions is `working` or `blocked`.
-- A card per session: a status icon on the left (codicons: `sync~spin`
-  working, `warning` blocked in the warning color, `check` done, `error`
-  failed, `circle-outline` idle); the title; the last message in one line, cut;
+- A card per session: a status icon on the left (codicons: `sync` with
+  `codicon-modifier-spin` working, `warning` blocked in the warning color,
+  `check` done, `error` failed, `circle-outline` idle); the title; the last
+  message in one line, cut;
   a third line `<N> msgs · <age> · <model>`. On hover: "open terminal" and
   "delete session" (with a confirm dialog).
 - A line at the top of the view: "<N> terminals open".
@@ -188,7 +189,7 @@ session is no longer blocked.
 
 | Case | Behavior |
 |---|---|
-| `opencode` is not in the PATH | The view shows "OpenCode is not installed" and the install command. No retry. |
+| `opencode` is not in the PATH | The view shows "OpenCode is not installed" and the install command (`brew install anomalyco/tap/opencode-v2`, the owner's OpenCode v2 tap; the plain `opencode` formula installs the old 1.x line). No retry. |
 | The service does not start | A message with the output of `opencode service start` and a button "Retry". |
 | No password in `service.json`, or 401 | "AI1 cannot authenticate with the OpenCode service" and the path of the file. |
 | The event stream is cut | "Reconnecting" in the view; a growing wait from 1 to 30 seconds; a full load after the reconnect. |
