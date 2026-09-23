@@ -135,12 +135,11 @@ export class AgentsContribution
     // Agents view itself is closed (`BlockedNotifier` and the tab badge
     // both read `AgentsModel`, not the widget). `AgentsWidget.init()`
     // starts its own `load()` when the view is open, and `AgentsModel.load`'s
-    // own reentrancy guard (`this.loading`) joins this call with that one
-    // into a single in-flight request when both happen to start close
-    // together, so this does not double the work. `load()` already carries
-    // its own error handling (`doLoad`'s try/catch sets `this.error` and
-    // fires `onDidChange`, and never rejects), so no further handling is
-    // needed here.
+    // own gate (`loadGate`) joins this call with that one when both happen
+    // to start close together, so this does not double the work. `load()`
+    // already carries its own error handling (`doLoad`'s try/catch sets
+    // `this.error` and fires `onDidChange`, and never rejects), so no
+    // further handling is needed here.
     void this.agents.load();
   }
 

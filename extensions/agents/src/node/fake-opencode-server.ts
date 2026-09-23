@@ -23,6 +23,10 @@ export class FakeOpenCodeServer {
   brokenSessionBody = false;
   repeatCursor = false;
   endlessPages = false;
+  // Delays the `GET /api/session` answer by this many milliseconds, so a
+  // test can push an event while a load is still waiting for its session
+  // list.
+  delayMs = 0;
   // Directories for which the permission-request route answers 500, like
   // the live service does for a directory it does not have on disk.
   brokenPermissionDirectories = new Set<string>();
@@ -106,37 +110,44 @@ export class FakeOpenCodeServer {
     };
     const parts = url.pathname.split("/").filter(Boolean);
     if (method === "GET" && url.pathname === "/api/session") {
-      if (this.brokenSessionBody) {
-        response.writeHead(200, { "content-type": "application/json" }).end("not json");
-        return;
+      const answer = (): void => {
+        if (this.brokenSessionBody) {
+          response.writeHead(200, { "content-type": "application/json" }).end("not json");
+          return;
+        }
+        if (this.repeatCursor) {
+          json(200, {
+            data: this.sessions.slice(0, 1).map(toSessionRecord),
+            cursor: { previous: null, next: "1" },
+          });
+          return;
+        }
+        if (this.endlessPages) {
+          const page = Number(url.searchParams.get("cursor") ?? 0);
+          const sessions = Array.from({ length: 100 }, (_, i) => ({
+            id: `endless_${page}_${i}`,
+            title: `Endless ${page}_${i}`,
+            directory: "/m/alpha",
+            model: { id: "m", providerID: "p" },
+            time: { created: 0, updated: 0 },
+          }));
+          json(200, {
+            data: sessions.map(toSessionRecord),
+            cursor: { previous: null, next: String(page + 1) },
+          });
+          return;
+        }
+        const limit = Number(url.searchParams.get("limit") ?? 100);
+        const cursor = Number(url.searchParams.get("cursor") ?? 0);
+        const page = this.sessions.slice(cursor, cursor + limit);
+        const next = cursor + limit < this.sessions.length ? String(cursor + limit) : null;
+        json(200, { data: page.map(toSessionRecord), cursor: { previous: null, next } });
+      };
+      if (this.delayMs > 0) {
+        setTimeout(answer, this.delayMs);
+      } else {
+        answer();
       }
-      if (this.repeatCursor) {
-        json(200, {
-          data: this.sessions.slice(0, 1).map(toSessionRecord),
-          cursor: { previous: null, next: "1" },
-        });
-        return;
-      }
-      if (this.endlessPages) {
-        const page = Number(url.searchParams.get("cursor") ?? 0);
-        const sessions = Array.from({ length: 100 }, (_, i) => ({
-          id: `endless_${page}_${i}`,
-          title: `Endless ${page}_${i}`,
-          directory: "/m/alpha",
-          model: { id: "m", providerID: "p" },
-          time: { created: 0, updated: 0 },
-        }));
-        json(200, {
-          data: sessions.map(toSessionRecord),
-          cursor: { previous: null, next: String(page + 1) },
-        });
-        return;
-      }
-      const limit = Number(url.searchParams.get("limit") ?? 100);
-      const cursor = Number(url.searchParams.get("cursor") ?? 0);
-      const page = this.sessions.slice(cursor, cursor + limit);
-      const next = cursor + limit < this.sessions.length ? String(cursor + limit) : null;
-      json(200, { data: page.map(toSessionRecord), cursor: { previous: null, next } });
       return;
     }
     if (method === "POST" && url.pathname === "/api/session") {

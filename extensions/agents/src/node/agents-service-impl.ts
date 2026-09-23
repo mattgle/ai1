@@ -72,6 +72,16 @@ export class AgentsServiceImpl implements AgentsService {
   protected connected = false;
   protected hubEventDisposable: Disposable | undefined;
   protected hubStateDisposable: Disposable | undefined;
+  // Set for the span of one `load()` call, from its own subscribe onward
+  // (see `load`) until `tracked` is rebuilt. An event that reaches
+  // `onEvent` in that span is queued here instead of applied straight
+  // away: `tracked` still holds the previous load's sessions (or none, on
+  // the very first load), so applying it now would either touch a
+  // now-stale entry that the rebuild is about to overwrite, or find no
+  // tracked entry at all and be dropped for good. `load` replays the
+  // queue, in order, once `tracked` is current again.
+  protected loadInProgress = false;
+  protected queuedEvents: { type: string; properties: Record<string, unknown> }[] = [];
 
   init(hub: OpenCodeHub, resolvePath: (name: "opencode" | "tmux") => string = resolveProgram): void {
     this.hub = hub;
@@ -102,6 +112,41 @@ export class AgentsServiceImpl implements AgentsService {
 
   async load(workspaceRootUris: string[]): Promise<AgentsSnapshot> {
     this.roots = workspaceRootUris.map((uri) => normalizeRoot(fileURLToPath(uri)));
+    // Subscribed before the first await below, so an event that arrives
+    // while the fetches below run (including the very first load, before
+    // this connection ever subscribed) reaches `onEvent` and is queued,
+    // instead of never reaching a listener at all. The `try`/`finally`
+    // below drains that queue once `doLoadFetch` ends, whether it
+    // succeeds or fails: on success, `tracked` is current again, and each
+    // queued event replays through the normal `onEvent` -- the same one a
+    // live event runs, including `notifyChanged` -- so a session already
+    // tracked after the rebuild gets exactly the update it missed, and
+    // `session.created` still adds a session the rebuild did not know
+    // about yet, through its own existing rule. An event for a session
+    // that is not tracked after the rebuild, and is not a
+    // `session.created`, is dropped, the same as it is today for a live
+    // event with no tracked match. On a failure before `tracked` is
+    // touched, the queued events simply replay against the still-current,
+    // unchanged `tracked` -- as if they had never been queued.
+    this.ensureSubscribed();
+    this.loadInProgress = true;
+    this.queuedEvents = [];
+    try {
+      return await this.doLoadFetch();
+    } finally {
+      this.loadInProgress = false;
+      const queued = this.queuedEvents;
+      this.queuedEvents = [];
+      for (const event of queued) {
+        this.onEvent(event.type, event.properties);
+      }
+    }
+  }
+
+  // The fetch-and-rebuild body of `load`, split out so `load` itself can
+  // wrap it in one `try`/`finally` that always drains the event queue
+  // above, on success or on failure.
+  protected async doLoadFetch(): Promise<AgentsSnapshot> {
     const api = await this.hub.apiClient();
     const [sessions, active] = await Promise.all([api.listSessions(), api.activeIds()]);
     // The pending-permission list is scoped by a directory that must equal
@@ -165,7 +210,6 @@ export class AgentsServiceImpl implements AgentsService {
         t.messageCount = await api.messageCount(t.raw.id).catch(() => 0);
       }),
     );
-    this.ensureSubscribed();
     return {
       groups: groupSessions(
         inside.map((t) => this.summary(t)),
@@ -226,6 +270,10 @@ export class AgentsServiceImpl implements AgentsService {
 
   // The event names and the sessionID field are verified live.
   protected onEvent(type: string, properties: Record<string, unknown>): void {
+    if (this.loadInProgress) {
+      this.queuedEvents.push({ type, properties });
+      return;
+    }
     if (type === "session.created") {
       this.onSessionCreated(properties);
       return;

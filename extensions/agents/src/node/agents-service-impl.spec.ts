@@ -109,6 +109,21 @@ describe("AgentsServiceImpl", () => {
     assert.strictEqual(await service.lastMessage("ses_b"), "world");
   });
 
+  it("queues an event that arrives while a load is in flight, and applies it after the rebuild", async () => {
+    // The session list itself is delayed, so the event below reaches
+    // `onEvent` well before `tracked` is rebuilt from the delayed answer.
+    // This is the very first load, so applied straight away (the pre-fix
+    // behavior) it would find no tracked entry at all yet and be dropped
+    // for good; the fix queues it and replays it once `tracked` holds
+    // ses_b again, which pushes the usual card to the client.
+    server.delayMs = 200;
+    const loadPromise = service.load(["file:///m"]);
+    await until(() => client.connection.includes(true));
+    server.pushEvent("session.execution.started", { sessionID: "ses_b" });
+    await loadPromise;
+    await until(() => client.changed.some((s) => s.id === "ses_b" && s.status === "working"));
+  });
+
   it("pushes one card when an event changes a session", async () => {
     await service.load(["file:///m"]);
     await until(() => client.connection.includes(true));
