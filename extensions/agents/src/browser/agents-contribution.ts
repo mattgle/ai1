@@ -108,8 +108,10 @@ export class AgentsContribution
   // only needs the time to run, and that time has a limit.
   //
   // With no tab open, there is no veto, so Theia's own exit confirmation
-  // (`application.confirmExit`) works as usual. With `confirmExit: "never"`,
-  // Theia skips every veto and the processes stay until the back end stops.
+  // (`application.confirmExit`) works as usual. While a tab is open, Theia
+  // shows no confirmation for "always": it adds its dialog only when there
+  // is no other veto. With `confirmExit: "never"`, Theia skips every veto
+  // and the processes stay until the back end stops.
   // The high priority runs this after every veto that can cancel the close.
   onWillStop(): OnWillStopAction | undefined {
     if (!this.terminals.hasTerminals()) {

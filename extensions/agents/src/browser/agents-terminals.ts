@@ -129,7 +129,7 @@ export class AgentsTerminals {
   async closeAllBackends(): Promise<void> {
     const all = [...this.bySession.values(), ...this.byTmux.values()];
     await settleWithin(
-      Promise.all(all.map((terminal) => this.shellTerminalServer.close(terminal.terminalId))),
+      Promise.allSettled(all.map((terminal) => this.shellTerminalServer.close(terminal.terminalId))),
       CLOSE_LIMIT_MS,
     );
   }
