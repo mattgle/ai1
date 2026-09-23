@@ -27,6 +27,13 @@ export class FakeOpenCodeServer {
   // test can push an event while a load is still waiting for its session
   // list.
   delayMs = 0;
+  // Holds every `GET /api/session` answer instead of sending it, so a test
+  // can control exactly when (or whether at all) it is released --
+  // `releaseSessionRequest` sends the oldest held one; a request never
+  // released this way simply never gets an answer, the same as a hung
+  // service.
+  holdSessionResponse = false;
+  private readonly heldSessionAnswers: (() => void)[] = [];
   // Directories for which the permission-request route answers 500, like
   // the live service does for a directory it does not have on disk.
   brokenPermissionDirectories = new Set<string>();
@@ -69,6 +76,18 @@ export class FakeOpenCodeServer {
         // The socket closed between the read of `streams` and the write.
       }
     }
+  }
+
+  // How many `GET /api/session` requests are currently held (see
+  // `holdSessionResponse`).
+  get heldSessionRequests(): number {
+    return this.heldSessionAnswers.length;
+  }
+
+  // Sends the oldest held `GET /api/session` answer, in the order the
+  // requests arrived.
+  releaseSessionRequest(): void {
+    this.heldSessionAnswers.shift()?.();
   }
 
   dropStreams(): void {
@@ -143,7 +162,9 @@ export class FakeOpenCodeServer {
         const next = cursor + limit < this.sessions.length ? String(cursor + limit) : null;
         json(200, { data: page.map(toSessionRecord), cursor: { previous: null, next } });
       };
-      if (this.delayMs > 0) {
+      if (this.holdSessionResponse) {
+        this.heldSessionAnswers.push(answer);
+      } else if (this.delayMs > 0) {
         setTimeout(answer, this.delayMs);
       } else {
         answer();

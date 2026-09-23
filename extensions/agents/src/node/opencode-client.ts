@@ -102,8 +102,22 @@ export async function ensureService(): Promise<void> {
   await runCommand("opencode", ["service", "start"]);
 }
 
+// How long an ordinary request (every route except the `GET /api/event`
+// stream, which is long-lived by design and never gets this timeout) waits
+// for the OpenCode service to answer before this client gives up on it. A
+// hung service must not keep a load open, and its event queue growing,
+// forever -- see `AgentsServiceImpl.load`.
+const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+
 export class OpenCodeClient {
-  constructor(private readonly connection: Connection) {}
+  private readonly requestTimeoutMs: number;
+
+  constructor(
+    private readonly connection: Connection,
+    options: { requestTimeoutMs?: number } = {},
+  ) {
+    this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  }
 
   async listSessions(): Promise<RawSession[]> {
     const all: RawSession[] = [];
@@ -321,6 +335,16 @@ export class OpenCodeClient {
             }
           }
         });
+      });
+      // Idle-socket timeout, not an overall-duration one: it resets on any
+      // byte of activity, so a slow but live answer is not cut off, only a
+      // truly hung one. `destroy(error)` both ends the request and gives
+      // that error to the `error` listener right below, so this rejects
+      // with a clear message instead of leaving the promise pending.
+      request.setTimeout(this.requestTimeoutMs, () => {
+        request.destroy(
+          new Error(`OpenCode did not answer within ${this.requestTimeoutMs}ms (${method} ${route}).`),
+        );
       });
       request.on("error", reject);
       request.end(payload);

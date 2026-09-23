@@ -33,3 +33,39 @@ export class LoadGate {
     return runAgain;
   }
 }
+
+// Runs `task` once, gated by `gate` (the caller has already called
+// `gate.start()`; this is the part that runs after that). A `task` that
+// throws does not skip the retry a joiner is owed: `retry` still runs
+// when `gate.end()` says a request joined while `task` ran, and only once
+// that retry has settled does this function throw `task`'s own error --
+// never silently, and never in place of a more recent, more relevant
+// failure: a `retry` that itself throws propagates its own error instead.
+// `AgentsModel.load()` uses this with `retry` set to itself (`load()`
+// again, so a retry re-arms `gate` through the same public entry point,
+// exactly as a fresh, unrelated call would); it is a free function, not a
+// method on `AgentsModel`, because that class pulls in `@theia/workspace`,
+// which needs a DOM and so cannot be unit-tested in this project's plain
+// Node mocha run -- this piece of the rule can be, and is, tested on its
+// own here.
+export async function runGatedOnce(
+  gate: LoadGate,
+  task: () => Promise<void>,
+  retry: () => Promise<void>,
+): Promise<void> {
+  let again = false;
+  let thrown: unknown;
+  try {
+    await task();
+  } catch (error) {
+    thrown = error;
+  } finally {
+    again = gate.end();
+  }
+  if (again) {
+    await retry();
+  }
+  if (thrown !== undefined) {
+    throw thrown;
+  }
+}

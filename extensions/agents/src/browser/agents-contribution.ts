@@ -137,10 +137,14 @@ export class AgentsContribution
     // starts its own `load()` when the view is open, and `AgentsModel.load`'s
     // own gate (`loadGate`) joins this call with that one when both happen
     // to start close together, so this does not double the work. `load()`
-    // already carries its own error handling (`doLoad`'s try/catch sets
-    // `this.error` and fires `onDidChange`, and never rejects), so no
-    // further handling is needed here.
-    void this.agents.load();
+    // already carries its own error handling for an ordinary RPC failure
+    // (`doLoad`'s try/catch sets `this.error` and fires `onDidChange`), but
+    // it can still throw on an unexpected bug in the loading pipeline (see
+    // `runGatedOnce`); caught here so that cannot become an unhandled
+    // rejection.
+    this.agents.load().catch((error) => {
+      console.error(`ai1-agents: the load failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
   }
 
   protected wireWidget(widget: AgentsWidget): void {
@@ -210,7 +214,7 @@ export class AgentsContribution
 
   override registerCommands(commands: CommandRegistry): void {
     super.registerCommands(commands);
-    commands.registerCommand(AgentsCommands.REFRESH, { execute: () => this.agents.load() });
+    commands.registerCommand(AgentsCommands.REFRESH, { execute: () => this.refresh() });
     commands.registerCommand(AgentsCommands.NEW_SESSION, { execute: () => this.newSession() });
     commands.registerCommand(AgentsCommands.OPEN_SESSION, { execute: () => this.pickAndOpen() });
     commands.registerCommand(AgentsCommands.DELETE_SESSION, { execute: () => this.pickAndDelete() });
@@ -242,6 +246,20 @@ export class AgentsContribution
       priority: 1,
       isVisible: isAgentsWidget,
     });
+  }
+
+  // The Refresh command's own body: `load()` already surfaces an ordinary
+  // RPC failure through `this.agents.error` (which the widget renders),
+  // but it can still throw on an unexpected bug in the loading pipeline
+  // (see `runGatedOnce`) -- caught here, the same way every other command
+  // body in this class reports its own failure, so a click on Refresh
+  // cannot leave an unhandled rejection behind.
+  protected async refresh(): Promise<void> {
+    try {
+      await this.agents.load();
+    } catch (error) {
+      this.messages.error(`Refresh failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   protected async openSessionTerminal(node: SessionNode): Promise<void> {

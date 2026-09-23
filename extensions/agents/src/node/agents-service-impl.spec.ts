@@ -124,6 +124,70 @@ describe("AgentsServiceImpl", () => {
     await until(() => client.changed.some((s) => s.id === "ses_b" && s.status === "working"));
   });
 
+  it("does not double count messageCount for a session.step.ended event replayed after a load", async () => {
+    // The fetched `messageCount` (from the paged message list, below)
+    // already reflects this step: replaying the queued event on top of it
+    // must not add 1 again. Real count 4; the pre-fix code gives 5.
+    server.delayMs = 200;
+    server.messages.set("ses_b", ["a", "b", "c", "d"]);
+    const loadPromise = service.load(["file:///m"]);
+    await until(() => client.connection.includes(true));
+    server.pushEvent("session.step.ended", { sessionID: "ses_b" });
+    await loadPromise;
+    await until(() => client.changed.some((s) => s.id === "ses_b"));
+    const card = client.changed.find((s) => s.id === "ses_b");
+    assert.strictEqual(card?.messageCount, 4);
+  });
+
+  it("keeps a queued event queued until every overlapping load() call on this instance has ended", async () => {
+    server.holdSessionResponse = true;
+    const first = service.load(["file:///m"]);
+    await until(() => client.connection.includes(true));
+    await until(() => server.heldSessionRequests === 1);
+    const second = service.load(["file:///m"]);
+    await until(() => server.heldSessionRequests === 2);
+    server.pushEvent("session.execution.started", { sessionID: "ses_b" });
+    await until(() => queuedEventTypes(service).includes("session.execution.started"));
+    server.releaseSessionRequest();
+    await first;
+    // The bug this guards against: the pre-fix code has one flag for
+    // "a load is running", so the first of two overlapping loads ending
+    // clears it and drains the queue early, even though `second` is still
+    // in flight and about to rebuild `tracked` again, discarding whatever
+    // that early drain just applied.
+    assert.ok(
+      queuedEventTypes(service).includes("session.execution.started"),
+      "the queued event must stay queued while a second load on this instance is still in flight",
+    );
+    server.releaseSessionRequest();
+    await second;
+    assert.ok(!queuedEventTypes(service).includes("session.execution.started"));
+    await until(() => client.changed.some((s) => s.id === "ses_b" && s.status === "working"));
+  });
+
+  it("drops an overflowing event queue and asks for a fresh load instead of replaying it", async () => {
+    server.holdSessionResponse = true;
+    const first = service.load(["file:///m"]);
+    await until(() => client.connection.includes(true));
+    await until(() => server.heldSessionRequests === 1);
+    for (let i = 0; i < 2000; i += 1) {
+      server.pushEvent("session.execution.started", { sessionID: "ses_b" });
+    }
+    await until(() => (service as unknown as { queueOverflowed: boolean }).queueOverflowed === true);
+    // Bounded: the flood above never grew the queue past the limit -- it
+    // was dropped, at least once, along the way.
+    const queueLength = (service as unknown as { queuedEvents: unknown[] }).queuedEvents.length;
+    assert.ok(queueLength <= 1000, `expected the queue to stay at or under the limit, got ${queueLength}`);
+    server.releaseSessionRequest();
+    await first;
+    // The overflow asked for a fresh load instead of replaying a queue
+    // this stale: a new `GET /api/session` request follows on its own,
+    // with nothing further from this test.
+    await until(() => server.heldSessionRequests === 1);
+    server.releaseSessionRequest();
+    await until(() => server.requests.filter((r) => r === "GET /api/session").length === 2);
+  });
+
   it("pushes one card when an event changes a session", async () => {
     await service.load(["file:///m"]);
     await until(() => client.connection.includes(true));
@@ -384,4 +448,14 @@ async function until(condition: () => boolean, timeoutMs = 3000): Promise<void> 
     }
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
+}
+
+// A white-box peek at `AgentsServiceImpl`'s own queued-event types (not
+// part of its public interface): the fake server's own welcome line on
+// every SSE connect (`"server.connected"`, harmless -- it carries no
+// `sessionID`) queues too, while a load is in progress, alongside
+// whatever a test explicitly pushes, so a test that cares about one
+// particular type checks for that type instead of an exact queue length.
+function queuedEventTypes(service: AgentsServiceImpl): string[] {
+  return (service as unknown as { queuedEvents: { type: string }[] }).queuedEvents.map((event) => event.type);
 }

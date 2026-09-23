@@ -22,6 +22,17 @@ interface Tracked {
 // repositories does not fire one HTTP request per repository all at once.
 const PERMISSION_CHECK_CONCURRENCY = 4;
 
+// How many events `onEvent` queues while a load is in progress (see
+// `load`) before it gives up on replaying them one by one. Nothing today
+// makes a load run long enough for this to matter in practice
+// (`OpenCodeClient`'s own request timeout bounds a hung fetch), but an
+// unbounded queue would otherwise grow forever for as long as any load
+// stays open. Past this many, `onEvent` drops the whole queue and `load`
+// asks for a fresh load instead, once every overlapping load on this
+// instance has ended -- simpler, and just as correct, as replaying a
+// queue this stale would be, and it keeps memory bounded.
+const MAX_QUEUED_EVENTS = 1000;
+
 // Strips a trailing slash, so `isInside` and `groupSessions` compare the
 // same value. Keeps "/" for the file-system root, which would otherwise
 // strip to the empty string. Resolves the result with the real file system
@@ -72,16 +83,26 @@ export class AgentsServiceImpl implements AgentsService {
   protected connected = false;
   protected hubEventDisposable: Disposable | undefined;
   protected hubStateDisposable: Disposable | undefined;
-  // Set for the span of one `load()` call, from its own subscribe onward
-  // (see `load`) until `tracked` is rebuilt. An event that reaches
-  // `onEvent` in that span is queued here instead of applied straight
-  // away: `tracked` still holds the previous load's sessions (or none, on
-  // the very first load), so applying it now would either touch a
-  // now-stale entry that the rebuild is about to overwrite, or find no
-  // tracked entry at all and be dropped for good. `load` replays the
-  // queue, in order, once `tracked` is current again.
-  protected loadInProgress = false;
+  // How many `load()` calls on this instance are currently in flight, from
+  // each one's own subscribe onward (see `load`) until its own rebuild of
+  // `tracked` ends. An event that reaches `onEvent` while this is above
+  // zero is queued instead of applied straight away: `tracked` still holds
+  // some previous rebuild's sessions (or none, on the very first load), so
+  // applying the event now would either touch a now-stale entry a rebuild
+  // still in flight is about to overwrite, or find no tracked entry at all
+  // and be dropped for good. A depth counter, not a single flag: two
+  // overlapping `load()` calls on this one instance must not let the
+  // first one to finish drain the queue (or reset it on its own start)
+  // while the second is still rebuilding `tracked` -- `load` only drains
+  // once this returns to zero.
+  protected loadDepth = 0;
   protected queuedEvents: { type: string; properties: Record<string, unknown> }[] = [];
+  // Set when the queue above hit `MAX_QUEUED_EVENTS` and was dropped
+  // while `loadDepth` was still above zero. `load`'s own drain, once
+  // `loadDepth` returns to zero, asks for one more load instead of
+  // replaying the (now empty) queue, since nothing can be replayed for
+  // whatever arrived in the dropped window.
+  protected queueOverflowed = false;
 
   init(hub: OpenCodeHub, resolvePath: (name: "opencode" | "tmux") => string = resolveProgram): void {
     this.hub = hub;
@@ -116,29 +137,54 @@ export class AgentsServiceImpl implements AgentsService {
     // while the fetches below run (including the very first load, before
     // this connection ever subscribed) reaches `onEvent` and is queued,
     // instead of never reaching a listener at all. The `try`/`finally`
-    // below drains that queue once `doLoadFetch` ends, whether it
-    // succeeds or fails: on success, `tracked` is current again, and each
-    // queued event replays through the normal `onEvent` -- the same one a
-    // live event runs, including `notifyChanged` -- so a session already
-    // tracked after the rebuild gets exactly the update it missed, and
-    // `session.created` still adds a session the rebuild did not know
-    // about yet, through its own existing rule. An event for a session
-    // that is not tracked after the rebuild, and is not a
+    // below drains that queue once every overlapping `load()` call on this
+    // instance has ended (`loadDepth` back to zero), whether the last one
+    // to end succeeds or fails: on success, `tracked` is current again,
+    // and each queued event replays through the normal `onEvent` -- the
+    // same one a live event runs, including `notifyChanged` -- so a
+    // session already tracked after the rebuild gets exactly the update
+    // it missed, and `session.created` still adds a session the rebuild
+    // did not know about yet, through its own existing rule. An event for
+    // a session that is not tracked after the rebuild, and is not a
     // `session.created`, is dropped, the same as it is today for a live
     // event with no tracked match. On a failure before `tracked` is
     // touched, the queued events simply replay against the still-current,
-    // unchanged `tracked` -- as if they had never been queued.
+    // unchanged `tracked` -- as if they had never been queued. Only reset
+    // when this is the outermost call (`loadDepth` was zero): a second,
+    // overlapping call must not clear what the first is already queuing.
     this.ensureSubscribed();
-    this.loadInProgress = true;
-    this.queuedEvents = [];
+    if (this.loadDepth === 0) {
+      this.queuedEvents = [];
+    }
+    this.loadDepth += 1;
     try {
       return await this.doLoadFetch();
     } finally {
-      this.loadInProgress = false;
-      const queued = this.queuedEvents;
-      this.queuedEvents = [];
-      for (const event of queued) {
-        this.onEvent(event.type, event.properties);
+      this.loadDepth -= 1;
+      if (this.loadDepth === 0) {
+        const queued = this.queuedEvents;
+        const overflowed = this.queueOverflowed;
+        this.queuedEvents = [];
+        this.queueOverflowed = false;
+        for (const event of queued) {
+          // `replay: true`: the fetched `messageCount` this rebuild just
+          // set (`doLoadFetch`'s own `api.messageCount` call) already
+          // counts this event's step, so counting it a second time here
+          // would be wrong -- see `onEvent`.
+          this.onEvent(event.type, event.properties, { replay: true });
+        }
+        if (overflowed) {
+          // Nothing was replayed for whatever the dropped queue held: a
+          // fresh load is the only way to be current again. Fire-and-
+          // forget, with its own failure caught here so it cannot become
+          // a second, unrelated unhandled rejection on top of whatever
+          // this call itself returns or throws.
+          this.load(workspaceRootUris).catch((error) => {
+            console.warn(
+              `ai1-agents: the reload after an event-queue overflow failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          });
+        }
       }
     }
   }
@@ -269,8 +315,22 @@ export class AgentsServiceImpl implements AgentsService {
   }
 
   // The event names and the sessionID field are verified live.
-  protected onEvent(type: string, properties: Record<string, unknown>): void {
-    if (this.loadInProgress) {
+  // `options.replay` is set only when `load` replays a queued event after
+  // a rebuild (see `load`): the fresh `messageCount` that rebuild just
+  // fetched already counts a `session.step.ended` this queued event
+  // reports, so this call must not count it again, though it still
+  // applies every other fact and still notifies as usual.
+  protected onEvent(
+    type: string,
+    properties: Record<string, unknown>,
+    options: { replay?: boolean } = {},
+  ): void {
+    if (this.loadDepth > 0) {
+      if (this.queuedEvents.length >= MAX_QUEUED_EVENTS) {
+        this.queuedEvents = [];
+        this.queueOverflowed = true;
+        return;
+      }
       this.queuedEvents.push({ type, properties });
       return;
     }
@@ -292,7 +352,7 @@ export class AgentsServiceImpl implements AgentsService {
     }
     const before = computeStatus(tracked.facts);
     tracked.facts = applyEvent(tracked.facts, type, properties);
-    if (type === "session.step.ended") {
+    if (type === "session.step.ended" && !options.replay) {
       tracked.messageCount += 1;
     }
     tracked.raw.time.updated = Date.now();

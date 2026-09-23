@@ -9,7 +9,7 @@ import {
   SessionStatus,
   SessionSummary,
 } from "../common/agents-protocol";
-import { LoadGate } from "../common/load-gate";
+import { LoadGate, runGatedOnce } from "../common/load-gate";
 import { OncePerKey } from "../common/once-per-key";
 import { groupSessions } from "../common/session-groups";
 import { mergeSnapshot } from "../common/session-merge";
@@ -49,7 +49,12 @@ export class AgentsModel implements AgentsClient {
   // the current one ends. `loadChain` is the promise of the whole run --
   // the current load and every "one more" load `loadGate` still asks for
   // -- so every caller who joined along the way waits for, and gets, an
-  // answer that started at or after its own call.
+  // answer that started at or after its own call. In practice the sources
+  // of a joining call are sparse (the widget's own start, a reconnect, the
+  // Refresh command, `pickSession`), but nothing stops one more from
+  // joining while `loadChain` is still settling, in which case a caller
+  // waits through that one more load too, and so on for as long as
+  // requests keep arriving one after another.
   protected readonly loadGate = new LoadGate();
   protected loadChain: Promise<void> | undefined;
   protected loadedOnce = false;
@@ -97,24 +102,23 @@ export class AgentsModel implements AgentsClient {
   // A call that arrives while a load is already running does not start its
   // own load; `loadGate` only marks that one more load must run once the
   // current one ends (see the field comment above and `LoadGate` itself).
+  // `runGatedOnce` (not a method here: it needs no `AgentsModel` state of
+  // its own, and living in `../common/load-gate` alongside `LoadGate`
+  // lets it be unit-tested on its own, which this class itself cannot be
+  // in this project's plain Node mocha run -- `@theia/workspace` needs a
+  // DOM) also keeps a `doLoad` failure from skipping a retry a joiner is
+  // owed, and still surfaces that failure afterward instead of dropping
+  // it -- see its own comment.
   load(): Promise<void> {
     if (!this.loadGate.start()) {
       return this.loadChain ?? Promise.resolve();
     }
-    this.loadChain = this.runLoad();
+    this.loadChain = runGatedOnce(
+      this.loadGate,
+      () => this.doLoad(),
+      () => this.load(),
+    );
     return this.loadChain;
-  }
-
-  protected async runLoad(): Promise<void> {
-    let again = false;
-    try {
-      await this.doLoad();
-    } finally {
-      again = this.loadGate.end();
-    }
-    if (again) {
-      await this.load();
-    }
   }
 
   protected async doLoad(): Promise<void> {
@@ -223,9 +227,15 @@ export class AgentsModel implements AgentsClient {
     // reconnect after a cut needs a repair load (events could be lost
     // during the cut). The gate in `load()` would also fold a duplicate
     // first-connect load into the widget's own call, but skipping it here
-    // avoids starting it at all.
+    // avoids starting it at all. `load()` can now throw (see
+    // `runGatedOnce`), so this is caught here: nothing here awaits this
+    // call, and a caught rejection cannot become an unhandled one.
     if (connected && !wasConnected && this.loadedOnce) {
-      void this.load();
+      this.load().catch((error) => {
+        console.error(
+          `ai1-agents: the reconnect load failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
     }
     this.onDidChangeEmitter.fire();
   }

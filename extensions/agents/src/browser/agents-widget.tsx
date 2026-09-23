@@ -71,7 +71,7 @@ export class AgentsWidget extends TreeWidget {
       }),
     );
     this.toDispose.push(this.agents.onDidChange(() => this.rebuild()));
-    void this.agents.load();
+    this.startLoad();
   }
 
   protected rebuild(): void {
@@ -90,7 +90,18 @@ export class AgentsWidget extends TreeWidget {
 
   protected override onAfterShow(message: Message): void {
     super.onAfterShow(message);
-    void this.agents.load();
+    this.startLoad();
+  }
+
+  // Fires a load and forgets it, the two places above that just want a
+  // fresh load to start: `AgentsModel.load()` can throw on an unexpected
+  // bug in the loading pipeline (see `runGatedOnce`), so this catches
+  // that here -- nothing calls this expecting an answer back, and a
+  // caught rejection cannot become an unhandled one.
+  protected startLoad(): void {
+    this.agents.load().catch((error) => {
+      console.error(`ai1-agents: the load failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
   }
 
   protected override renderTree(model: TreeModel): React.ReactNode {

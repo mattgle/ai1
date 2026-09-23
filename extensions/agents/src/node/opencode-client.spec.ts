@@ -78,6 +78,31 @@ describe("OpenCodeClient", () => {
     await assert.rejects(wrong.listSessions(), /401|authenticate/);
   });
 
+  it("rejects a request the service never answers, within its own configured timeout", async () => {
+    server.holdSessionResponse = true;
+    const impatient = new OpenCodeClient(
+      { baseUrl: server.baseUrl, password: server.password },
+      {
+        requestTimeoutMs: 50,
+      },
+    );
+    const started = Date.now();
+    await assert.rejects(impatient.listSessions(), /did not answer/);
+    assert.ok(Date.now() - started < 1000, "must reject well within the test's own timeout, not hang");
+  });
+
+  it("does not time out a request that answers before the configured timeout", async () => {
+    const patient = new OpenCodeClient(
+      { baseUrl: server.baseUrl, password: server.password },
+      {
+        requestTimeoutMs: 200,
+      },
+    );
+    server.delayMs = 20;
+    const sessions = await patient.listSessions();
+    assert.strictEqual(sessions.length, 2);
+  });
+
   it("delivers events and reconnects after a cut", async () => {
     const seen: string[] = [];
     const states: boolean[] = [];
