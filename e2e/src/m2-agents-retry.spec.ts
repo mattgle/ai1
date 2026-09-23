@@ -144,6 +144,10 @@ test.beforeAll(async () => {
   env.THEIA_CONFIG_DIR = configDir;
   env.ZDOTDIR = zdotDir;
   env.HOME = fakeHomeDir;
+  // The service file is under `XDG_STATE_HOME` when it is set, not under
+  // `HOME`, so the real file must not be found through it.
+  delete env.XDG_STATE_HOME;
+  delete env.XDG_CONFIG_HOME;
 
   const launch = await launchApp(workspace.path, userDataDir, env);
   app = launch.app;

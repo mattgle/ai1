@@ -1,7 +1,15 @@
 import * as assert from "node:assert";
+import { spawnSync } from "node:child_process";
 import * as os from "node:os";
 import { FakeOpenCodeServer } from "./fake-opencode-server";
-import { chooseServiceConfigPath, OpenCodeClient, OpenCodeTimeoutError, runCommand } from "./opencode-client";
+import {
+  chooseServiceConfigPath,
+  liveServiceUrl,
+  OpenCodeClient,
+  OpenCodeTimeoutError,
+  processIsAlive,
+  runCommand,
+} from "./opencode-client";
 
 // A `Connection`'s own `servicePasswordDisplayPath`, for a test that does
 // not care which file it names, only that the connection carries one.
@@ -261,5 +269,42 @@ describe("chooseServiceConfigPath", () => {
       candidate === "/home/owner/.local/state/opencode/service.json";
     const chosen = chooseServiceConfigPath(homeDir, "", exists);
     assert.strictEqual(chosen.path, "/home/owner/.local/state/opencode/service.json");
+  });
+});
+
+describe("liveServiceUrl", () => {
+  const alive = (): boolean => true;
+  const dead = (): boolean => false;
+
+  it("gives the file's url when its pid is alive", () => {
+    assert.strictEqual(
+      liveServiceUrl({ url: "http://127.0.0.1:4096", pid: 42 }, alive),
+      "http://127.0.0.1:4096",
+    );
+  });
+
+  it("gives no url when its pid is gone, so the caller asks `opencode service status`", () => {
+    assert.strictEqual(liveServiceUrl({ url: "http://127.0.0.1:4096", pid: 42 }, dead), undefined);
+  });
+
+  it("gives the file's url when the file has no pid", () => {
+    assert.strictEqual(liveServiceUrl({ url: "http://127.0.0.1:4096" }, dead), "http://127.0.0.1:4096");
+  });
+
+  it("gives no url when the file has no url, or no file was read", () => {
+    assert.strictEqual(liveServiceUrl({ pid: 42 }, alive), undefined);
+    assert.strictEqual(liveServiceUrl(undefined, alive), undefined);
+  });
+});
+
+describe("processIsAlive", () => {
+  it("is true for this process", () => {
+    assert.strictEqual(processIsAlive(process.pid), true);
+  });
+
+  it("is false for a process that has exited", () => {
+    const exited = spawnSync("true");
+    assert.ok(exited.pid);
+    assert.strictEqual(processIsAlive(exited.pid), false);
   });
 });

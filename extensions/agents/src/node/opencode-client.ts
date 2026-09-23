@@ -156,12 +156,38 @@ export function chooseServiceConfigPath(
   return { path: oldPath, display: displayHomePath(oldPath, homeDir) };
 }
 
+// True when a process with this id runs. `EPERM` means that it runs as
+// another user.
+export function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+// The state file's `url`, but only while the service that wrote it runs.
+// A service that stops can leave its file behind, with a `url` that no
+// longer answers. The file's `pid` tells whether that service still runs.
+export function liveServiceUrl(
+  file: { url?: unknown; pid?: unknown } | undefined,
+  isAlive: (pid: number) => boolean,
+): string | undefined {
+  if (typeof file?.url !== "string" || !file.url) {
+    return undefined;
+  }
+  if (typeof file.pid === "number" && !isAlive(file.pid)) {
+    return undefined;
+  }
+  return file.url;
+}
+
 // Reads the service URL and the password. The password stays in this
 // process. `opencode service status` is only run when the credentials
-// file itself has no usable `url` (the old file's own shape, or no file
-// at all): the state file's `url` is the running service's own answer to
-// that same question, written when it started, so a second call for the
-// same fact is not needed. The URL is resolved, and can still throw "the
+// file has no live `url` (the old file's own shape, no file at all, or a
+// state file whose service no longer runs, see `liveServiceUrl`). The URL
+// is resolved, and can still throw "the
 // service does not run" (`connectWithStart`, `opencode-hub.ts`, reacts to
 // that by starting the service), before the password is checked -- the
 // same order as before this fix, so a service that has genuinely never
@@ -173,13 +199,17 @@ export async function discoverConnection(): Promise<Connection> {
   const chosen = chooseServiceConfigPath(homeDir, process.env.XDG_STATE_HOME, (candidate) =>
     fs.existsSync(candidate),
   );
-  let parsed: { password?: string; url?: string } | undefined;
+  let parsed: { password?: string; url?: string; pid?: number } | undefined;
   try {
-    parsed = JSON.parse(fs.readFileSync(chosen.path, "utf8")) as { password?: string; url?: string };
+    parsed = JSON.parse(fs.readFileSync(chosen.path, "utf8")) as {
+      password?: string;
+      url?: string;
+      pid?: number;
+    };
   } catch {
     parsed = undefined;
   }
-  let baseUrl = typeof parsed?.url === "string" && parsed.url ? parsed.url : undefined;
+  let baseUrl = liveServiceUrl(parsed, processIsAlive);
   if (!baseUrl) {
     const status = (await runCommand("opencode", ["service", "status"])).trim();
     baseUrl = status

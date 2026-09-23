@@ -47,8 +47,10 @@ Checked on the installed binaries on 2026-09-22 (OpenCode v2.0.12, Herdr 0.9.1):
   after an OpenCode upgrade, which is exactly what happened on the
   owner's machine across the 2.0.12 -> 2.0.15 upgrade (the running
   service's own password, from the state file, got 200; the unchanged
-  old file's got 401). The state file's own `url` is used directly, so
-  `opencode service status` is no longer called when it is present.
+  old file's got 401). The state file's own `url` is used directly while
+  the process in its `pid` runs, so `opencode service status` is not
+  called then. A stopped service can leave its file behind, so a dead
+  `pid` sends AI1 back to `opencode service status`.
 - `GET /api/session` lists sessions with `id`, `title`, `model`, `outcome`
   (`succeeded`, `failed`, `interrupted`), `time` (`created`, `updated`, `idle`),
   and `location.directory`. Query parameters: `limit`, `order`, `search`,
@@ -103,7 +105,8 @@ detection that `changes-view` has (direct children of the workspace root with a
   `~/.local/state/opencode/service.json`), falling back to the older
   `~/.config/opencode/service.json` only when that file does not exist.
   Finds the service URL with `opencode service status` only when the file
-  it read has none. If the service does not run, runs `opencode service
+  it read has none, or when the process in the file's `pid` does not run.
+  If the service does not run, runs `opencode service
   start` one time and waits up to 10 seconds.
 - Holds one connection to `GET /api/event`. On a cut, it reconnects with a
   growing wait from 1 to 30 seconds. After a reconnect it repeats the initial
