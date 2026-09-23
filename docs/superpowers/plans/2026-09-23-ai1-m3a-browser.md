@@ -3796,6 +3796,802 @@ git commit -m "Add the Ports view with the servers of the workspace"
 
 ### Task 8: The agent address
 
+This task was changed after the two spikes (`docs/superpowers/plans/2026-09-23-ai1-m3a-spike.md`, section "Spike 2"). Orca's proxy does not work with Playwright, because Playwright uses flatten auto-attach and needs the real target id. This task writes a new one-page proxy that follows the working spike 2 proxy, and ports only Orca's screenshot helper.
+
+**Files:**
+- Create: `extensions/browser-pane/THIRD-PARTY-NOTICES.md`
+- Create (ported): `extensions/browser-pane/src/electron-main/cdp-screenshot.ts`
+- Create: `extensions/browser-pane/src/electron-main/one-page-proxy.ts`, `one-page-proxy.spec.ts`
+- Create: `extensions/browser-pane/src/electron-main/agent-secret.ts`, `agent-secret.spec.ts`
+- Create: `extensions/browser-pane/src/electron-main/agent-address-server.ts`, `agent-address-server.spec.ts`
+- Create: `extensions/browser-pane/src/electron-main/agent-tabs.ts`, `agent-tabs.spec.ts`
+- Create: `extensions/browser-pane/src/electron-main/agent-address.ts`
+- Modify: `extensions/browser-pane/src/electron-main/browser-main-contribution.ts`, `browser-electron-main-module.ts`
+- Create: `extensions/browser-pane/src/browser/agent-contribution.ts`
+- Modify: `extensions/browser-pane/src/browser/browser-preferences.ts`, `browser-widget.ts`, `browser-frontend-module.ts`
+- Modify: `e2e/src/m3a-browser.spec.ts`
+
+**Interfaces:**
+- Consumes: `GuestRegistry` (Task 4), `GuestPolicies.isAi1BrowserContents` (Task 3), `Channels`, `AgentState`, `AgentAddressConfig`, `AgentAddressResult` (Task 2), `buildMcpConfig` (Task 2), `BrowserTabs` (Task 5), `BrowserWidget.setAgentMark` (Task 5), `AGENT_PROFILE_ID` (Task 2), `browserPreferenceSchema` (Task 6).
+- Produces:
+  - `agent-secret.ts`: `makeSecret(): string`; `readOrCreateSecret(filePath: string): string`; `stripSecret(requestUrl: string, secret: string): string | undefined`.
+  - `one-page-proxy.ts`: `interface ProxyGuest` (the part of `WebContents` the proxy uses); `interface ProxyClient` (the part of a `ws` WebSocket it uses); `class OnePageProxy` with `constructor(guest: ProxyGuest, hooks: OnePageProxyHooks)`, `acceptClient(client: ProxyClient): void`, `listEntry(webSocketUrl: string): object`, `stop(): void`; `interface OnePageProxyHooks { onClientChange(connected: boolean): void; captureScreenshot(params: Record<string, unknown> | undefined): Promise<unknown> }`.
+  - `AgentTarget { handleHttpRequest(path: string, response: ServerResponse): void; acceptClient(client: WebSocket): void }` and `AgentAddressServer` (`constructor(secret, resolveTarget)`, `start(port)`, `stop()`, `port`, `address()`, `webSocketUrl()`).
+  - `AgentTabs` and `AgentTabsHost` (unchanged from the Appendix (the first version of Task 8); see Steps 7–8).
+  - `AgentAddress` (injectable): `configure(config)`, `address()`, `tabs`, `trackFocus()`, `sendState(windowId, connected)`.
+  - Preferences `ai1.browser.agentAddress.enabled` (default `false`) and `ai1.browser.agentAddress.port` (default `9333`); command `ai1.browser.copyMcpConfig`; toolbar button `.ai1-browser-give-to-agent`.
+
+**The rules of the one-page proxy** (from spike 2; each has a unit test in Step 2):
+1. The target id is the real one, from `debugger.sendCommand("Target.getTargetInfo")` (it equals the main frame id). Never a fake id.
+2. On the root session, `Target.setAutoAttach` with `autoAttach: true` sends `Target.attachedToTarget` `{ sessionId, targetInfo: { targetId, type: "page", url, title, attached: true, canAccessOpener: false, browserContextId: "ai1-agent-context" }, waitingForDebugger: false }` **before** its reply `{}`.
+3. Every debugger event without a `sessionId` goes to the client with the page session id. An event with a `sessionId` (a child session: an out-of-process iframe or a worker) keeps it.
+4. Child sessions: the proxy records the child session ids from the debugger's `Target.attachedToTarget` / `Target.detachedFromTarget` events and forwards client commands for them with `debugger.sendCommand(method, params, childSessionId)`.
+5. The proxy enables no domain itself. For each new client it detaches the debugger (if attached) and attaches it again, so the client gets fresh `Runtime.executionContextCreated` events. Client messages wait until that attach is done (a promise chain).
+6. Root commands answered locally: `Browser.getVersion`; `Target.setAutoAttach`; `Target.setDiscoverTargets` (reply, then `Target.targetCreated` for the page when `discover` is true); `Target.getTargets` (only the page); `Target.getTargetInfo` (the page id → the page; no id → a `browser` target); `Target.getBrowserContexts`; `Target.attachToTarget` (only the page id); `Target.createTarget` (gives the existing page id, never a new tab; it navigates the page when a URL other than `about:blank` is given); `Target.activateTarget`, `Browser.setDownloadBehavior`, `Target.setRemoteLocations` (`{}`); `Browser.close` (reply `{}`, then close only this client). Any other root command: an error.
+7. On the page session, these are refused with an error: `Browser.*`, and `Target.createTarget`, `Target.closeTarget`, `Target.attachToTarget`, `Target.attachToBrowserTarget`, `Target.createBrowserContext`, `Target.disposeBrowserContext`, `Target.exposeDevToolsProtocol`. A command for an unknown session id gets the error "No session with given id".
+8. On the page session, `Page.bringToFront` gets `{}` and is not forwarded (an agent must never bring AI1 to the front). `Page.captureScreenshot` goes through `hooks.captureScreenshot` (Orca's helper with a timeout; a raw call can hang on a `<webview>` guest).
+9. Each reply carries the `sessionId` of its request.
+10. **One client at a time, and a new client replaces the old one** (the spec; the spike refused the second client instead). The old client is closed. The close event of an old client must not detach the debugger of the new client.
+11. When the debugger detaches (the page closed, or DevTools took it), the proxy sends `Target.detachedFromTarget` for the page session and closes the client.
+
+- [ ] **Step 1: Port the screenshot helper and add the notice**
+
+```bash
+set -euo pipefail
+cd ~/code/personal/ai1
+DEST=extensions/browser-pane/src/electron-main/cdp-screenshot.ts
+{
+  printf '%s\n' "// Ported from Orca (https://github.com/stablyai/orca), MIT License," \
+    "// Copyright (c) 2026 Lovecast Inc. See THIRD-PARTY-NOTICES.md."
+  cat ~/code/orca/src/main/browser/cdp-screenshot.ts
+} > "$DEST"
+npx prettier --write "$DEST"
+grep -n "import" "$DEST"
+```
+
+Expected: the only import is `import type { WebContents } from "electron"`. If there is another import, stop and report.
+
+Create `extensions/browser-pane/THIRD-PARTY-NOTICES.md`:
+
+```markdown
+# Third-party notices
+
+`src/electron-main/cdp-screenshot.ts` is ported from Orca
+(https://github.com/stablyai/orca). The one-page proxy in
+`src/electron-main/one-page-proxy.ts` follows the design of Orca's CDP proxy.
+Orca has this license:
+
+<the full text of ~/code/orca/LICENSE, unchanged>
+```
+
+Copy the license text with `cat ~/code/orca/LICENSE` into the file. Do not change it.
+
+- [ ] **Step 2: Write the failing tests for `OnePageProxy`**
+
+`extensions/browser-pane/src/electron-main/one-page-proxy.spec.ts`:
+
+```ts
+import * as assert from "node:assert";
+import { OnePageProxy, ProxyClient, ProxyGuest } from "./one-page-proxy";
+
+type Listener = (...args: unknown[]) => void;
+
+class FakeDebugger {
+  attached = false;
+  attachCount = 0;
+  detachCount = 0;
+  sent: { method: string; params: unknown; sessionId?: string }[] = [];
+  private readonly listeners = new Map<string, Listener[]>();
+  answers: Record<string, unknown> = {};
+
+  isAttached(): boolean {
+    return this.attached;
+  }
+  attach(): void {
+    this.attached = true;
+    this.attachCount++;
+  }
+  detach(): void {
+    this.attached = false;
+    this.detachCount++;
+  }
+  async sendCommand(method: string, params?: unknown, sessionId?: string): Promise<unknown> {
+    this.sent.push({ method, params, sessionId });
+    if (method === "Target.getTargetInfo") {
+      return { targetInfo: { targetId: "REAL-FRAME-ID", type: "webview" } };
+    }
+    if (method in this.answers) {
+      return this.answers[method];
+    }
+    return {};
+  }
+  on(event: string, listener: Listener): void {
+    this.listeners.set(event, [...(this.listeners.get(event) ?? []), listener]);
+  }
+  emit(event: string, ...args: unknown[]): void {
+    for (const listener of this.listeners.get(event) ?? []) {
+      listener(...args);
+    }
+  }
+}
+
+class FakeClient implements ProxyClient {
+  readyState = 1;
+  received: Record<string, unknown>[] = [];
+  closed = false;
+  private readonly listeners = new Map<string, Listener[]>();
+  send(data: string): void {
+    this.received.push(JSON.parse(data));
+  }
+  close(): void {
+    if (!this.closed) {
+      this.closed = true;
+      this.readyState = 3;
+      this.emit("close");
+    }
+  }
+  on(event: string, listener: Listener): void {
+    this.listeners.set(event, [...(this.listeners.get(event) ?? []), listener]);
+  }
+  emit(event: string, ...args: unknown[]): void {
+    for (const listener of this.listeners.get(event) ?? []) {
+      listener(...args);
+    }
+  }
+  async request(message: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const count = this.received.length;
+    this.emit("message", Buffer.from(JSON.stringify(message)));
+    for (let tries = 0; tries < 100; tries++) {
+      const reply = this.received.slice(count).find((item) => item.id === message.id);
+      if (reply) {
+        return reply;
+      }
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    throw new Error(`no reply to ${String(message.method)}`);
+  }
+}
+
+function setup() {
+  const debuggerFake = new FakeDebugger();
+  const guest: ProxyGuest = {
+    debugger: debuggerFake as unknown as ProxyGuest["debugger"],
+    isDestroyed: () => false,
+    getTitle: () => "Button",
+    getURL: () => "http://127.0.0.1:1/button",
+    getUserAgent: () => "Test",
+  };
+  const changes: boolean[] = [];
+  const screenshots: unknown[] = [];
+  const proxy = new OnePageProxy(guest, {
+    onClientChange: (connected) => changes.push(connected),
+    captureScreenshot: async (params) => {
+      screenshots.push(params);
+      return { data: "PNG" };
+    },
+  });
+  return { proxy, debuggerFake, changes, screenshots };
+}
+
+async function attachedClient(proxy: OnePageProxy): Promise<{ client: FakeClient; sessionId: string }> {
+  const client = new FakeClient();
+  proxy.acceptClient(client);
+  await client.request({ id: 1, method: "Target.setAutoAttach", params: { autoAttach: true, flatten: true } });
+  const event = client.received.find((item) => item.method === "Target.attachedToTarget") as {
+    params: { sessionId: string };
+  };
+  return { client, sessionId: event.params.sessionId };
+}
+
+describe("OnePageProxy", () => {
+  it("sends Target.attachedToTarget with the real target id before the reply to Target.setAutoAttach", async () => {
+    const { proxy } = setup();
+    const client = new FakeClient();
+    proxy.acceptClient(client);
+    await client.request({ id: 1, method: "Target.setAutoAttach", params: { autoAttach: true, flatten: true } });
+    assert.strictEqual(client.received[0].method, "Target.attachedToTarget");
+    const params = client.received[0].params as { targetInfo: Record<string, unknown>; waitingForDebugger: boolean };
+    assert.strictEqual(params.targetInfo.targetId, "REAL-FRAME-ID");
+    assert.strictEqual(params.targetInfo.type, "page");
+    assert.strictEqual(params.targetInfo.browserContextId, "ai1-agent-context");
+    assert.strictEqual(params.waitingForDebugger, false);
+    assert.deepStrictEqual(client.received[1], { id: 1, result: {} });
+  });
+
+  it("attaches the debugger again for each client and enables no domain itself", async () => {
+    const { proxy, debuggerFake } = setup();
+    await attachedClient(proxy);
+    await attachedClient(proxy);
+    assert.strictEqual(debuggerFake.attachCount, 2);
+    assert.ok(debuggerFake.sent.every((command) => !command.method.endsWith(".enable")));
+  });
+
+  it("forwards a page command and gives the reply with the request's session id", async () => {
+    const { proxy, debuggerFake } = setup();
+    debuggerFake.answers["Runtime.evaluate"] = { result: { value: 2 } };
+    const { client, sessionId } = await attachedClient(proxy);
+    const reply = await client.request({ id: 2, method: "Runtime.evaluate", params: { expression: "1+1" }, sessionId });
+    assert.deepStrictEqual(reply, { id: 2, result: { result: { value: 2 } }, sessionId });
+    assert.deepStrictEqual(debuggerFake.sent.at(-1), { method: "Runtime.evaluate", params: { expression: "1+1" }, sessionId: undefined });
+  });
+
+  it("tags page events with the page session id and keeps the id of a child session", async () => {
+    const { proxy, debuggerFake } = setup();
+    const { client, sessionId } = await attachedClient(proxy);
+    debuggerFake.emit("message", {}, "Page.loadEventFired", { timestamp: 1 });
+    debuggerFake.emit("message", {}, "Target.attachedToTarget", { sessionId: "CHILD", targetInfo: {} });
+    debuggerFake.emit("message", {}, "Runtime.consoleAPICalled", { type: "log" }, "CHILD");
+    assert.deepStrictEqual(client.received.at(-3), { method: "Page.loadEventFired", params: { timestamp: 1 }, sessionId });
+    assert.strictEqual(client.received.at(-1)!.sessionId, "CHILD");
+  });
+
+  it("forwards a command of a child session with that session id", async () => {
+    const { proxy, debuggerFake } = setup();
+    const { client } = await attachedClient(proxy);
+    debuggerFake.emit("message", {}, "Target.attachedToTarget", { sessionId: "CHILD", targetInfo: {} });
+    await client.request({ id: 3, method: "Runtime.runIfWaitingForDebugger", sessionId: "CHILD" });
+    assert.deepStrictEqual(debuggerFake.sent.at(-1), { method: "Runtime.runIfWaitingForDebugger", params: {}, sessionId: "CHILD" });
+  });
+
+  it("refuses an unknown session id", async () => {
+    const { proxy } = setup();
+    const { client } = await attachedClient(proxy);
+    const reply = await client.request({ id: 4, method: "Runtime.evaluate", sessionId: "OTHER" });
+    assert.match(String((reply.error as { message: string }).message), /No session with given id/);
+  });
+
+  it("gives the one page for Target.createTarget on the root, and never makes a tab", async () => {
+    const { proxy, debuggerFake } = setup();
+    const { client } = await attachedClient(proxy);
+    const reply = await client.request({ id: 5, method: "Target.createTarget", params: { url: "about:blank" } });
+    assert.deepStrictEqual(reply.result, { targetId: "REAL-FRAME-ID" });
+    assert.ok(!debuggerFake.sent.some((command) => command.method === "Target.createTarget"));
+  });
+
+  it("refuses browser-wide and target commands on the page session", async () => {
+    const { proxy } = setup();
+    const { client, sessionId } = await attachedClient(proxy);
+    for (const [id, method] of [
+      [6, "Browser.close"],
+      [7, "Target.closeTarget"],
+      [8, "Target.createBrowserContext"],
+    ] as const) {
+      const reply = await client.request({ id, method, sessionId });
+      assert.ok(reply.error, method);
+    }
+  });
+
+  it("answers Page.bringToFront locally and sends a screenshot through the hook", async () => {
+    const { proxy, debuggerFake, screenshots } = setup();
+    const { client, sessionId } = await attachedClient(proxy);
+    const front = await client.request({ id: 9, method: "Page.bringToFront", sessionId });
+    assert.deepStrictEqual(front.result, {});
+    assert.ok(!debuggerFake.sent.some((command) => command.method === "Page.bringToFront"));
+    const shot = await client.request({ id: 10, method: "Page.captureScreenshot", params: { format: "png" }, sessionId });
+    assert.deepStrictEqual(shot.result, { data: "PNG" });
+    assert.deepStrictEqual(screenshots, [{ format: "png" }]);
+  });
+
+  it("refuses an unknown root command, and Browser.close on the root closes only the client", async () => {
+    const { proxy, debuggerFake } = setup();
+    const { client } = await attachedClient(proxy);
+    const unknown = await client.request({ id: 11, method: "SystemInfo.getInfo" });
+    assert.ok(unknown.error);
+    await client.request({ id: 12, method: "Browser.close" });
+    assert.strictEqual(client.closed, true);
+    assert.strictEqual(debuggerFake.attached, false);
+  });
+
+  it("replaces the old client, and the old client's close does not detach the new client's debugger", async () => {
+    const { proxy, debuggerFake, changes } = setup();
+    const first = await attachedClient(proxy);
+    const second = await attachedClient(proxy);
+    assert.strictEqual(first.client.closed, true);
+    assert.strictEqual(second.client.closed, false);
+    assert.strictEqual(debuggerFake.attached, true);
+    assert.deepStrictEqual(changes, [true, false, true]);
+  });
+
+  it("sends Target.detachedFromTarget and closes the client when the debugger detaches", async () => {
+    const { proxy, debuggerFake } = setup();
+    const { client, sessionId } = await attachedClient(proxy);
+    debuggerFake.attached = false;
+    debuggerFake.emit("detach", {}, "target closed");
+    assert.deepStrictEqual(client.received.at(-1), {
+      method: "Target.detachedFromTarget",
+      params: { sessionId, targetId: "REAL-FRAME-ID" },
+    });
+    assert.strictEqual(client.closed, true);
+  });
+});
+```
+
+Add `"lib/electron-main/*.spec.js"` is already in the mocha globs (Task 4). Run: `cd extensions/browser-pane && npm test`
+Expected: FAIL, `Cannot find module './one-page-proxy'`.
+
+- [ ] **Step 3: Write `OnePageProxy` and see the tests pass**
+
+`extensions/browser-pane/src/electron-main/one-page-proxy.ts` (no runtime `electron` import, so plain mocha tests it):
+
+```ts
+import { randomBytes } from "node:crypto";
+
+// The part of a `<webview>` guest's `WebContents` that the proxy uses.
+export interface ProxyGuest {
+  debugger: {
+    isAttached(): boolean;
+    attach(protocolVersion?: string): void;
+    detach(): void;
+    sendCommand(method: string, params?: object, sessionId?: string): Promise<unknown>;
+    on(event: "message", listener: (event: unknown, method: string, params: unknown, sessionId?: string) => void): unknown;
+    on(event: "detach", listener: (event: unknown, reason: string) => void): unknown;
+  };
+  isDestroyed(): boolean;
+  getTitle(): string;
+  getURL(): string;
+  getUserAgent(): string;
+}
+
+// The part of a `ws` WebSocket that the proxy uses.
+export interface ProxyClient {
+  readonly readyState: number;
+  send(data: string): void;
+  close(): void;
+  on(event: "message", listener: (data: Buffer | string) => void): unknown;
+  on(event: "close", listener: () => void): unknown;
+}
+
+export interface OnePageProxyHooks {
+  onClientChange(connected: boolean): void;
+  captureScreenshot(params: Record<string, unknown> | undefined): Promise<unknown>;
+}
+
+interface Message {
+  id: number;
+  method: string;
+  params?: Record<string, unknown>;
+  sessionId?: string;
+}
+
+const OPEN = 1;
+const BROWSER_CONTEXT_ID = "ai1-agent-context";
+const REFUSED_ON_PAGE =
+  /^(Browser\.|Target\.(createTarget|closeTarget|attachToTarget|attachToBrowserTarget|createBrowserContext|disposeBrowserContext|exposeDevToolsProtocol)$)/;
+
+// A Chrome DevTools Protocol endpoint with exactly one page: the agent tab.
+// It answers the browser-level commands itself and forwards the page
+// commands to `webContents.debugger`. Playwright's flatten auto-attach needs
+// the real target id and page events that carry the page session id.
+export class OnePageProxy {
+  protected client: ProxyClient | undefined;
+  protected pageSessionId: string | undefined;
+  protected targetId: string | undefined;
+  protected readonly childSessions = new Set<string>();
+
+  constructor(
+    protected readonly guest: ProxyGuest,
+    protected readonly hooks: OnePageProxyHooks,
+  ) {
+    guest.debugger.on("message", (_event, method, params, sessionId) => this.onDebuggerEvent(method, params, sessionId));
+    guest.debugger.on("detach", () => this.onDebuggerDetach());
+  }
+
+  // One client at a time: a new client replaces the old one. Each client
+  // gets a fresh debugger session, so its domain state starts clean.
+  acceptClient(client: ProxyClient): void {
+    const previous = this.client;
+    this.client = client;
+    this.pageSessionId = undefined;
+    this.childSessions.clear();
+    if (previous) {
+      previous.close();
+      this.hooks.onClientChange(false);
+    }
+    const ready = this.attachDebugger();
+    let chain: Promise<void> = ready;
+    client.on("message", (data) => {
+      chain = chain.then(() => this.onClientMessage(client, String(data))).catch(() => undefined);
+    });
+    client.on("close", () => {
+      if (this.client !== client) {
+        return;
+      }
+      this.client = undefined;
+      this.pageSessionId = undefined;
+      this.detachDebugger();
+      this.hooks.onClientChange(false);
+    });
+    this.hooks.onClientChange(true);
+  }
+
+  // The `/json/list` entry. The id is the last known real id.
+  listEntry(webSocketUrl: string): object {
+    return {
+      id: this.targetId ?? "",
+      type: "page",
+      title: this.guest.isDestroyed() ? "" : this.guest.getTitle(),
+      url: this.guest.isDestroyed() ? "" : this.guest.getURL(),
+      webSocketDebuggerUrl: webSocketUrl,
+    };
+  }
+
+  stop(): void {
+    this.client?.close();
+    this.client = undefined;
+    this.detachDebugger();
+  }
+
+  protected async attachDebugger(): Promise<void> {
+    this.detachDebugger();
+    this.guest.debugger.attach("1.3");
+    this.targetId = (await this.realTargetInfo()).targetId;
+  }
+
+  protected detachDebugger(): void {
+    try {
+      if (this.guest.debugger.isAttached()) {
+        this.guest.debugger.detach();
+      }
+    } catch {
+      // The page is gone.
+    }
+  }
+
+  protected async realTargetInfo(): Promise<{ targetId: string }> {
+    const answer = (await this.guest.debugger.sendCommand("Target.getTargetInfo")) as { targetInfo: { targetId: string } };
+    return answer.targetInfo;
+  }
+
+  protected pageTargetInfo(): Record<string, unknown> {
+    return {
+      targetId: this.targetId,
+      type: "page",
+      title: this.guest.getTitle(),
+      url: this.guest.getURL(),
+      attached: true,
+      canAccessOpener: false,
+      browserContextId: BROWSER_CONTEXT_ID,
+    };
+  }
+
+  protected send(client: ProxyClient, message: object): void {
+    if (client === this.client && client.readyState === OPEN) {
+      client.send(JSON.stringify(message));
+    }
+  }
+
+  protected reply(client: ProxyClient, message: Message, result: unknown): void {
+    this.send(client, { id: message.id, result, ...(message.sessionId ? { sessionId: message.sessionId } : {}) });
+  }
+
+  protected fail(client: ProxyClient, message: Message, text: string): void {
+    this.send(client, {
+      id: message.id,
+      error: { code: -32000, message: text },
+      ...(message.sessionId ? { sessionId: message.sessionId } : {}),
+    });
+  }
+
+  protected async onClientMessage(client: ProxyClient, raw: string): Promise<void> {
+    let message: Message;
+    try {
+      message = JSON.parse(raw) as Message;
+    } catch {
+      return;
+    }
+    if (typeof message.id !== "number" || typeof message.method !== "string") {
+      return;
+    }
+    if (!message.sessionId) {
+      return this.onRootCommand(client, message);
+    }
+    if (message.sessionId !== this.pageSessionId && !this.childSessions.has(message.sessionId)) {
+      return this.fail(client, message, "No session with given id");
+    }
+    return this.onPageCommand(client, message);
+  }
+
+  protected async onPageCommand(client: ProxyClient, message: Message): Promise<void> {
+    if (REFUSED_ON_PAGE.test(message.method)) {
+      return this.fail(client, message, `${message.method} is not allowed on the AI1 agent tab.`);
+    }
+    if (message.method === "Page.bringToFront") {
+      return this.reply(client, message, {});
+    }
+    try {
+      if (message.method === "Page.captureScreenshot") {
+        return this.reply(client, message, await this.hooks.captureScreenshot(message.params));
+      }
+      const child = message.sessionId === this.pageSessionId ? undefined : message.sessionId;
+      const result = await this.guest.debugger.sendCommand(message.method, message.params ?? {}, child);
+      this.reply(client, message, result ?? {});
+    } catch (error) {
+      this.fail(client, message, error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  protected async onRootCommand(client: ProxyClient, message: Message): Promise<void> {
+    const params = message.params ?? {};
+    switch (message.method) {
+      case "Browser.getVersion":
+        return this.reply(client, message, {
+          protocolVersion: "1.3",
+          product: `Chrome/${process.versions.chrome ?? "134.0.0.0"}`,
+          revision: "",
+          userAgent: this.guest.getUserAgent(),
+          jsVersion: process.versions.v8,
+        });
+      case "Target.setAutoAttach":
+        if (params.autoAttach && !this.pageSessionId) {
+          this.attachPage(client);
+        }
+        return this.reply(client, message, {});
+      case "Target.setDiscoverTargets":
+        this.reply(client, message, {});
+        if (params.discover) {
+          this.send(client, { method: "Target.targetCreated", params: { targetInfo: this.pageTargetInfo() } });
+        }
+        return;
+      case "Target.getTargets":
+        return this.reply(client, message, { targetInfos: [this.pageTargetInfo()] });
+      case "Target.getTargetInfo":
+        if (params.targetId === this.targetId) {
+          return this.reply(client, message, { targetInfo: this.pageTargetInfo() });
+        }
+        return this.reply(client, message, {
+          targetInfo: { targetId: "browser", type: "browser", title: "", url: "", attached: true, canAccessOpener: false },
+        });
+      case "Target.getBrowserContexts":
+        return this.reply(client, message, { browserContextIds: [BROWSER_CONTEXT_ID] });
+      case "Target.attachToTarget":
+        if (params.targetId !== this.targetId) {
+          return this.fail(client, message, "No target with given id found");
+        }
+        if (!this.pageSessionId) {
+          this.attachPage(client);
+        }
+        return this.reply(client, message, { sessionId: this.pageSessionId });
+      case "Target.createTarget":
+        if (!this.pageSessionId) {
+          this.attachPage(client);
+        }
+        if (typeof params.url === "string" && params.url !== "about:blank") {
+          this.guest.debugger.sendCommand("Page.navigate", { url: params.url }).catch(() => undefined);
+        }
+        return this.reply(client, message, { targetId: this.targetId });
+      case "Target.activateTarget":
+      case "Browser.setDownloadBehavior":
+      case "Target.setRemoteLocations":
+        return this.reply(client, message, {});
+      case "Browser.close":
+        this.reply(client, message, {});
+        client.close();
+        return;
+      default:
+        return this.fail(client, message, `${message.method} is not allowed on the AI1 agent tab.`);
+    }
+  }
+
+  // Chrome sends `Target.attachedToTarget` for an existing page before the
+  // reply to `Target.setAutoAttach`; Playwright relies on that order.
+  protected attachPage(client: ProxyClient): void {
+    this.pageSessionId = randomBytes(16).toString("hex").toUpperCase();
+    this.send(client, {
+      method: "Target.attachedToTarget",
+      params: { sessionId: this.pageSessionId, targetInfo: this.pageTargetInfo(), waitingForDebugger: false },
+    });
+  }
+
+  protected onDebuggerEvent(method: string, params: unknown, sessionId: string | undefined): void {
+    const client = this.client;
+    if (!client || !this.pageSessionId) {
+      return;
+    }
+    const childId = (params as { sessionId?: string } | undefined)?.sessionId;
+    if (method === "Target.attachedToTarget" && childId) {
+      this.childSessions.add(childId);
+    }
+    if (method === "Target.detachedFromTarget" && childId) {
+      this.childSessions.delete(childId);
+    }
+    this.send(client, { method, params, sessionId: sessionId ?? this.pageSessionId });
+  }
+
+  protected onDebuggerDetach(): void {
+    const client = this.client;
+    if (!client) {
+      return;
+    }
+    if (this.pageSessionId) {
+      this.send(client, { method: "Target.detachedFromTarget", params: { sessionId: this.pageSessionId, targetId: this.targetId } });
+    }
+    this.client = undefined;
+    this.pageSessionId = undefined;
+    client.close();
+    this.hooks.onClientChange(false);
+  }
+}
+```
+
+Note on the test "replaces the old client": the old client's `close()` fires its close listener while `this.client` is already the new client, so the listener returns without a detach. The `onClientChange` sequence is `[true, false, true]` (connect, the old one goes, connect).
+
+Note on `attachDebugger`: a client can send `Target.setAutoAttach` before the attach is done. The message chain waits for `ready`, so `this.targetId` is set before `attachPage` reads it.
+
+Run: `npm test`
+Expected: PASS.
+
+- [ ] **Step 4: Write `agent-secret.ts`, `AgentTabs`, and their tests**
+
+Use exactly the tests and the code of the Appendix (the first version of Task 8) for `agent-secret.ts`/`agent-secret.spec.ts` and `agent-tabs.ts`/`agent-tabs.spec.ts` (they are unchanged; they are copied here in full in Steps 4a–4d). RED first for each, then GREEN.
+
+(Steps 4a–4d: the code blocks of the Appendix's Steps 5–8, unchanged.)
+
+- [ ] **Step 5: Write `AgentAddressServer` and its tests**
+
+The Appendix's Steps 9–10 (tests and code), with these changes:
+- `AgentTarget` is `{ handleHttpRequest(path: string, response: http.ServerResponse): void; acceptClient(client: WebSocket): void }` (unchanged).
+- The server's WebSocket path is `/<secret>/devtools/browser` (a browser endpoint, as the spike used): `TARGET_PATH = "/devtools/browser"`.
+- The server no longer closes the previous client itself: `OnePageProxy.acceptClient` does it. In `onUpgrade`, after `handleUpgrade`, call only `target.acceptClient(client)`, and keep `this.client = client` so `stop()` can close it. The test "closes the old client when a new one connects" stays: the fake target in the test must close its previous client in `acceptClient` (add that to `FakeTarget`: `this.clients.at(-1)?.close();` before the push).
+
+- [ ] **Step 6: Write `AgentAddress`, the part with Electron**
+
+`extensions/browser-pane/src/electron-main/agent-address.ts`: the Appendix's Step 11 code, with `CdpWsProxy` replaced by `OnePageProxy`:
+
+```ts
+  protected async resolveTarget(): Promise<AgentTarget> {
+    const guestId = await this.tabs.resolve();
+    const guest = webContents.fromId(guestId);
+    const entry = this.registry.entry(guestId);
+    if (!guest || guest.isDestroyed() || !entry) {
+      throw new Error("The agent tab closed.");
+    }
+    if (guest.isDevToolsOpened()) {
+      const text = "An agent cannot connect while DevTools is open on the agent tab. Close DevTools, then connect again.";
+      webContents.fromId(entry.windowId)?.send(Channels.notice, text);
+      throw new Error(text);
+    }
+    let proxy = this.proxies.get(guestId);
+    if (!proxy) {
+      const created = new OnePageProxy(guest, {
+        onClientChange: (connected) => this.sendState(entry.windowId, connected),
+        captureScreenshot: (params) =>
+          new Promise((resolve, reject) => captureScreenshot(guest, params, resolve, (message) => reject(new Error(message)))),
+      });
+      guest.once("destroyed", () => {
+        created.stop();
+        this.proxies.delete(guestId);
+      });
+      this.proxies.set(guestId, created);
+      proxy = created;
+    }
+    return {
+      handleHttpRequest: (path, response) => {
+        if (path === "/json/list" || path === "/json/list/" || path === "/json" || path === "/json/") {
+          response.writeHead(200, { "content-type": "application/json" });
+          response.end(JSON.stringify([proxy!.listEntry(this.server?.webSocketUrl() ?? "")]));
+          return;
+        }
+        response.writeHead(404).end();
+      },
+      acceptClient: (client) => proxy!.acceptClient(client),
+    };
+  }
+```
+
+(`import { captureScreenshot } from "./cdp-screenshot";`, `import { OnePageProxy } from "./one-page-proxy";`, `import { AgentTarget } from "./agent-address-server";`; `proxies` is `Map<number, OnePageProxy>`.) A `WebContents` satisfies `ProxyGuest`; if typecheck disagrees on the `on` overloads, pass `guest as unknown as ProxyGuest` and say so in the report.
+
+- [ ] **Step 7: IPC handlers, preferences, the front end, and the tab button**
+
+The Appendix's Steps 12–13, unchanged.
+
+- [ ] **Step 8: Write the e2e tests of the agent address**
+
+The Appendix's Step 14, with two more checks inside the Playwright test, after the click:
+
+```ts
+    const shot = await page.screenshot();
+    expect(shot.length).toBeGreaterThan(1000);
+    await page.goto(`${fixture.url}form`);
+    await expect(page).toHaveTitle("Welcome");
+```
+
+The screenshot proves the screenshot helper does not hang. The form page proves a navigation with a redirect through the agent.
+
+- [ ] **Step 9: Build and run everything, then commit**
+
+```bash
+export CC=/usr/bin/cc CXX=/usr/bin/c++
+npm run build
+(cd e2e && npm run test:e2e)
+npm run lint && npm run typecheck && npm test && npm run format:check
+```
+
+Expected: all pass (34 e2e), windows hidden, no Electron or plugin-host process left over. `grep -rln "Ported from Orca" extensions/browser-pane/src` lists exactly `cdp-screenshot.ts`.
+
+```bash
+git add extensions/browser-pane e2e/src/m3a-browser.spec.ts
+git commit -m "Let an agent control the agent tab through Playwright MCP"
+```
+
+---
+
+### Task 9: The owner's guide and the M3a close
+
+**Files:**
+- Modify: `README.md` (a section "AI1 Browser")
+- Modify: `docs/superpowers/specs/2026-09-23-ai1-m3a-browser-design.md` (only if a task changed a decision: record the change and its reason in a section "Changes during the implementation")
+
+**Interfaces:**
+- Consumes: all earlier tasks.
+- Produces: the M3a close: the owner's guide, the full gates, a checklist against "M3a is complete when" of the spec, and a production package (not installed).
+
+- [ ] **Step 1: Write the README section**
+
+Add to `README.md`:
+
+```markdown
+## AI1 Browser
+
+- **New tab:** run "Browser: New Tab" from the command palette. Type an address, for example `localhost:3000` or `example.com`.
+- **Profiles:** each profile keeps its own logins, cookies, and storage. "Default" is yours. "Agent" starts with no logins. Change the profile of a tab in its toolbar. Add, rename, or delete profiles with "Browser: Manage Profiles".
+- **Links:** the first ⌘-click on a web link asks where to open web links, and AI1 remembers the answer. Change it in the setting `ai1.browser.openLinksIn`. Hold Shift with the click to use the other browser one time.
+- **Ports:** the Ports view in the right panel lists the servers that listen on your Mac, grouped by repository. Click a row to open it in a tab.
+- **Agents:** set `ai1.browser.agentAddress.enabled` to `true`. Run "Browser: Copy Playwright MCP Config" and paste the result into the `mcp` section of your OpenCode config. The agent controls one tab, the agent tab (its tab label shows "Agent"). Use the toolbar button "Give this tab to the agent" to choose another tab. The copied config contains a secret: keep it private.
+```
+
+- [ ] **Step 2: Run all the gates**
+
+```bash
+export CC=/usr/bin/cc CXX=/usr/bin/c++
+npm run format:check && npm run lint && npm run typecheck
+for run in 1 2 3; do npm test 2>&1 | grep -E "passing|failing"; done
+npm run build
+(cd e2e && npm run test:e2e)
+```
+
+Expected: all pass; the unit tests pass 3 times; e2e all pass with the windows hidden and the plugin-host check clean.
+
+- [ ] **Step 3: Check the spec criteria**
+
+For each line of "M3a is complete when" in the spec, write the test or the evidence in the report:
+- A browser tab opens on demand, splits, and comes back after a restart: the e2e tab tests; for the restart, the `StatefulWidget` code of Task 5 (a manual check by the owner is fine).
+- Links, form posts, redirects, and logins: the form, redirect, and popup e2e tests.
+- Profiles: the cookie test and the deleted-profile test.
+- ⌘-click and Shift: the terminal e2e test and the `decideLinkTarget` unit tests.
+- Ports: the Ports e2e test.
+- Agents: the Playwright e2e test through the agent address.
+- All gates: Step 2.
+
+- [ ] **Step 4: Build the production package, without the install**
+
+```bash
+./scripts/package-mac.sh
+codesign --verify --deep --strict applications/electron/dist/mac-arm64/AI1.app && echo SIGNATURE OK
+```
+
+Expected: "Packaged: applications/electron/dist/mac-arm64/AI1.app" and "SIGNATURE OK". Do not pass `--install`: the owner copies the app.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add README.md docs/superpowers/specs/2026-09-23-ai1-m3a-browser-design.md
+git commit -m "Describe AI1 Browser in the README"
+```
+
+---
+
+## Self-review of the plan
+
+- **Spec coverage:** the webview tag and the navigation exception (Task 3); page security, popups, permissions, downloads, certificates (Tasks 3 and 5); profiles and their file (Task 4) and the profile menu (Task 5); the tab, its toolbar, restore, errors, and the Retry, Reload, and Continue anyway buttons (Task 5); the link rule and the one-time question (Task 6); the Ports view (Task 7); the agent address with the secret, the settings, one client at a time, the agent tab, "Give to agent", the mark, and the MCP config command (Task 8); the `Target.createTarget` question (Tasks 1 and 8); the owner's guide and the close (Task 9).
+- **Task 8 changed after the spikes:** Task 8 now writes `OnePageProxy` (from spike 2) and ports only Orca's screenshot helper. The first version is kept as an appendix for the code that did not change.
+- **Placeholders:** none. The one decision that depends on facts from outside the repo (the answers of the spike) has its default in Task 8 and a rule for the controller.
+- **Names across tasks:** `browserApi()`, `Channels.*`, `BrowserTabs.open/all/byTabId/profiles/applyProfiles`, `BrowserWidget.tabId/setAgentMark/setProfiles/focusAddress`, `GuestRegistry.register/entry/guestOf/tabsOf/forget`, `GuestPolicies.isAi1BrowserContents/attach/guardWebviewAttach/sendToWindowOf/acceptCertificate`, `AgentTabs.resolve/tabCreated/guestRegistered/setAgentTab/agentTabOf`, `AgentAddressServer.start/stop/address/webSocketUrl/port`: each is defined in the task that produces it and used with the same signature later.
+- **Review Focus:** each of the five lines has its test: Task 2 (`normalizeAddress` word input), Tasks 4 and 5 (deleted profile), Task 8 (`AgentTabs` timeout and no window; `AgentAddressServer` stop and restart on another port), Task 7 (`parseLsofListen` IPv6 and duplicate rows).
+
+## Appendix: the first version of Task 8
+
+This is the first version of Task 8, kept because the new Task 8 reuses its code for the secret, the agent tabs, the agent server, `AgentAddress`, the IPC handlers, the front end, and the e2e test. Do not implement it as it is: its `src/electron-main/cdp/` port of Orca's proxy does not work with Playwright (see the spike facts).
+
 Before the dispatch, the controller applies the "Changes for Task 8" of the spike facts file (Task 1) to this task.
 
 **Files:**
@@ -5104,77 +5900,3 @@ Expected: all pass. Privacy check on the staged diff: no match. `grep -rln "Port
 git add extensions/browser-pane e2e/src/m3a-browser.spec.ts
 git commit -m "Let an agent control the agent tab through Playwright MCP"
 ```
-
----
-
-### Task 9: The owner's guide and the M3a close
-
-**Files:**
-- Modify: `README.md` (a section "AI1 Browser")
-- Modify: `docs/superpowers/specs/2026-09-23-ai1-m3a-browser-design.md` (only if a task changed a decision: record the change and its reason in a section "Changes during the implementation")
-
-**Interfaces:**
-- Consumes: all earlier tasks.
-- Produces: the M3a close: the owner's guide, the full gates, a checklist against "M3a is complete when" of the spec, and a production package (not installed).
-
-- [ ] **Step 1: Write the README section**
-
-Add to `README.md`:
-
-```markdown
-## AI1 Browser
-
-- **New tab:** run "Browser: New Tab" from the command palette. Type an address, for example `localhost:3000` or `example.com`.
-- **Profiles:** each profile keeps its own logins, cookies, and storage. "Default" is yours. "Agent" starts with no logins. Change the profile of a tab in its toolbar. Add, rename, or delete profiles with "Browser: Manage Profiles".
-- **Links:** the first ⌘-click on a web link asks where to open web links, and AI1 remembers the answer. Change it in the setting `ai1.browser.openLinksIn`. Hold Shift with the click to use the other browser one time.
-- **Ports:** the Ports view in the right panel lists the servers that listen on your Mac, grouped by repository. Click a row to open it in a tab.
-- **Agents:** set `ai1.browser.agentAddress.enabled` to `true`. Run "Browser: Copy Playwright MCP Config" and paste the result into the `mcp` section of your OpenCode config. The agent controls one tab, the agent tab (its tab label shows "Agent"). Use the toolbar button "Give this tab to the agent" to choose another tab. The copied config contains a secret: keep it private.
-```
-
-- [ ] **Step 2: Run all the gates**
-
-```bash
-export CC=/usr/bin/cc CXX=/usr/bin/c++
-npm run format:check && npm run lint && npm run typecheck
-for run in 1 2 3; do npm test 2>&1 | grep -E "passing|failing"; done
-npm run build
-(cd e2e && npm run test:e2e)
-```
-
-Expected: all pass; the unit tests pass 3 times; e2e all pass with the windows hidden and the plugin-host check clean.
-
-- [ ] **Step 3: Check the spec criteria**
-
-For each line of "M3a is complete when" in the spec, write the test or the evidence in the report:
-- A browser tab opens on demand, splits, and comes back after a restart: the e2e tab tests; for the restart, the `StatefulWidget` code of Task 5 (a manual check by the owner is fine).
-- Links, form posts, redirects, and logins: the form, redirect, and popup e2e tests.
-- Profiles: the cookie test and the deleted-profile test.
-- ⌘-click and Shift: the terminal e2e test and the `decideLinkTarget` unit tests.
-- Ports: the Ports e2e test.
-- Agents: the Playwright e2e test through the agent address.
-- All gates: Step 2.
-
-- [ ] **Step 4: Build the production package, without the install**
-
-```bash
-./scripts/package-mac.sh
-codesign --verify --deep --strict applications/electron/dist/mac-arm64/AI1.app && echo SIGNATURE OK
-```
-
-Expected: "Packaged: applications/electron/dist/mac-arm64/AI1.app" and "SIGNATURE OK". Do not pass `--install`: the owner copies the app.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add README.md docs/superpowers/specs/2026-09-23-ai1-m3a-browser-design.md
-git commit -m "Describe AI1 Browser in the README"
-```
-
----
-
-## Self-review of the plan
-
-- **Spec coverage:** the webview tag and the navigation exception (Task 3); page security, popups, permissions, downloads, certificates (Tasks 3 and 5); profiles and their file (Task 4) and the profile menu (Task 5); the tab, its toolbar, restore, errors, and the Retry, Reload, and Continue anyway buttons (Task 5); the link rule and the one-time question (Task 6); the Ports view (Task 7); the agent address with the secret, the settings, one client at a time, the agent tab, "Give to agent", the mark, and the MCP config command (Task 8); the `Target.createTarget` question (Tasks 1 and 8); the owner's guide and the close (Task 9).
-- **Placeholders:** none. The one decision that depends on facts from outside the repo (the answers of the spike) has its default in Task 8 and a rule for the controller.
-- **Names across tasks:** `browserApi()`, `Channels.*`, `BrowserTabs.open/all/byTabId/profiles/applyProfiles`, `BrowserWidget.tabId/setAgentMark/setProfiles/focusAddress`, `GuestRegistry.register/entry/guestOf/tabsOf/forget`, `GuestPolicies.isAi1BrowserContents/attach/guardWebviewAttach/sendToWindowOf/acceptCertificate`, `AgentTabs.resolve/tabCreated/guestRegistered/setAgentTab/agentTabOf`, `AgentAddressServer.start/stop/address/webSocketUrl/port`: each is defined in the task that produces it and used with the same signature later.
-- **Review Focus:** each of the five lines has its test: Task 2 (`normalizeAddress` word input), Tasks 4 and 5 (deleted profile), Task 8 (`AgentTabs` timeout and no window; `AgentAddressServer` stop and restart on another port), Task 7 (`parseLsofListen` IPv6 and duplicate rows).
