@@ -5,15 +5,20 @@ import * as path from "node:path";
 import { _electron as electron, expect, test } from "@playwright/test";
 import { TheiaApp, TheiaWorkspace } from "@theia/playwright";
 import { createMetaRepoFixture } from "./meta-repo-fixture";
+import { removeTempDir } from "./remove-temp-dir";
 
 // This test proves the fix of Critical 1 (fix round 1): a session tab and a
 // persistent-terminal tab must survive a real app restart correctly. That
-// needs two separate Electron app instances sharing the same config folder
-// (so the stored workbench layout carries over) and the same workspace,
-// which `TheiaAppLoader.load` cannot give directly (it does not expose the
-// `ElectronApplication` handle needed to fully quit the first instance
-// before starting the second). This file launches Electron itself, the same
-// way `@theia/playwright`'s `TheiaElectronAppLoader.load` does internally.
+// needs two separate Electron app instances sharing the same Electron
+// user-data folder (the workbench layout lives there, in the browser's
+// `localStorage`; Theia's `ShellLayoutRestorer` uses `LocalStorageService`,
+// backed by `window.localStorage` -- `THEIA_CONFIG_DIR`, set below, is a
+// separate thing, Theia's own settings folder, and carries no layout) and
+// the same workspace, which `TheiaAppLoader.load` cannot give directly (it
+// does not expose the `ElectronApplication` handle needed to fully quit the
+// first instance before starting the second). This file launches Electron
+// itself, the same way `@theia/playwright`'s `TheiaElectronAppLoader.load`
+// does internally.
 
 const electronAppPath = path.resolve(__dirname, "..", "..", "applications", "electron");
 const pluginsPath = path.join(electronAppPath, "plugins");
@@ -31,7 +36,11 @@ function listAi1TmuxSessions(): string[] {
   }
 }
 
-async function launchApp(workspacePath: string) {
+// `--user-data-dir` (Chromium's own native flag) and `--electronUserData`
+// (the app's own flag) together redirect the whole Electron user-data
+// folder away from the real one; see the same setup in `m1-smoke.spec.ts`
+// for why both are needed.
+async function launchApp(workspacePath: string, userDataDir: string) {
   const electronApp = await electron.launch({
     args: [
       electronAppPath,
@@ -39,6 +48,8 @@ async function launchApp(workspacePath: string) {
       "--no-cluster",
       `--app-project-path=${electronAppPath}`,
       `--plugins=local-dir:${pluginsPath}`,
+      `--user-data-dir=${userDataDir}`,
+      `--electronUserData=${userDataDir}`,
       workspacePath,
     ],
   });
@@ -57,6 +68,7 @@ async function activateAndType(app: TheiaApp, tabText: string, text: string): Pr
 }
 
 let configDir: string;
+let userDataDir: string;
 let workspacePath: string;
 let sessionId: string;
 let preexistingTmuxSessions: string[];
@@ -66,6 +78,9 @@ test.beforeAll(() => {
   preexistingTmuxSessions = listAi1TmuxSessions();
   configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-restart-config-"));
   process.env.THEIA_CONFIG_DIR = configDir;
+  // Shared by both starts below, so the second one sees the layout the
+  // first one stored (see the file header comment).
+  userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-restart-userdata-"));
   const workspace = new TheiaWorkspace();
   workspace.initialize();
   createMetaRepoFixture(workspace.path);
@@ -110,11 +125,12 @@ test.afterAll(async () => {
     }
   } finally {
     fs.rmSync(configDir, { recursive: true, force: true });
+    await removeTempDir(userDataDir);
   }
 });
 
 test("a session tab and a persistent tab survive a restart correctly", async () => {
-  const start1 = await launchApp(workspacePath);
+  const start1 = await launchApp(workspacePath, userDataDir);
   try {
     if (!(await start1.app.page.locator("#ai1-agents").isVisible())) {
       await start1.app.page.locator("#shell-tab-ai1-agents").click();
@@ -157,7 +173,7 @@ test("a session tab and a persistent tab survive a restart correctly", async () 
     await start1.electronApp.close();
   }
 
-  const start2 = await launchApp(workspacePath);
+  const start2 = await launchApp(workspacePath, userDataDir);
   try {
     await expect(
       start2.app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "sh · dirty-repo" }),

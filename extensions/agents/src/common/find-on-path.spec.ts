@@ -45,4 +45,22 @@ describe("findOnPath", () => {
       path.join("/only", "opencode"),
     );
   });
+
+  it("skips a PATH entry that is not absolute", () => {
+    // Every candidate reports as "executable"; the only way the relative
+    // entry could win is if it were not skipped.
+    const pathValue = ["relative/bin", "/abs/bin"].join(path.delimiter);
+    assert.strictEqual(
+      findOnPath("opencode", pathValue, () => true),
+      path.join("/abs", "bin", "opencode"),
+    );
+  });
+
+  it("gives undefined when every PATH entry is relative", () => {
+    const pathValue = ["relative", "also/relative"].join(path.delimiter);
+    assert.strictEqual(
+      findOnPath("opencode", pathValue, () => true),
+      undefined,
+    );
+  });
 });

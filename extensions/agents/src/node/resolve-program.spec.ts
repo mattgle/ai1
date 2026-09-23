@@ -41,4 +41,15 @@ describe("resolveProgram", () => {
       /OpenCode is not installed\. Install it with: brew install opencode/,
     );
   });
+
+  it("skips a folder on PATH that happens to share the program's name", () => {
+    const folder = path.join(dir, "opencode");
+    fs.mkdirSync(folder);
+    fs.chmodSync(folder, 0o755);
+    process.env.PATH = dir;
+    assert.throws(
+      () => resolveProgram("opencode"),
+      /OpenCode is not installed\. Install it with: brew install opencode/,
+    );
+  });
 });

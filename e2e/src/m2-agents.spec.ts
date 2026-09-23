@@ -5,12 +5,14 @@ import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { TheiaApp, TheiaAppLoader, TheiaWorkspace } from "@theia/playwright";
 import { createMetaRepoFixture } from "./meta-repo-fixture";
+import { removeTempDir } from "./remove-temp-dir";
 
 const electronAppPath = path.resolve(__dirname, "..", "..", "applications", "electron");
 const pluginsPath = path.join(electronAppPath, "plugins");
 
 let app: TheiaApp;
 let configDir: string;
+let userDataDir: string;
 let sessionId: string;
 let preexistingTmuxSessions: string[];
 
@@ -36,6 +38,11 @@ test.beforeAll(async ({ playwright, browser }) => {
   // runner's environment, so this folder becomes the app's settings folder.
   configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-config-"));
   process.env.THEIA_CONFIG_DIR = configDir;
+  // Electron's own user-data folder (its default is the real `AI1` folder
+  // under the machine's application support directory) holds the workbench
+  // layout; two launch flags redirect it fully. See the same setup in
+  // `m1-smoke.spec.ts` for why both are needed.
+  userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-userdata-"));
   const workspace = new TheiaWorkspace();
   workspace.initialize();
   createMetaRepoFixture(workspace.path);
@@ -67,7 +74,22 @@ test.beforeAll(async ({ playwright, browser }) => {
   );
   sessionId = JSON.parse(raw).data.id;
   app = await TheiaAppLoader.load(
-    { playwright, browser, useElectron: { electronAppPath, pluginsPath } },
+    {
+      playwright,
+      browser,
+      useElectron: {
+        launchOptions: {
+          additionalArgs: [
+            "--no-sandbox",
+            "--no-cluster",
+            `--user-data-dir=${userDataDir}`,
+            `--electronUserData=${userDataDir}`,
+          ],
+          electronAppPath,
+          pluginsPath,
+        },
+      },
+    },
     workspace,
   );
 });
@@ -92,6 +114,7 @@ test.afterAll(async () => {
     }
   } finally {
     fs.rmSync(configDir, { recursive: true, force: true });
+    await removeTempDir(userDataDir);
   }
 });
 

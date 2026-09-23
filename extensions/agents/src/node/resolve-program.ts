@@ -2,8 +2,14 @@ import * as fs from "node:fs";
 import { findOnPath } from "../common/find-on-path";
 import { notInstalledMessage } from "./opencode-client";
 
+// A regular file, not a folder (a folder can itself pass `X_OK`, meaning
+// only that it can be traversed, not that it is a program), that the
+// process can execute.
 function isExecutableFile(candidate: string): boolean {
   try {
+    if (!fs.statSync(candidate).isFile()) {
+      return false;
+    }
     fs.accessSync(candidate, fs.constants.X_OK);
     return true;
   } catch {

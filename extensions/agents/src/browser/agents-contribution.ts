@@ -3,6 +3,7 @@ import {
   AbstractViewContribution,
   ConfirmDialog,
   FrontendApplicationContribution,
+  OnWillStopAction,
   Widget,
 } from "@theia/core/lib/browser";
 import {
@@ -80,11 +81,12 @@ export class AgentsContribution
     await this.openView({ reveal: false });
   }
 
-  // The application shell is not attached yet during `onStart`
-  // (`FrontendApplicationContribution.onStart`'s own doc comment), so a
-  // terminal tab cannot be added to it here. `onDidInitializeLayout` runs
-  // once the shell is attached and the layout (restored or default) is
-  // settled.
+  // A tab added directly to the shell during `onStart` is not lost --
+  // Lumino accepts a widget before the shell is attached to the DOM -- but
+  // the layout restore that runs afterward (`initializeLayout()`, which
+  // either restores the stored layout or builds the default one) rebuilds
+  // the dock panels from scratch and unparents it again. `onDidInitializeLayout`
+  // runs once that rebuild is settled, so a tab added there stays.
   async onStart(): Promise<void> {
     const widget = await this.widget;
     widget.onOpenSession = (node) => void this.openSessionTerminal(node);
@@ -98,6 +100,28 @@ export class AgentsContribution
         `ai1-agents: could not reopen persistent terminals: ${error instanceof Error ? error.message : String(error)}`,
       );
     });
+  }
+
+  // The reliable place to close the back-end process of every open session
+  // and persistent-shell tab: `isSafeToShutDown()` awaits this `action`
+  // before a reload or a window close proceeds. See the long comment on
+  // `AgentsTerminals.closeAllBackends` for why `onStop` (below) cannot do
+  // this reliably by itself. `action` always returns `true`: this never
+  // asks the user to confirm anything, it only needs the time to run.
+  onWillStop(): OnWillStopAction {
+    return {
+      action: async () => {
+        await this.terminals.closeAllBackends();
+        return true;
+      },
+      reason: "AI1 agent terminals",
+    };
+  }
+
+  // A best-effort companion to `onWillStop`, for a path that does not go
+  // through it (see `AgentsTerminals.disposeAll`).
+  onStop(): void {
+    this.terminals.disposeAll();
   }
 
   override registerCommands(commands: CommandRegistry): void {
@@ -244,6 +268,10 @@ export class AgentsContribution
   protected async pickSession(placeholder: string): Promise<SessionSummary | undefined> {
     if (!this.agents.loaded) {
       await this.agents.load();
+    }
+    if (this.agents.error) {
+      this.messages.error(this.agents.error);
+      return undefined;
     }
     const items = this.agents.groups.flatMap((group) =>
       group.sessions.map((session) => ({

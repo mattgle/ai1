@@ -16,9 +16,10 @@ export function parseTmuxList(output: string): string[] {
 }
 
 // Reads the AI1 sessions, with their directory, from the output of
-// `tmux ls -F '#{session_name}:#{session_path}'`. A directory can itself
-// hold no colon-sensitive parsing beyond the first one: everything after the
-// first colon is the path, verbatim.
+// `tmux ls -F '#{session_name}:#{session_path}'`. Everything after the
+// first colon is the path, verbatim: tmux does not allow a colon in a
+// session name, so the first colon is always the separator, even if the
+// path itself contains one.
 export function parseTmuxSessions(output: string): TmuxSession[] {
   return output
     .split("\n")
