@@ -65,9 +65,19 @@ describe("AgentsServiceImpl", () => {
     server.active.add("ses_a");
     server.messages.set("ses_b", ["hello", "world"]);
     hub = new OpenCodeHub();
-    hub.init(() => Promise.resolve(new OpenCodeClient({ baseUrl, password: server.password })), {
-      retryMs: 20,
-    });
+    hub.init(
+      () =>
+        Promise.resolve(
+          new OpenCodeClient({
+            baseUrl,
+            password: server.password,
+            servicePasswordDisplayPath: "~/test/service.json",
+          }),
+        ),
+      {
+        retryMs: 20,
+      },
+    );
     service = new AgentsServiceImpl();
     service.init(hub, (name) => `/fake/bin/${name}`);
     client = new RecordingClient();
@@ -219,7 +229,11 @@ describe("AgentsServiceImpl", () => {
       () =>
         Promise.resolve(
           new OpenCodeClient(
-            { baseUrl: server.baseUrl, password: server.password },
+            {
+              baseUrl: server.baseUrl,
+              password: server.password,
+              servicePasswordDisplayPath: "~/test/service.json",
+            },
             { requestTimeoutMs: timeoutMs },
           ),
         ),

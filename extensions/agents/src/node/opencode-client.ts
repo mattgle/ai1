@@ -8,6 +8,11 @@ import { SseParser } from "../common/sse-parser";
 export interface Connection {
   baseUrl: string;
   password: string;
+  // The credentials file this connection's own password came from, `~`
+  // for the home folder, never the real, absolute path -- named in a 401
+  // message, so it points at the file AI1 actually read, not a fixed
+  // guess (`chooseServiceConfigPath`'s own `display`).
+  servicePasswordDisplayPath: string;
 }
 
 export interface RawSession {
@@ -73,11 +78,6 @@ export class OpenCodeTimeoutError extends Error {
   }
 }
 
-const SERVICE_CONFIG = path.join(os.homedir(), ".config", "opencode", "service.json");
-// The same file, for a message a widget can show on screen: `~` for the
-// home folder, never the real, absolute path (which carries the owner's
-// user name).
-const SERVICE_CONFIG_DISPLAY = "~/.config/opencode/service.json";
 const PAGE_SIZE = 100;
 const MAX_SESSION_PAGES = 50;
 // The spec value (`2026-09-22-ai1-m2-agents-design.md`, "Initial load"):
@@ -114,28 +114,87 @@ export function runCommand(program: string, args: string[]): Promise<string> {
   });
 }
 
-// Reads the service URL and the password. The password stays in this process.
+// `~` for the home folder, never the real, absolute path (which carries
+// the owner's user name), for a message a widget can show on screen. A
+// path outside the home folder (a custom `XDG_STATE_HOME`) is shown as
+// given: there is no home-folder prefix in it to hide.
+function displayHomePath(absolute: string, homeDir: string): string {
+  return absolute === homeDir || absolute.startsWith(`${homeDir}${path.sep}`)
+    ? `~${absolute.slice(homeDir.length)}`
+    : absolute;
+}
+
+// Which credentials file to read. OpenCode 2.0.15 (verified live
+// 2026-09-23, the version the owner's `opencode-v2` tap upgraded to from
+// 2.0.12) writes a fresh `$XDG_STATE_HOME/opencode/service.json` (or
+// `~/.local/state/opencode/service.json` when `XDG_STATE_HOME` is unset,
+// the XDG default) on every service start, with
+// `{ id, version, url, pid, password }` -- the `password` there is
+// always the one the running service actually checks requests against.
+// The older `~/.config/opencode/service.json` (`{ password }` only, no
+// `url`) is read only when that state file does not exist, for an
+// OpenCode version that predates it. Reading the old file
+// unconditionally (AI1's own behavior before this fix) can silently
+// check a stale password left over from before an upgrade -- exactly
+// what broke the owner's own installed app across the 2.0.12 -> 2.0.15
+// upgrade: the state file's password, written at 12:26:29, answered with
+// 200; the old file's, unchanged since Sep 21, answered with 401 --
+// verified live 2026-09-23, a single read-only `GET` with each, status
+// code only, no password logged.
+export function chooseServiceConfigPath(
+  homeDir: string,
+  xdgStateHome: string | undefined,
+  exists: (candidate: string) => boolean,
+): { path: string; display: string } {
+  const stateBase =
+    xdgStateHome && xdgStateHome.trim() !== "" ? xdgStateHome : path.join(homeDir, ".local", "state");
+  const statePath = path.join(stateBase, "opencode", "service.json");
+  if (exists(statePath)) {
+    return { path: statePath, display: displayHomePath(statePath, homeDir) };
+  }
+  const oldPath = path.join(homeDir, ".config", "opencode", "service.json");
+  return { path: oldPath, display: displayHomePath(oldPath, homeDir) };
+}
+
+// Reads the service URL and the password. The password stays in this
+// process. `opencode service status` is only run when the credentials
+// file itself has no usable `url` (the old file's own shape, or no file
+// at all): the state file's `url` is the running service's own answer to
+// that same question, written when it started, so a second call for the
+// same fact is not needed. The URL is resolved, and can still throw "the
+// service does not run" (`connectWithStart`, `opencode-hub.ts`, reacts to
+// that by starting the service), before the password is checked -- the
+// same order as before this fix, so a service that has genuinely never
+// run even once (neither credentials file exists yet) still gets that
+// same start-and-retry treatment, not a "no password" error that a start
+// cannot fix.
 export async function discoverConnection(): Promise<Connection> {
-  const status = (await runCommand("opencode", ["service", "status"])).trim();
-  const baseUrl = status
-    .split("\n")
-    .map((line) => line.trim())
-    .find((line) => line.startsWith("http"));
-  if (!baseUrl) {
-    throw new Error(`The OpenCode service does not run. Output: ${status}`);
-  }
-  let password: string | undefined;
+  const homeDir = os.homedir();
+  const chosen = chooseServiceConfigPath(homeDir, process.env.XDG_STATE_HOME, (candidate) =>
+    fs.existsSync(candidate),
+  );
+  let parsed: { password?: string; url?: string } | undefined;
   try {
-    password = (JSON.parse(fs.readFileSync(SERVICE_CONFIG, "utf8")) as { password?: string }).password;
+    parsed = JSON.parse(fs.readFileSync(chosen.path, "utf8")) as { password?: string; url?: string };
   } catch {
-    password = undefined;
+    parsed = undefined;
   }
+  let baseUrl = typeof parsed?.url === "string" && parsed.url ? parsed.url : undefined;
+  if (!baseUrl) {
+    const status = (await runCommand("opencode", ["service", "status"])).trim();
+    baseUrl = status
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line.startsWith("http"));
+    if (!baseUrl) {
+      throw new Error(`The OpenCode service does not run. Output: ${status}`);
+    }
+  }
+  const password = parsed?.password;
   if (!password) {
-    throw new Error(
-      `AI1 cannot authenticate with the OpenCode service. No password in ${SERVICE_CONFIG_DISPLAY}.`,
-    );
+    throw new Error(`AI1 cannot authenticate with the OpenCode service. No password in ${chosen.display}.`);
   }
-  return { baseUrl, password };
+  return { baseUrl, password, servicePasswordDisplayPath: chosen.display };
 }
 
 export async function ensureService(): Promise<void> {
@@ -406,7 +465,7 @@ export class OpenCodeClient {
             reject(
               new OpenCodeHttpError(
                 401,
-                `AI1 cannot authenticate with the OpenCode service (401). Check the password in ${SERVICE_CONFIG_DISPLAY}.`,
+                `AI1 cannot authenticate with the OpenCode service (401). Check the password in ${this.connection.servicePasswordDisplayPath}.`,
               ),
             );
           } else if (response.statusCode && response.statusCode >= 400) {

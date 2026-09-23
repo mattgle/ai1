@@ -1,7 +1,11 @@
 import * as assert from "node:assert";
 import * as os from "node:os";
 import { FakeOpenCodeServer } from "./fake-opencode-server";
-import { OpenCodeClient, OpenCodeTimeoutError, runCommand } from "./opencode-client";
+import { chooseServiceConfigPath, OpenCodeClient, OpenCodeTimeoutError, runCommand } from "./opencode-client";
+
+// A `Connection`'s own `servicePasswordDisplayPath`, for a test that does
+// not care which file it names, only that the connection carries one.
+const TEST_DISPLAY_PATH = "~/test/service.json";
 
 describe("OpenCodeClient", () => {
   let server: FakeOpenCodeServer;
@@ -10,7 +14,11 @@ describe("OpenCodeClient", () => {
   beforeEach(async () => {
     server = new FakeOpenCodeServer();
     const baseUrl = await server.start();
-    client = new OpenCodeClient({ baseUrl, password: server.password });
+    client = new OpenCodeClient({
+      baseUrl,
+      password: server.password,
+      servicePasswordDisplayPath: TEST_DISPLAY_PATH,
+    });
     server.sessions = [
       {
         id: "ses_a",
@@ -75,10 +83,17 @@ describe("OpenCodeClient", () => {
     assert.ok(!server.sessions.some((session) => session.id === created.id));
   });
 
-  it("rejects with a clear message on 401 that names the credentials file, with ~ for the home folder", async () => {
-    const wrong = new OpenCodeClient({ baseUrl: server.baseUrl, password: "no" });
+  it("rejects with a clear message on 401 that names the file its own connection actually read", async () => {
+    // A connection built from the state file names the state file, not a
+    // fixed guess -- `servicePasswordDisplayPath` is what a real
+    // `discoverConnection()` fills in from `chooseServiceConfigPath`.
+    const wrong = new OpenCodeClient({
+      baseUrl: server.baseUrl,
+      password: "no",
+      servicePasswordDisplayPath: "~/.local/state/opencode/service.json",
+    });
     await assert.rejects(wrong.listSessions(), /401/);
-    await assert.rejects(wrong.listSessions(), /~\/\.config\/opencode\/service\.json/);
+    await assert.rejects(wrong.listSessions(), /~\/\.local\/state\/opencode\/service\.json/);
     // Never the real, absolute path -- that would put the owner's user name
     // in a message a widget can show on screen.
     await assert.rejects(wrong.listSessions(), (error: unknown) => {
@@ -91,7 +106,7 @@ describe("OpenCodeClient", () => {
   it("rejects a request the service never answers, within its own configured timeout", async () => {
     server.holdSessionResponse = true;
     const impatient = new OpenCodeClient(
-      { baseUrl: server.baseUrl, password: server.password },
+      { baseUrl: server.baseUrl, password: server.password, servicePasswordDisplayPath: TEST_DISPLAY_PATH },
       {
         requestTimeoutMs: 50,
       },
@@ -104,7 +119,7 @@ describe("OpenCodeClient", () => {
 
   it("does not time out a request that answers before the configured timeout", async () => {
     const patient = new OpenCodeClient(
-      { baseUrl: server.baseUrl, password: server.password },
+      { baseUrl: server.baseUrl, password: server.password, servicePasswordDisplayPath: TEST_DISPLAY_PATH },
       {
         requestTimeoutMs: 200,
       },
@@ -203,3 +218,48 @@ async function until(condition: () => boolean, timeoutMs = 3000): Promise<void> 
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
+
+describe("chooseServiceConfigPath", () => {
+  const homeDir = "/home/owner";
+
+  it("picks the XDG state file, under ~/.local/state, when it exists", () => {
+    const exists = (candidate: string): boolean =>
+      candidate === "/home/owner/.local/state/opencode/service.json";
+    const chosen = chooseServiceConfigPath(homeDir, undefined, exists);
+    assert.strictEqual(chosen.path, "/home/owner/.local/state/opencode/service.json");
+    assert.strictEqual(chosen.display, "~/.local/state/opencode/service.json");
+  });
+
+  it("falls back to the old config file when only it exists", () => {
+    const exists = (candidate: string): boolean => candidate === "/home/owner/.config/opencode/service.json";
+    const chosen = chooseServiceConfigPath(homeDir, undefined, exists);
+    assert.strictEqual(chosen.path, "/home/owner/.config/opencode/service.json");
+    assert.strictEqual(chosen.display, "~/.config/opencode/service.json");
+  });
+
+  it("uses XDG_STATE_HOME as the state folder's base when it is set", () => {
+    const exists = (candidate: string): boolean => candidate === "/custom/xdg-state/opencode/service.json";
+    const chosen = chooseServiceConfigPath(homeDir, "/custom/xdg-state", exists);
+    assert.strictEqual(chosen.path, "/custom/xdg-state/opencode/service.json");
+    // Not under the home folder, so shown as-is, never a guessed `~` alias.
+    assert.strictEqual(chosen.display, "/custom/xdg-state/opencode/service.json");
+  });
+
+  it("falls back to the old config file's path when neither file exists", () => {
+    const chosen = chooseServiceConfigPath(homeDir, undefined, () => false);
+    assert.strictEqual(chosen.path, "/home/owner/.config/opencode/service.json");
+    assert.strictEqual(chosen.display, "~/.config/opencode/service.json");
+  });
+
+  it("prefers the state file over the old one when both exist", () => {
+    const chosen = chooseServiceConfigPath(homeDir, undefined, () => true);
+    assert.strictEqual(chosen.path, "/home/owner/.local/state/opencode/service.json");
+  });
+
+  it("treats an empty XDG_STATE_HOME the same as unset", () => {
+    const exists = (candidate: string): boolean =>
+      candidate === "/home/owner/.local/state/opencode/service.json";
+    const chosen = chooseServiceConfigPath(homeDir, "", exists);
+    assert.strictEqual(chosen.path, "/home/owner/.local/state/opencode/service.json");
+  });
+});

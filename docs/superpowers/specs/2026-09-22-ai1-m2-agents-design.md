@@ -36,6 +36,19 @@ Checked on the installed binaries on 2026-09-22 (OpenCode v2.0.12, Herdr 0.9.1):
 - The service uses HTTP basic authentication. The password is in
   `~/.config/opencode/service.json`, key `password`. A request with no password
   gets 401.
+- Update, verified live 2026-09-23 against OpenCode v2.0.15: the service
+  now writes its own credentials to
+  `$XDG_STATE_HOME/opencode/service.json` (`~/.local/state/opencode
+  /service.json` when `XDG_STATE_HOME` is not set), key `password`, plus
+  `id`, `version`, `url`, and `pid`, fresh on every service start. AI1
+  reads this file first, and the old `~/.config/opencode/service.json`
+  only when the state file does not exist -- reading the old file
+  unconditionally (its own earlier behavior) checks a stale password
+  after an OpenCode upgrade, which is exactly what happened on the
+  owner's machine across the 2.0.12 -> 2.0.15 upgrade (the running
+  service's own password, from the state file, got 200; the unchanged
+  old file's got 401). The state file's own `url` is used directly, so
+  `opencode service status` is no longer called when it is present.
 - `GET /api/session` lists sessions with `id`, `title`, `model`, `outcome`
   (`succeeded`, `failed`, `interrupted`), `time` (`created`, `updated`, `idle`),
   and `location.directory`. Query parameters: `limit`, `order`, `search`,
@@ -85,9 +98,13 @@ detection that `changes-view` has (direct children of the workspace root with a
 
 `OpenCodeClient`:
 
-- Finds the service URL with `opencode service status`. If the service does not
-  run, runs `opencode service start` one time and waits up to 10 seconds.
-- Reads the password from `~/.config/opencode/service.json`.
+- Reads the password, and the service URL if the file has one, from
+  `$XDG_STATE_HOME/opencode/service.json` (or
+  `~/.local/state/opencode/service.json`), falling back to the older
+  `~/.config/opencode/service.json` only when that file does not exist.
+  Finds the service URL with `opencode service status` only when the file
+  it read has none. If the service does not run, runs `opencode service
+  start` one time and waits up to 10 seconds.
 - Holds one connection to `GET /api/event`. On a cut, it reconnects with a
   growing wait from 1 to 30 seconds. After a reconnect it repeats the initial
   load, because events can be lost.
@@ -203,7 +220,7 @@ session is no longer blocked.
 |---|---|
 | `opencode` is not in the PATH | The view shows "OpenCode is not installed" and the install command (`brew install anomalyco/tap/opencode-v2`, the owner's OpenCode v2 tap; the plain `opencode` formula installs the old 1.x line), with a Retry button. |
 | The service does not start | A message with the output of `opencode service start` and a Retry button. |
-| No password in `service.json`, or 401 | The view shows "AI1 cannot authenticate with the OpenCode service" and the exact name of the credentials file, `~/.config/opencode/service.json`, never the full path. A Retry button shows too. |
+| No password in the credentials file, or 401 | The view shows "AI1 cannot authenticate with the OpenCode service" and the exact name of the file AI1 actually read (`~/.local/state/opencode/service.json`, or `~/.config/opencode/service.json` when the state file does not exist), never the full, absolute path. A Retry button shows too. |
 | A load error of any other kind | The view shows the error message, with a Retry button. A click on Retry runs a fresh load, the same as the Refresh command. |
 | The event stream is cut | "Reconnecting…" shows in the view, also when the view lists no session yet. The wait grows from 1 to 30 seconds. A full load runs after the reconnect. |
 | The global session cap (200) hides an older session of this workspace | The view shows a line: "Showing the 200 newest OpenCode sessions of the service. Older sessions are not listed." Shown also with no session card yet. |

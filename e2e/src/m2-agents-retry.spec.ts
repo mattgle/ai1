@@ -15,8 +15,21 @@ import { removeTempDir } from "./remove-temp-dir";
 // This never touches the owner's real OpenCode service. A fake `opencode`
 // executable, placed ahead of the real one on `PATH` for this test's own
 // Electron process only, always fails, so AI1's own backend never execs
-// the real `opencode` binary, never runs `opencode service status`, and
-// never reads the owner's real `~/.config/opencode/service.json`.
+// the real `opencode` binary and never reaches the owner's real service.
+//
+// `discoverConnection` (`opencode-client.ts`) reads the OpenCode service's
+// own credentials file first (`$XDG_STATE_HOME/opencode/service.json`, or
+// `~/.local/state/opencode/service.json`) and only calls `opencode
+// service status` when that file is missing or has no `url` of its own --
+// on the owner's real machine, with the real service running, that file
+// exists and always has a `url`, so hiding the `opencode` binary alone
+// would never make this test's own load fail: it would just read the
+// real file directly and connect, without ever executing anything on
+// `PATH`. `HOME` is set to a fresh, empty temporary folder for this
+// reason, alongside the `PATH` override below -- with no credentials
+// file to find under that fake home, `discoverConnection` falls back to
+// `opencode service status` exactly as it did before that fix, and hits
+// the fake, always-failing binary.
 //
 // Getting the fake binary onto `PATH` for only this one process is not as
 // simple as passing `env: { PATH: ... }` to Playwright's own
@@ -74,6 +87,7 @@ let configDir: string;
 let userDataDir: string;
 let fakeBinDir: string;
 let zdotDir: string;
+let fakeHomeDir: string;
 let logFile: string;
 let app: TheiaApp;
 let electronApp: Awaited<ReturnType<typeof electron.launch>>;
@@ -81,6 +95,11 @@ let electronApp: Awaited<ReturnType<typeof electron.launch>>;
 test.beforeAll(async () => {
   configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-retry-config-"));
   userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-retry-userdata-"));
+  // Empty on purpose: neither the state credentials file nor the old
+  // config one exists under it, so `discoverConnection` has nothing to
+  // read and falls back to `opencode service status` -- see the file
+  // header comment.
+  fakeHomeDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-retry-home-"));
 
   // The fake `opencode`: it logs every call (so the test can tell a Retry
   // click made a fresh one) and always fails, the same as a machine with no
@@ -123,6 +142,7 @@ test.beforeAll(async () => {
   }
   env.THEIA_CONFIG_DIR = configDir;
   env.ZDOTDIR = zdotDir;
+  env.HOME = fakeHomeDir;
 
   const launch = await launchApp(workspace.path, userDataDir, env);
   app = launch.app;
@@ -136,6 +156,7 @@ test.afterAll(async () => {
     fs.rmSync(configDir, { recursive: true, force: true });
     fs.rmSync(fakeBinDir, { recursive: true, force: true });
     fs.rmSync(zdotDir, { recursive: true, force: true });
+    fs.rmSync(fakeHomeDir, { recursive: true, force: true });
     await removeTempDir(userDataDir);
   }
 });
