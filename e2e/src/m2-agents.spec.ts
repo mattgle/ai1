@@ -32,6 +32,60 @@ function listAi1TmuxSessions(): string[] {
   }
 }
 
+// Polls `GET /api/session/:id/permission` until a request is pending, and
+// returns its id. Called right after the permission-creating request is
+// sent, before any UI assertion, so a `finally` block always has a real
+// id to reply to -- otherwise, if a later UI assertion timed out before the
+// code would otherwise have queried for the id, the request could be left
+// open in the owner's real OpenCode service.
+async function waitForPendingPermissionId(id: string, timeoutMs = 10_000): Promise<string> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const raw = execFileSync("opencode", ["api", "GET", `/api/session/${id}/permission`], {
+      encoding: "utf8",
+    });
+    const pending = JSON.parse(raw).data as { id: string }[];
+    if (pending[0]) {
+      return pending[0].id;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  throw new Error(`no permission request appeared for session ${id} within ${timeoutMs}ms`);
+}
+
+// Replies "reject" to every permission request still pending for `id`.
+// Called unconditionally from a `finally` block: after a successful reply
+// in the try block this finds nothing pending (a no-op); after a failed
+// assertion it finds the one `waitForPendingPermissionId` returned, and
+// replies to it, so a probe permission request never lingers in the
+// owner's real OpenCode service.
+function replyToAllPending(id: string): void {
+  let pending: { id: string }[];
+  try {
+    const raw = execFileSync("opencode", ["api", "GET", `/api/session/${id}/permission`], {
+      encoding: "utf8",
+    });
+    pending = JSON.parse(raw).data as { id: string }[];
+  } catch (error) {
+    // A throw here would hide the test's own failure.
+    console.warn(`could not list the pending permissions of ${id}: ${String(error)}`);
+    return;
+  }
+  for (const item of pending) {
+    try {
+      execFileSync("opencode", [
+        "api",
+        "POST",
+        `/api/session/${id}/permission/${item.id}/reply`,
+        "--data",
+        JSON.stringify({ decision: "reject" }),
+      ]);
+    } catch (error) {
+      console.warn(`could not reply to permission request '${item.id}':`, error);
+    }
+  }
+}
+
 test.beforeAll(async ({ playwright, browser }) => {
   preexistingTmuxSessions = listAi1TmuxSessions();
   // The application must not write into the real settings folder of the
@@ -178,6 +232,7 @@ test("a persistent terminal creates a tmux session", async () => {
 });
 
 test("a prompt moves the card to working and then to done", async () => {
+  await showAgentsView();
   const card = app.page.locator("#ai1-agents .ai1-agents-card", { hasText: "ai1-e2e-session" });
   const row = card.locator("xpath=ancestor::div[contains(@class,'theia-TreeNode')][1]");
   execFileSync(
@@ -191,6 +246,122 @@ test("a prompt moves the card to working and then to done", async () => {
     ],
     { cwd: dirtyRepo },
   );
-  await expect(row.locator(".ai1-agents-status-working")).toBeVisible({ timeout: 30_000 });
-  await expect(row.locator(".ai1-agents-status-done")).toBeVisible({ timeout: 120_000 });
+  // The two inner timeouts must fit inside the Playwright test timeout
+  // (120_000, playwright.config.ts) with margin, or a genuinely slow run
+  // times out at the outer level with a less clear failure.
+  await expect(row.locator(".ai1-agents-status-working")).toBeVisible({ timeout: 20_000 });
+  await expect(row.locator(".ai1-agents-status-done")).toBeVisible({ timeout: 80_000 });
+});
+
+test("a session that waits for a permission shows a notice and a badge", async () => {
+  await showAgentsView();
+  // `POST /api/session/:id/permission` returns at once and leaves the request
+  // pending. The `finally` block below always replies to any request still
+  // pending (or, if the try block's own reply already went out, does nothing).
+  execFileSync(
+    "opencode",
+    [
+      "api",
+      "POST",
+      `/api/session/${sessionId}/permission`,
+      "--data",
+      JSON.stringify({ action: "external_directory", resources: ["/etc/x/*"] }),
+    ],
+    { cwd: dirtyRepo, stdio: "ignore", timeout: 10_000 },
+  );
+  // Toasts and the notification center render the same notice twice in the
+  // DOM (`NotificationComponent`, reused by both); scoping to the open
+  // toasts container picks the one that is actually visible right now.
+  const notice = app.page.locator(".theia-notification-toasts.open .theia-notification-list-item", {
+    hasText: "waits for a permission",
+  });
+  const badge = app.page.locator("#shell-tab-ai1-agents .theia-badge-decorator-sidebar");
+  try {
+    const requestId = await waitForPendingPermissionId(sessionId);
+    await expect(notice).toBeVisible({ timeout: 30_000 });
+    await expect(notice.locator("button.theia-button", { hasText: "Open" })).toBeVisible();
+    await expect(badge).toHaveText("1");
+
+    execFileSync("opencode", [
+      "api",
+      "POST",
+      `/api/session/${sessionId}/permission/${requestId}/reply`,
+      "--data",
+      JSON.stringify({ decision: "reject" }),
+    ]);
+
+    await expect(notice).toHaveCount(0, { timeout: 30_000 });
+    await expect(badge).toHaveCount(0);
+  } finally {
+    replyToAllPending(sessionId);
+  }
+});
+
+test("closing and reopening the Agents view keeps the card callbacks and the badge working", async () => {
+  await showAgentsView();
+  // A side-panel tab has no inline close icon (`theia-app-sides
+  // .lm-TabBar-tabCloseIcon { display: none }`). The palette's "Close Tab"
+  // command acts on `ApplicationShell.currentTabBar`/`currentTitle`
+  // (`CurrentWidgetCommandAdapter`'s fallback when its triggering event has
+  // no tab-bar DOM target, `application-shell.ts`'s `findTabBar`/
+  // `findTitle`), which by this point in the suite is a main-area terminal
+  // tab, not the Agents tab, so it closes the wrong one. The tab's own
+  // right-click "Close" targets the exact tab the click landed on instead
+  // (the same adapter, but its event now DOES have that tab as its DOM
+  // target), which is what a real user would do to close a side-panel view.
+  await app.page.locator("#shell-tab-ai1-agents").click({ button: "right" });
+  await app.page.locator(".lm-Menu-item", { hasText: /^Close$/ }).click();
+  await expect(app.page.locator("#ai1-agents")).toHaveCount(0);
+
+  // Reopens it with its own toggle command (`AbstractViewContribution`'s
+  // default label, "Toggle {viewName}"); `WidgetManager` makes a fresh
+  // `AgentsWidget` instance for it, a different object than the one the
+  // suite's earlier tests used.
+  await app.quickCommandPalette.type("Toggle Agents");
+  await app.page.locator(".quick-input-widget .monaco-list-row", { hasText: "Toggle Agents" }).click();
+  await expect(app.page.locator("#theia-right-side-panel #ai1-agents")).toBeVisible();
+
+  // The card callbacks on the new instance: a click on the fixture card
+  // still opens (or focuses) its terminal.
+  const card = app.page.locator("#ai1-agents .ai1-agents-card", { hasText: "ai1-e2e-session" });
+  if (!(await card.isVisible())) {
+    // A fresh widget instance starts with no saved expansion state, and by
+    // this point in the suite the fixture session is no longer `working`
+    // or `blocked` (the earlier prompt test already moved it to `done`),
+    // so its group starts collapsed again.
+    await app.page.locator("#ai1-agents .ai1-agents-group", { hasText: "dirty-repo" }).click();
+  }
+  await card.click();
+  await expect(
+    app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "OC · ai1-e2e-session" }),
+  ).toBeVisible();
+
+  // The badge on the new tab, with the same real-permission pattern as the
+  // notice test above.
+  execFileSync(
+    "opencode",
+    [
+      "api",
+      "POST",
+      `/api/session/${sessionId}/permission`,
+      "--data",
+      JSON.stringify({ action: "external_directory", resources: ["/etc/w/*"] }),
+    ],
+    { cwd: dirtyRepo, stdio: "ignore", timeout: 10_000 },
+  );
+  const badge = app.page.locator("#shell-tab-ai1-agents .theia-badge-decorator-sidebar");
+  try {
+    const requestId = await waitForPendingPermissionId(sessionId);
+    await expect(badge).toHaveText("1", { timeout: 30_000 });
+    execFileSync("opencode", [
+      "api",
+      "POST",
+      `/api/session/${sessionId}/permission/${requestId}/reply`,
+      "--data",
+      JSON.stringify({ decision: "reject" }),
+    ]);
+    await expect(badge).toHaveCount(0);
+  } finally {
+    replyToAllPending(sessionId);
+  }
 });

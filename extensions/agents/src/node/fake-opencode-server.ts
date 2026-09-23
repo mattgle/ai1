@@ -23,6 +23,9 @@ export class FakeOpenCodeServer {
   brokenSessionBody = false;
   repeatCursor = false;
   endlessPages = false;
+  // Directories for which the permission-request route answers 500, like
+  // the live service does for a directory it does not have on disk.
+  brokenPermissionDirectories = new Set<string>();
   private readonly server: http.Server;
   private readonly streams = new Set<http.ServerResponse>();
 
@@ -84,10 +87,16 @@ export class FakeOpenCodeServer {
     }
     let body = "";
     request.on("data", (chunk) => (body += chunk));
-    request.on("end", () => this.route(request.method ?? "GET", url, body, response));
+    request.on("end", () => this.route(request.method ?? "GET", url, body, response, request.headers));
   }
 
-  private route(method: string, url: URL, body: string, response: http.ServerResponse): void {
+  private route(
+    method: string,
+    url: URL,
+    body: string,
+    response: http.ServerResponse,
+    headers: http.IncomingHttpHeaders,
+  ): void {
     const json = (status: number, value: unknown): void => {
       response.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(value));
     };
@@ -146,7 +155,19 @@ export class FakeOpenCodeServer {
       return;
     }
     if (method === "GET" && url.pathname === "/api/permission/request") {
-      json(200, { data: [...this.pending].map((sessionID) => ({ id: `per_${sessionID}`, sessionID })) });
+      // The live service scopes this list by the `x-opencode-directory`
+      // header, with an exact match against each session's own directory
+      // (no prefix match against an ancestor). Verified live in the Task 6
+      // fix round.
+      const directory = headers["x-opencode-directory"];
+      if (typeof directory === "string" && this.brokenPermissionDirectories.has(directory)) {
+        json(500, { error: "directory not found" });
+        return;
+      }
+      const matching = [...this.pending].filter(
+        (sessionID) => this.sessions.find((session) => session.id === sessionID)?.directory === directory,
+      );
+      json(200, { data: matching.map((sessionID) => ({ id: `per_${sessionID}`, sessionID })) });
       return;
     }
     if (parts[0] === "api" && parts[1] === "session" && parts[2]) {

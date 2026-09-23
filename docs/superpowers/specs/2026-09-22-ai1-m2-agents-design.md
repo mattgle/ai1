@@ -149,9 +149,10 @@ Two levels:
   directory), a badge with the session count, and a button "new session". The
   groups sort by their newest session. A group starts expanded when one of its
   sessions is `working` or `blocked`.
-- A card per session: a status icon on the left (codicons: `sync~spin`
-  working, `warning` blocked in the warning color, `check` done, `error`
-  failed, `circle-outline` idle); the title; the last message in one line, cut;
+- A card per session: a status icon on the left (codicons: `sync` with
+  `codicon-modifier-spin` working, `warning` blocked in the warning color,
+  `check` done, `error` failed, `circle-outline` idle); the title; the last
+  message in one line, cut;
   a third line `<N> msgs · <age> · <model>`. On hover: "open terminal" and
   "delete session" (with a confirm dialog).
 - A line at the top of the view: "<N> terminals open".

@@ -123,10 +123,42 @@ describe("AgentsServiceImpl", () => {
   it("marks a session blocked on a permission event and clears it on the reply", async () => {
     await service.load(["file:///m"]);
     await until(() => client.connection.includes(true));
-    server.pushEvent("session.permission.requested", { sessionID: "ses_a" });
+    server.pushEvent("permission.asked", { sessionID: "ses_a" });
     await until(() => client.changed.some((s) => s.id === "ses_a" && s.status === "blocked"));
-    server.pushEvent("session.permission.replied", { sessionID: "ses_a" });
+    server.pushEvent("permission.replied", { sessionID: "ses_a" });
     await until(() => client.changed.some((s) => s.id === "ses_a" && s.status === "working"));
+  });
+
+  it("loads a session that already has a pending permission as blocked", async () => {
+    // ses_a is /m/alpha, ses_b is /m/beta: a permission already pending for
+    // ses_a at load time (the M4 "already blocked at startup" case) must not
+    // leak into ses_b's directory-scoped call, and must not need the header
+    // to be the workspace root -- only ses_a's own directory matches it.
+    server.pending.add("ses_a");
+    const snapshot = await service.load(["file:///m"]);
+    assert.deepStrictEqual(
+      snapshot.groups.map((group) => [group.name, group.sessions.map((s) => `${s.id}:${s.status}`)]),
+      [
+        ["beta", ["ses_b:done"]],
+        ["alpha", ["ses_a:blocked"]],
+      ],
+    );
+  });
+
+  it("still loads every session when one directory's permission check gives an HTTP error", async () => {
+    // The live service answers 500 for a directory it does not have on disk
+    // any more (a deleted repository, still in a session's stored
+    // directory). One bad directory must not fail the whole load.
+    server.pending.add("ses_b");
+    server.brokenPermissionDirectories.add("/m/alpha");
+    const snapshot = await service.load(["file:///m"]);
+    assert.deepStrictEqual(
+      snapshot.groups.map((group) => [group.name, group.sessions.map((s) => `${s.id}:${s.status}`)]),
+      [
+        ["beta", ["ses_b:blocked"]],
+        ["alpha", ["ses_a:working"]],
+      ],
+    );
   });
 
   it("creates a session in a directory and deletes it", async () => {

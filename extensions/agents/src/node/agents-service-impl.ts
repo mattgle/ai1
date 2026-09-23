@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { injectable } from "@theia/core/shared/inversify";
 import { AgentsClient, AgentsService, AgentsSnapshot, SessionSummary } from "../common/agents-protocol";
+import { mapLimit } from "../common/concurrency-limit";
 import { groupSessions } from "../common/session-groups";
 import { applyEvent, computeStatus, SessionFacts } from "../common/session-status";
 import { TmuxSession } from "../common/tmux-list";
@@ -14,6 +15,11 @@ interface Tracked {
   facts: SessionFacts;
   messageCount: number;
 }
+
+// How many `pendingPermissionSessionIds` calls (one per distinct session
+// directory) run at once during a load, so a workspace with many
+// repositories does not fire one HTTP request per repository all at once.
+const PERMISSION_CHECK_CONCURRENCY = 4;
 
 // Strips a trailing slash, so `isInside` and `groupSessions` compare the
 // same value. Keeps "/" for the file-system root, which would otherwise
@@ -93,11 +99,31 @@ export class AgentsServiceImpl implements AgentsService {
   async load(workspaceRootUris: string[]): Promise<AgentsSnapshot> {
     this.roots = workspaceRootUris.map((uri) => normalizeRoot(fileURLToPath(uri)));
     const api = await this.apiClient();
-    const [sessions, active, pending] = await Promise.all([
-      api.listSessions(),
-      api.activeIds(),
-      api.pendingPermissionSessionIds(),
-    ]);
+    const [sessions, active] = await Promise.all([api.listSessions(), api.activeIds()]);
+    // The pending-permission list is scoped by a directory that must equal
+    // a session's own directory exactly (no prefix match against an
+    // ancestor such as a workspace root, verified live in the Task 6 fix
+    // round), so it is called once per distinct directory of the sessions
+    // this workspace shows, not once per workspace root and not once per
+    // session -- fewer calls than per-session in the common case, where
+    // several sessions of one repository share one directory.
+    const insideDirectories = new Set(
+      sessions.filter((raw) => this.isInside(raw.directory)).map((raw) => raw.directory),
+    );
+    // A directory the OpenCode service does not have on disk any more (a
+    // deleted repository, still in a session's stored directory) gives an
+    // HTTP 500 for this call. One bad directory must not fail the whole
+    // load: its own set is empty, with a warning, and every other
+    // directory's answer still counts.
+    const pendingSets = await mapLimit([...insideDirectories], PERMISSION_CHECK_CONCURRENCY, (directory) =>
+      api.pendingPermissionSessionIds(directory).catch((error) => {
+        console.warn(
+          `ai1-agents: could not read the pending permissions of '${directory}': ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return new Set<string>();
+      }),
+    );
+    const pending = new Set(pendingSets.flatMap((set) => [...set]));
     this.tracked.clear();
     for (const raw of sessions) {
       this.tracked.set(raw.id, {

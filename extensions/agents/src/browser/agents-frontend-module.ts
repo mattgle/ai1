@@ -5,12 +5,10 @@ import {
   WidgetFactory,
 } from "@theia/core/lib/browser";
 import { ServiceConnectionProvider } from "@theia/core/lib/browser/messaging/service-connection-provider";
-import { TabBarDecorator } from "@theia/core/lib/browser/shell/tab-bar-decorator";
 import { TabBarToolbarContribution } from "@theia/core/lib/browser/shell/tab-bar-toolbar";
 import { PreferenceContribution } from "@theia/core/lib/common/preferences/preference-schema";
 import { ContainerModule, interfaces } from "@theia/core/shared/inversify";
 import { AGENTS_SERVICE_PATH, AgentsClient, AgentsService } from "../common/agents-protocol";
-import { AgentsBadgeDecorator } from "./agents-badge";
 import { AgentsContribution } from "./agents-contribution";
 import { AgentsModel } from "./agents-model";
 import { AgentsPreferenceContribution } from "./agents-preferences";
@@ -66,6 +64,7 @@ export default new ContainerModule((bind) => {
   bind(BlockedNotifier).toSelf().inSingletonScope();
   bind(FrontendApplicationContribution).toService(BlockedNotifier);
 
-  bind(AgentsBadgeDecorator).toSelf().inSingletonScope();
-  bind(TabBarDecorator).toService(AgentsBadgeDecorator);
+  // The Agents tab's badge uses Theia's own `BadgeService` and its always-
+  // bound `TabBarBadgeDecorator` (`@theia/core/src/browser/badges`), so it
+  // needs no `TabBarDecorator` of its own; see `AgentsContribution`.
 });

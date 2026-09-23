@@ -130,8 +130,17 @@ export class OpenCodeClient {
     return new Set(Object.keys(active.data));
   }
 
-  async pendingPermissionSessionIds(): Promise<Set<string>> {
-    const pending = await this.get<{ data: { sessionID: string }[] }>("/api/permission/request");
+  // Scoped by the `x-opencode-directory` header, verified live in the Task 6
+  // fix round: a `?location[directory]=` query parameter (the shape the
+  // OpenAPI schema itself documents) is accepted but has no effect, while
+  // the header restricts the result to permission requests of sessions
+  // whose own directory equals it exactly (no prefix match: the parent of a
+  // session's directory gives an empty list). The caller passes one
+  // session's own directory, not a workspace root, for that reason.
+  async pendingPermissionSessionIds(directory: string): Promise<Set<string>> {
+    const pending = await this.get<{ data: { sessionID: string }[] }>("/api/permission/request", {
+      "x-opencode-directory": directory,
+    });
     return new Set(pending.data.map((item) => item.sessionID));
   }
 
@@ -256,14 +265,19 @@ export class OpenCodeClient {
     };
   }
 
-  private get<T>(route: string): Promise<T> {
-    return this.request<T>("GET", route);
+  private get<T>(route: string, extraHeaders?: Record<string, string>): Promise<T> {
+    return this.request<T>("GET", route, undefined, extraHeaders);
   }
 
-  private request<T>(method: string, route: string, body?: unknown): Promise<T> {
+  private request<T>(
+    method: string,
+    route: string,
+    body?: unknown,
+    extraHeaders?: Record<string, string>,
+  ): Promise<T> {
     return new Promise((resolve, reject) => {
       const payload = body === undefined ? undefined : JSON.stringify(body);
-      const headers: Record<string, string> = this.headers();
+      const headers: Record<string, string> = { ...this.headers(), ...extraHeaders };
       if (payload !== undefined) {
         headers["content-type"] = "application/json";
       }

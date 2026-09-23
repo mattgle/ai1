@@ -3,6 +3,7 @@ import {
   PreferenceSchema,
 } from "@theia/core/lib/common/preferences/preference-schema";
 import { injectable } from "@theia/core/shared/inversify";
+import { DEFAULT_VISIBLE_PER_GROUP } from "../common/visible-per-group";
 
 export const VISIBLE_PER_GROUP = "ai1.agents.visibleSessionsPerGroup";
 export const NOTIFY_ON_BLOCKED = "ai1.agents.notifyOnBlocked";
@@ -10,8 +11,9 @@ export const NOTIFY_ON_BLOCKED = "ai1.agents.notifyOnBlocked";
 export const agentsPreferenceSchema: PreferenceSchema = {
   properties: {
     [VISIBLE_PER_GROUP]: {
-      type: "number",
-      default: 30,
+      type: "integer",
+      minimum: 1,
+      default: DEFAULT_VISIBLE_PER_GROUP,
       description:
         "How many sessions of one repository the Agents view shows before it folds the older ones.",
     },

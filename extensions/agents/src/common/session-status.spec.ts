@@ -56,9 +56,9 @@ describe("applyEvent", () => {
   });
 
   it("sets and clears the pending permission", () => {
-    const blocked = applyEvent(base, "session.permission.requested");
+    const blocked = applyEvent(base, "permission.asked");
     assert.strictEqual(blocked.pendingPermission, true);
-    assert.strictEqual(applyEvent(blocked, "session.permission.replied").pendingPermission, false);
+    assert.strictEqual(applyEvent(blocked, "permission.replied").pendingPermission, false);
   });
 
   it("ignores an unknown event", () => {

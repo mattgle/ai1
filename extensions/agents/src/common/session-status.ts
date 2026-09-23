@@ -18,16 +18,21 @@ export interface SessionFacts {
 // session.execution.interrupted are verified live in Task 3 (a prompt run
 // and an interrupt of a running prompt). session.execution.failed did not
 // occur in a live run (every probe either succeeded or was interrupted);
-// its name stays the plan's best guess, unverified. The permission names
-// did not occur in a live run either (no prompt raised a permission
-// request with the owner's config in the time budget); they stay the
-// plan's names, unverified.
+// its name stays the plan's best guess, unverified, but it is confirmed
+// present in the installed opencode v2.0.12 binary's strings. The
+// permission event names are verified live in the Task 6 fix round: the
+// binary contains "permission.asked" and "permission.replied", never
+// "session.permission.requested" or "session.permission.replied", and a
+// live probe (an ai1-probe- session, a real permission request, a real
+// reply) confirmed both the names and their payload shape --
+// `permission.asked`: `{ id, sessionID, action, resources }`;
+// `permission.replied`: `{ sessionID, requestID, reply }`.
 export const EVENT_EXECUTION_STARTED = "session.execution.started";
 export const EVENT_EXECUTION_SUCCEEDED = "session.execution.succeeded";
 export const EVENT_EXECUTION_INTERRUPTED = "session.execution.interrupted";
 export const EVENT_EXECUTION_FAILED = "session.execution.failed"; // unverified
-export const EVENT_PERMISSION_REQUESTED = "session.permission.requested"; // unverified
-export const EVENT_PERMISSION_REPLIED = "session.permission.replied"; // unverified
+export const EVENT_PERMISSION_ASKED = "permission.asked";
+export const EVENT_PERMISSION_REPLIED = "permission.replied";
 
 // blocked wins over working; working wins over an old outcome.
 export function computeStatus(facts: SessionFacts): SessionStatus {
@@ -56,7 +61,7 @@ export function applyEvent(facts: SessionFacts, type: string): SessionFacts {
       return { ...facts, running: false, outcome: "interrupted" };
     case EVENT_EXECUTION_FAILED:
       return { ...facts, running: false, outcome: "failed" };
-    case EVENT_PERMISSION_REQUESTED:
+    case EVENT_PERMISSION_ASKED:
       return { ...facts, pendingPermission: true };
     case EVENT_PERMISSION_REPLIED:
       return { ...facts, pendingPermission: false };

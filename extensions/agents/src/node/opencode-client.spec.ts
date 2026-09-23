@@ -46,11 +46,15 @@ describe("OpenCodeClient", () => {
     assert.strictEqual(server.requests.filter((r) => r === "GET /api/session").length, 3);
   });
 
-  it("reads the active ids and the pending permission ids", async () => {
+  it("reads the active ids and the pending permission ids, scoped by directory", async () => {
     server.active.add("ses_a");
     server.pending.add("ses_b");
     assert.deepStrictEqual([...(await client.activeIds())], ["ses_a"]);
-    assert.deepStrictEqual([...(await client.pendingPermissionSessionIds())], ["ses_b"]);
+    assert.deepStrictEqual([...(await client.pendingPermissionSessionIds("/m/beta"))], ["ses_b"]);
+    // A directory that is not the session's own -- for example its parent --
+    // gives no match, not a prefix match.
+    assert.deepStrictEqual([...(await client.pendingPermissionSessionIds("/m"))], []);
+    assert.deepStrictEqual([...(await client.pendingPermissionSessionIds("/m/alpha"))], []);
   });
 
   it("reads the last message text and the message count", async () => {

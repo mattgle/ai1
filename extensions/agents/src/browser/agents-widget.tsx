@@ -15,6 +15,7 @@ import * as React from "@theia/core/shared/react";
 import { Message } from "@theia/core/shared/@lumino/messaging";
 import { SessionStatus } from "../common/agents-protocol";
 import { cardThirdLine, oneLine } from "../common/card-text";
+import { clampVisiblePerGroup, DEFAULT_VISIBLE_PER_GROUP } from "../common/visible-per-group";
 import { AgentsModel } from "./agents-model";
 import { VISIBLE_PER_GROUP } from "./agents-preferences";
 import { buildRoot, GroupNode, isGroupNode, isSessionNode, SessionNode } from "./agents-tree";
@@ -41,7 +42,7 @@ export class AgentsWidget extends TreeWidget {
   onOpenSession: (node: SessionNode) => void = () => undefined;
   onNewSession: (directory: string) => void = () => undefined;
   onDeleteSession: (node: SessionNode) => void = () => undefined;
-  visiblePerGroup = 30;
+  visiblePerGroup = DEFAULT_VISIBLE_PER_GROUP;
 
   constructor(
     @inject(TreeProps) props: TreeProps,
@@ -60,11 +61,11 @@ export class AgentsWidget extends TreeWidget {
     this.title.iconClass = codicon("hubot");
     this.title.closable = true;
     this.addClass("ai1-agents");
-    this.visiblePerGroup = this.preferences.get(VISIBLE_PER_GROUP, 30);
+    this.visiblePerGroup = clampVisiblePerGroup(this.preferences.get(VISIBLE_PER_GROUP));
     this.toDispose.push(
       this.preferences.onPreferenceChanged((change) => {
         if (change.preferenceName === VISIBLE_PER_GROUP) {
-          this.visiblePerGroup = this.preferences.get(VISIBLE_PER_GROUP, 30);
+          this.visiblePerGroup = clampVisiblePerGroup(this.preferences.get(VISIBLE_PER_GROUP));
           this.rebuild();
         }
       }),

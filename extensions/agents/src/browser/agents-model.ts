@@ -11,6 +11,8 @@ import {
 } from "../common/agents-protocol";
 import { OncePerKey } from "../common/once-per-key";
 import { groupSessions } from "../common/session-groups";
+import { diffSessions } from "../common/session-diff";
+import { isSnapshotStale } from "../common/sequence-guard";
 
 // The front-end copy of the sessions. The back end pushes one card per
 // change; the model regroups and tells the widget.
@@ -42,6 +44,16 @@ export class AgentsModel implements AgentsClient {
   error: string | undefined;
   protected loading: Promise<void> | undefined;
   protected loadedOnce = false;
+  // A monotonic counter of event-driven updates (`onSessionChanged`/
+  // `onSessionRemoved`), and the sequence number of the last one applied
+  // to each session id. A `load()` in flight can resolve with an answer
+  // already made stale by a live event that arrived after the load
+  // started (the RPC round trip has no other ordering guarantee against
+  // the event stream); `doLoad` reads `sequence` before it starts its own
+  // RPC call and uses `lastEventSeq` to keep such a session's event-given
+  // value from being reverted by that now-stale load answer.
+  protected sequence = 0;
+  protected readonly lastEventSeq = new Map<string, number>();
 
   get groups(): SessionGroup[] {
     return groupSessions([...this.sessions.values()]);
@@ -86,6 +98,7 @@ export class AgentsModel implements AgentsClient {
   }
 
   protected async doLoad(): Promise<void> {
+    const loadStartedAtSeq = this.sequence;
     const roots = await this.workspace.roots;
     let snapshot: AgentsSnapshot;
     try {
@@ -96,14 +109,39 @@ export class AgentsModel implements AgentsClient {
       this.onDidChangeEmitter.fire();
       return;
     }
+    const incoming = snapshot.groups.flatMap((group) => group.sessions);
+    // A session an event already updated after this load started (the RPC
+    // round trip gives no ordering guarantee against the event stream) is
+    // provably more current than this (now stale, for that one session)
+    // load's answer; that id's own current value replaces the load's
+    // answer for it, everywhere below, instead of the load winning the
+    // race and reverting it.
+    const staleIds = new Set(
+      [...this.sessions.keys(), ...incoming.map((session) => session.id)].filter((id) =>
+        isSnapshotStale(this.lastEventSeq.get(id), loadStartedAtSeq),
+      ),
+    );
+    const after = incoming
+      .filter((session) => !staleIds.has(session.id))
+      .concat([...this.sessions].filter(([id]) => staleIds.has(id)).map(([, session]) => session));
+    // A full load replaces the whole map at once, so it needs its own
+    // per-session diff to raise the same `onDidChangeStatus`/
+    // `onDidRemoveSession` events a live update raises one at a time --
+    // otherwise a session that is already blocked the moment AI1 starts
+    // (or reconnects after a cut) never gets a notice for it.
+    const diff = diffSessions(this.sessions, after);
     this.sessions.clear();
-    for (const group of snapshot.groups) {
-      for (const session of group.sessions) {
-        this.sessions.set(session.id, session);
-      }
+    for (const session of after) {
+      this.sessions.set(session.id, session);
     }
     this.connected = snapshot.connected;
     this.loadedOnce = true;
+    for (const change of diff.changed) {
+      this.onDidChangeStatusEmitter.fire(change);
+    }
+    for (const id of diff.removed) {
+      this.onDidRemoveSessionEmitter.fire(id);
+    }
     this.onDidChangeEmitter.fire();
   }
 
@@ -130,6 +168,8 @@ export class AgentsModel implements AgentsClient {
   }
 
   onSessionChanged(summary: SessionSummary): void {
+    this.sequence += 1;
+    this.lastEventSeq.set(summary.id, this.sequence);
     const previous = this.sessions.get(summary.id)?.status;
     this.sessions.set(summary.id, summary);
     if (previous !== summary.status) {
@@ -145,6 +185,8 @@ export class AgentsModel implements AgentsClient {
   }
 
   onSessionRemoved(id: string): void {
+    this.sequence += 1;
+    this.lastEventSeq.set(id, this.sequence);
     this.sessions.delete(id);
     this.lastMessages.delete(id);
     this.lastMessageOnce.forget(id);

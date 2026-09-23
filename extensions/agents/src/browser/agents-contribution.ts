@@ -1,10 +1,13 @@
 import { Command, CommandRegistry, MessageService, QuickPickService } from "@theia/core";
 import {
   AbstractViewContribution,
+  Badge,
+  BadgeService,
   ConfirmDialog,
   FrontendApplicationContribution,
   OnWillStopAction,
   Widget,
+  WidgetManager,
 } from "@theia/core/lib/browser";
 import {
   TabBarToolbarContribution,
@@ -14,6 +17,7 @@ import { inject, injectable } from "@theia/core/shared/inversify";
 import { FileService } from "@theia/filesystem/lib/browser/file-service";
 import { WorkspaceService } from "@theia/workspace/lib/browser/workspace-service";
 import { AgentsService, SessionSummary } from "../common/agents-protocol";
+import { sessionBadge } from "../common/badge-decoration";
 import { AgentsModel } from "./agents-model";
 import { AgentsTerminals } from "./agents-terminals";
 import { SessionNode } from "./agents-tree";
@@ -67,6 +71,24 @@ export class AgentsContribution
   @inject(FileService)
   protected readonly files!: FileService;
 
+  @inject(BadgeService)
+  protected readonly badges!: BadgeService;
+
+  @inject(WidgetManager)
+  protected readonly widgetManager!: WidgetManager;
+
+  // Tracks the last badge actually applied, per widget instance (see
+  // `onStart`'s comment on why there can be more than one over the life of
+  // the window), so a `AgentsModel.onDidChange` firing for an unrelated
+  // reason (a terminal opened, a last message loaded, ...) does not
+  // re-decorate the tab every time -- only an actual change in the blocked
+  // count does.
+  protected readonly lastBadge = new WeakMap<AgentsWidget, Badge | undefined>();
+
+  // Tracked so a widget already wired (by `onStart`'s own direct check, or
+  // by a previous `onDidCreateWidget` event) is not wired a second time.
+  protected readonly wiredWidgets = new WeakSet<AgentsWidget>();
+
   constructor() {
     super({
       widgetId: AgentsWidget.ID,
@@ -87,11 +109,61 @@ export class AgentsContribution
   // either restores the stored layout or builds the default one) rebuilds
   // the dock panels from scratch and unparents it again. `onDidInitializeLayout`
   // runs once that rebuild is settled, so a tab added there stays.
+  //
+  // Closing the Agents tab disposes its `AgentsWidget`; `WidgetManager`
+  // then makes a brand new instance the next time the view opens (the
+  // toggle command, its side-bar icon, or a click on it in the View menu),
+  // which is a *different* object than the one this method wired the first
+  // time. `WidgetManager.onDidCreateWidget` fires for every widget any
+  // factory creates, for the life of the window, so subscribing to it here
+  // wires each one -- the first and every one after a close and reopen.
+  // `tryGetWidget()` also wires one that already exists by the time this
+  // method runs (a restored layout can create it before `onStart` gets to
+  // subscribe); `wireWidget` itself is guarded against wiring the same
+  // instance twice, so no ordering between the two matters.
   async onStart(): Promise<void> {
-    const widget = await this.widget;
+    this.widgetManager.onDidCreateWidget(({ factoryId, widget }) => {
+      if (factoryId === AgentsWidget.ID) {
+        this.wireWidget(widget as AgentsWidget);
+      }
+    });
+    const existing = this.tryGetWidget();
+    if (existing) {
+      this.wireWidget(existing);
+    }
+  }
+
+  protected wireWidget(widget: AgentsWidget): void {
+    if (this.wiredWidgets.has(widget)) {
+      return;
+    }
+    this.wiredWidgets.add(widget);
     widget.onOpenSession = (node) => void this.openSessionTerminal(node);
     widget.onNewSession = (directory) => void this.newSession(directory);
     widget.onDeleteSession = (node) => void this.deleteSession(node.session);
+    const subscription = this.agents.onDidChange(() => this.applyBadge(widget));
+    // Without this, the subscription above outlives its widget: it would
+    // keep calling `applyBadge` on a disposed widget forever, and keep
+    // that widget from being garbage-collected, for every close of the
+    // view over the life of the window.
+    widget.disposed.connect(() => subscription.dispose());
+    this.applyBadge(widget);
+  }
+
+  // The badge with the blocked-session count on the Agents tab. Uses
+  // Theia's own `BadgeService`/`TabBarBadgeDecorator`
+  // (`@theia/core/src/browser/badges`, always bound by the core frontend
+  // module): it already decorates a plain widget's tab from
+  // `BadgeService.getBadge(widget)`, so the Agents tab needs no
+  // `TabBarDecorator` of its own, less code than the one this task
+  // originally added.
+  protected applyBadge(widget: AgentsWidget): void {
+    const badge = sessionBadge(this.agents.sessionsWithStatus("blocked").length);
+    if (badge?.value === this.lastBadge.get(widget)?.value) {
+      return;
+    }
+    this.lastBadge.set(widget, badge);
+    this.badges.showBadge(widget, badge);
   }
 
   onDidInitializeLayout(): void {
