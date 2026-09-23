@@ -1,21 +1,31 @@
-import { codicon, CompositeTreeNode, ContextMenuRenderer, ExpandableTreeNode, NodeProps, TreeModel, TreeNode, TreeProps, TreeWidget } from "@theia/core/lib/browser";
+import {
+  codicon,
+  CompositeTreeNode,
+  ContextMenuRenderer,
+  ExpandableTreeNode,
+  NodeProps,
+  TreeModel,
+  TreeNode,
+  TreeProps,
+  TreeWidget,
+} from "@theia/core/lib/browser";
+import { PreferenceService } from "@theia/core/lib/common/preferences";
 import { inject, injectable, postConstruct } from "@theia/core/shared/inversify";
 import * as React from "@theia/core/shared/react";
 import { Message } from "@theia/core/shared/@lumino/messaging";
 import { SessionStatus } from "../common/agents-protocol";
 import { cardThirdLine, oneLine } from "../common/card-text";
 import { AgentsModel } from "./agents-model";
+import { VISIBLE_PER_GROUP } from "./agents-preferences";
 import { buildRoot, GroupNode, isGroupNode, isSessionNode, SessionNode } from "./agents-tree";
 
 const STATUS_ICON: Record<SessionStatus, string> = {
-  working: "sync~spin",
+  working: "sync",
   blocked: "warning",
   done: "check",
   failed: "error",
   idle: "circle-outline",
 };
-
-export const VISIBLE_PER_GROUP_PREFERENCE = "ai1.agents.visibleSessionsPerGroup";
 
 @injectable()
 export class AgentsWidget extends TreeWidget {
@@ -25,7 +35,9 @@ export class AgentsWidget extends TreeWidget {
   @inject(AgentsModel)
   protected readonly agents!: AgentsModel;
 
-  // Task 5 sets these two. Until then the widget shows a message.
+  @inject(PreferenceService)
+  protected readonly preferences!: PreferenceService;
+
   onOpenSession: (node: SessionNode) => void = () => undefined;
   onNewSession: (directory: string) => void = () => undefined;
   onDeleteSession: (node: SessionNode) => void = () => undefined;
@@ -48,6 +60,15 @@ export class AgentsWidget extends TreeWidget {
     this.title.iconClass = codicon("hubot");
     this.title.closable = true;
     this.addClass("ai1-agents");
+    this.visiblePerGroup = this.preferences.get(VISIBLE_PER_GROUP, 30);
+    this.toDispose.push(
+      this.preferences.onPreferenceChanged((change) => {
+        if (change.preferenceName === VISIBLE_PER_GROUP) {
+          this.visiblePerGroup = this.preferences.get(VISIBLE_PER_GROUP, 30);
+          this.rebuild();
+        }
+      }),
+    );
     this.toDispose.push(this.agents.onDidChange(() => this.rebuild()));
     void this.agents.load();
   }
@@ -96,7 +117,16 @@ export class AgentsWidget extends TreeWidget {
     }
     if (isSessionNode(node)) {
       const status = node.session.status;
-      return <div className={`${codicon(STATUS_ICON[status])} ai1-agents-status ai1-agents-status-${status}`}></div>;
+      // `codicon-modifier-spin`, not the `~spin` suffix, is the class that
+      // `codicon-modifiers.css` keys its spin animation on: `codicon("sync~spin")`
+      // makes one class, `codicon-sync~spin`, that no codicon rule matches, so
+      // the icon renders with no glyph and a 0×0 box.
+      const spin = status === "working" ? " codicon-modifier-spin" : "";
+      return (
+        <div
+          className={`${codicon(STATUS_ICON[status])}${spin} ai1-agents-status ai1-agents-status-${status}`}
+        ></div>
+      );
     }
     return null;
   }
@@ -129,7 +159,9 @@ export class AgentsWidget extends TreeWidget {
       <div className="ai1-agents-caption ai1-agents-card" title={session.title}>
         <div className="ai1-agents-title">{oneLine(session.title, 80)}</div>
         {last ? <div className="ai1-agents-last">{oneLine(last, 120)}</div> : null}
-        <div className="ai1-agents-meta">{cardThirdLine(session.messageCount, session.updatedAt, session.model, Date.now())}</div>
+        <div className="ai1-agents-meta">
+          {cardThirdLine(session.messageCount, session.updatedAt, session.model, Date.now())}
+        </div>
       </div>
     );
   }

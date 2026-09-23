@@ -32,6 +32,11 @@ export class AgentsModel implements AgentsClient {
     previous: SessionStatus | undefined;
   }>();
   readonly onDidChangeStatus = this.onDidChangeStatusEmitter.event;
+  // `BlockedNotifier` needs this to close a notice whose session is gone,
+  // which `onDidChangeStatus` cannot express: there is no new `SessionSummary`
+  // to report a status change on.
+  protected readonly onDidRemoveSessionEmitter = new Emitter<string>();
+  readonly onDidRemoveSession: Event<string> = this.onDidRemoveSessionEmitter.event;
   readonly openTerminals = new Set<string>();
   connected = false;
   error: string | undefined;
@@ -144,6 +149,7 @@ export class AgentsModel implements AgentsClient {
     this.lastMessages.delete(id);
     this.lastMessageOnce.forget(id);
     this.openTerminals.delete(id);
+    this.onDidRemoveSessionEmitter.fire(id);
     this.onDidChangeEmitter.fire();
   }
 

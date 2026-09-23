@@ -14,6 +14,7 @@ let app: TheiaApp;
 let configDir: string;
 let userDataDir: string;
 let sessionId: string;
+let dirtyRepo: string;
 let preexistingTmuxSessions: string[];
 
 // Reads the names of the ai1-* tmux sessions from the output of `tmux ls`.
@@ -58,7 +59,7 @@ test.beforeAll(async ({ playwright, browser }) => {
   // side of that comparison, for a root a real deployment might hand it
   // unresolved; it does not touch this session directory, the other side
   // of the comparison, so this resolution still belongs here.
-  const dirtyRepo = path.join(fs.realpathSync(workspace.path), "dirty-repo");
+  dirtyRepo = path.join(fs.realpathSync(workspace.path), "dirty-repo");
   // The directory of a created session comes from the request body, not a
   // query parameter or the process cwd of the opencode CLI's own server.
   const raw = execFileSync(
@@ -174,4 +175,22 @@ test("a persistent terminal creates a tmux session", async () => {
     app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "sh · dirty-repo" }),
   ).toBeVisible();
   await expect.poll(() => execFileSync("tmux", ["ls"], { encoding: "utf8" })).toContain("ai1-");
+});
+
+test("a prompt moves the card to working and then to done", async () => {
+  const card = app.page.locator("#ai1-agents .ai1-agents-card", { hasText: "ai1-e2e-session" });
+  const row = card.locator("xpath=ancestor::div[contains(@class,'theia-TreeNode')][1]");
+  execFileSync(
+    "opencode",
+    [
+      "api",
+      "POST",
+      `/api/session/${sessionId}/prompt`,
+      "--data",
+      JSON.stringify({ text: "Reply with the single word ok." }),
+    ],
+    { cwd: dirtyRepo },
+  );
+  await expect(row.locator(".ai1-agents-status-working")).toBeVisible({ timeout: 30_000 });
+  await expect(row.locator(".ai1-agents-status-done")).toBeVisible({ timeout: 120_000 });
 });

@@ -63,7 +63,9 @@
           "editor.stickyScroll.enabled": true,
           "editor.enablePreview": false,
           "diffEditor.ignoreTrimWhitespace": false,
-          "security.workspace.trust.enabled": false
+          "security.workspace.trust.enabled": false,
+          "ai1.agents.visibleSessionsPerGroup": 30,
+          "ai1.agents.notifyOnBlocked": true
         }
       }
     }
