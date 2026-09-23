@@ -42,6 +42,13 @@ export class AgentsModel implements AgentsClient {
   readonly openTerminals = new Set<string>();
   connected = false;
   error: string | undefined;
+  // Set from the last load's own `AgentsSnapshot.truncated` (see that
+  // field's own comment): the global, service-wide session cap actually
+  // cut off real data, so this workspace may be missing an older session
+  // with no way to tell from here alone. An event
+  // (`onSessionChanged`/`onSessionRemoved`) never changes this -- only a
+  // fresh `load()` can, since only a load re-reads the capped list.
+  truncated = false;
   // Gates `load()` so a request that arrives while a load is already
   // running (for example a reconnect's `onConnectionChanged(true)` racing
   // the widget's own first load) does not join that running load and get
@@ -153,6 +160,7 @@ export class AgentsModel implements AgentsClient {
       this.sessions.set(id, session);
     }
     this.connected = snapshot.connected;
+    this.truncated = snapshot.truncated;
     this.loadedOnce = true;
     // Same rule `onSessionChanged` applies to a live update: a session
     // that just moved to done or failed has a cached last message (if

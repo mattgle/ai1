@@ -119,10 +119,18 @@ Pure logic, from three sources:
 
 **Initial load.** Three calls in parallel: the session list (pages of 100,
 newest first, up to 200 by default), the active map, and the pending
-permissions. The cards are complete except for the last message. The last
-message comes in a second pass, only for the visible sessions (the 30 newest of
-each group). A card that is not visible shows its title until its group
-expands.
+permissions. "Newest first" means the order of `time.updated`, not
+`time.created` (verified live 2026-09-23: `order=desc` puts a session with
+an old creation time but a recent update ahead of one created after it but
+never touched since). The 200-session cap is global, over every session
+the OpenCode service holds, taken before AI1 filters by workspace root --
+so a workspace can show fewer of its own sessions than it actually has,
+when 200 more recently active sessions of other workspaces or repositories
+push its older ones past the cap. When this happens, the view shows one
+line saying so. The cards are complete except for the last message. The
+last message comes in a second pass, only for the visible sessions (the 30
+newest of each group). A card that is not visible shows its title until
+its group expands.
 
 **Live updates.** Each event changes the state of one session in memory. The
 back end emits `onSessionChanged` with that card. The view updates that card
@@ -156,6 +164,10 @@ Two levels:
   a third line `<N> msgs · <age> · <model>`. On hover: "open terminal" and
   "delete session" (with a confirm dialog).
 - A line at the top of the view: "<N> terminals open".
+- A second line, only when the 200-session cap actually hid a session:
+  "Showing the 200 newest OpenCode sessions of the service. Older sessions
+  are not listed." Shown too when the workspace has no session card yet,
+  so the cap is not silently invisible in an otherwise empty view.
 
 **Commands**, in the palette under the category "Agents":
 
@@ -194,7 +206,8 @@ session is no longer blocked.
 | No password in `service.json`, or 401 | The view shows "AI1 cannot authenticate with the OpenCode service" and the exact name of the credentials file, `~/.config/opencode/service.json`, never the full path. A Retry button shows too. |
 | A load error of any other kind | The view shows the error message, with a Retry button. A click on Retry runs a fresh load, the same as the Refresh command. |
 | The event stream is cut | "Reconnecting…" shows in the view, also when the view lists no session yet. The wait grows from 1 to 30 seconds. A full load runs after the reconnect. |
-| A call for one session fails (404, the session was deleted) | The card goes, the same way a `session.deleted` event removes it. AI1 does not ask again for that session. No notice shows. |
+| The global session cap (200) hides an older session of this workspace | The view shows a line: "Showing the 200 newest OpenCode sessions of the service. Older sessions are not listed." Shown also with no session card yet. |
+| A call for one session fails (404, the session was deleted) | AI1 confirms with a second, independent call (`GET /api/session/{id}`) before it trusts the 404. Confirmed: the card goes, the same way a `session.deleted` event removes it, and AI1 does not ask again for that session. No notice shows. Not confirmed (the session still exists): AI1 treats the 404 as a normal error and asks again later. |
 | `tmux` is not in the PATH | "New Persistent Terminal" shows the install command. Theia's own terminal stays available. |
 | `opencode --session` exits with an error in a tab | The tab keeps the error output, as any terminal. |
 

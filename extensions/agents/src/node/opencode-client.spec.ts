@@ -42,9 +42,10 @@ describe("OpenCodeClient", () => {
       model: { id: "m", providerID: "p" },
       time: { created: i, updated: i },
     }));
-    const sessions = await client.listSessions();
+    const { sessions, truncated } = await client.listSessions();
     assert.strictEqual(sessions.length, 150);
     assert.strictEqual(server.requests.filter((r) => r === "GET /api/session").length, 2);
+    assert.strictEqual(truncated, false);
   });
 
   it("reads the active ids and the pending permission request ids, grouped by session and scoped by directory", async () => {
@@ -108,7 +109,7 @@ describe("OpenCodeClient", () => {
       },
     );
     server.delayMs = 20;
-    const sessions = await patient.listSessions();
+    const { sessions } = await patient.listSessions();
     assert.strictEqual(sessions.length, 2);
   });
 
@@ -161,12 +162,12 @@ describe("OpenCodeClient", () => {
 
   it("stops listing sessions when the server repeats the cursor", async () => {
     server.repeatCursor = true;
-    const sessions = await client.listSessions();
+    const { sessions } = await client.listSessions();
     assert.ok(sessions.length > 0);
     assert.ok(server.requests.filter((r) => r === "GET /api/session").length <= 50);
   });
 
-  it("stops the session list at 200 sessions, the spec value, and warns once", async () => {
+  it("stops the session list at 200 sessions, the spec value, warns once, and reports truncated", async () => {
     // The fake server's endless pages never stop on their own (see
     // `endlessPages` in `fake-opencode-server.ts`), so a list that actually
     // ends at 200 proves the client stops itself there, rather than merely
@@ -178,13 +179,14 @@ describe("OpenCodeClient", () => {
       calls.push(args);
     };
     try {
-      const sessions = await client.listSessions();
+      const { sessions, truncated } = await client.listSessions();
       assert.strictEqual(sessions.length, 200);
       // 100 sessions per page: the cap is reached exactly on the second
       // page, so a third page is never requested.
       assert.strictEqual(server.requests.filter((r) => r === "GET /api/session").length, 2);
       assert.strictEqual(calls.length, 1);
       assert.ok(String(calls[0][0]).includes("200 sessions"));
+      assert.strictEqual(truncated, true);
     } finally {
       console.warn = originalWarn;
     }

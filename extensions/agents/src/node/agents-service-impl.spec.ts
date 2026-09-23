@@ -95,6 +95,13 @@ describe("AgentsServiceImpl", () => {
       ],
     );
     assert.strictEqual(snapshot.groups[0].sessions[0].messageCount, 2);
+    assert.strictEqual(snapshot.truncated, false);
+  });
+
+  it("reports the snapshot as truncated when the global session cap cuts off real data", async () => {
+    server.endlessPages = true;
+    const snapshot = await service.load(["file:///m/alpha"]);
+    assert.strictEqual(snapshot.truncated, true);
   });
 
   it("gives the same groups for a workspace root with a trailing slash", async () => {
@@ -113,9 +120,13 @@ describe("AgentsServiceImpl", () => {
     assert.strictEqual(await service.lastMessage("ses_b"), "world");
   });
 
-  it("removes the card and stops retrying when a session's last message gives 404 (the session is gone)", async () => {
+  it("removes the card and stops retrying when a session's last message gives 404, confirmed by a second call", async () => {
     await service.load(["file:///m"]);
+    // Confirmed gone two ways: the message route 404s, and the session is
+    // also absent from the single-session route (`GET /api/session/{id}`)
+    // -- the same as the live service reports for a session truly deleted.
     server.goneSessionIds.add("ses_b");
+    server.sessions = server.sessions.filter((s) => s.id !== "ses_b");
     const text = await service.lastMessage("ses_b");
     assert.strictEqual(text, undefined);
     assert.ok(client.removed.includes("ses_b"), "the card must go, the same path as session.deleted");
@@ -133,6 +144,116 @@ describe("AgentsServiceImpl", () => {
       messageRequestsBefore,
       "a second call for an already-removed session must not make a further request",
     );
+  });
+
+  it("does not remove the card when the message route 404s but the session still exists on a second call", async () => {
+    // A 404 from one route alone is not proof enough: the message route
+    // reports gone, but `GET /api/session/ses_b` (still in
+    // `server.sessions`) says it is still there -- an unconfirmed 404,
+    // treated as a normal error, not a removal.
+    await service.load(["file:///m"]);
+    server.goneSessionIds.add("ses_b");
+    await assert.rejects(service.lastMessage("ses_b"), /404/);
+    assert.ok(!client.removed.includes("ses_b"), "an unconfirmed 404 must not remove the card");
+  });
+
+  it("queues the removal from a confirmed 404 while a load is in progress, and applies it once that load ends", async () => {
+    // First, an ordinary load: ses_b is tracked normally.
+    await service.load(["file:///m"]);
+    // The message route and the single-session route both say ses_b is
+    // gone (confirmed), but `server.sessions` -- so the paginated list
+    // route a load in progress reads -- still has it, the way an
+    // in-flight load can see a slightly different, still-in-progress view
+    // than this one, independent confirm check just saw.
+    server.goneSessionIds.add("ses_b");
+    server.singleSessionGoneIds.add("ses_b");
+    server.holdSessionResponse = true;
+    const second = service.load(["file:///m"]);
+    await until(() => server.heldSessionRequests === 1);
+    const removedBefore = client.removed.length;
+    const text = await service.lastMessage("ses_b");
+    assert.strictEqual(text, undefined);
+    // The second load is still in flight (`loadDepth > 0`): the removal
+    // must be queued, the same as a live event would be, not applied
+    // directly here -- applying it now, while `doLoadFetch` is itself
+    // about to rebuild `tracked` from a list that still has ses_b, would
+    // let the rebuild silently resurrect it with no removal notice ever
+    // correcting that.
+    assert.strictEqual(
+      client.removed.length,
+      removedBefore,
+      "the removal must wait for the load in progress to end",
+    );
+    server.releaseSessionRequest();
+    await second;
+    // The queued event replays against the load's own fresh rebuild, which
+    // still has ses_b (`server.sessions` was never changed): it finds the
+    // match and removes it correctly, once, after the rebuild.
+    await until(() => client.removed.includes("ses_b"));
+    assert.strictEqual(client.removed.filter((id) => id === "ses_b").length, 1);
+  });
+
+  it("times out each hung message-count call on its own, instead of skipping the rest of the phase after the first timeout", async () => {
+    // 8 sessions at a concurrency of 4 (`MESSAGE_COUNT_CONCURRENCY`) is two
+    // sequential batches. A hung message route, bounded only by the
+    // client's own request timeout (never by this fake server), makes the
+    // load's own message-count phase take about two timeouts -- not one
+    // (every session past the first batch quietly skipped, with no
+    // request at all) and not eight (fully serial).
+    const SESSION_COUNT = 8;
+    server.sessions = Array.from({ length: SESSION_COUNT }, (_, i) => ({
+      id: `ses_hang_${i}`,
+      title: `${i}`,
+      directory: "/m/alpha",
+      model: { id: "m", providerID: "p" },
+      time: { created: i, updated: i },
+    }));
+    server.hangMessageRequests = true;
+    const timeoutMs = 200;
+    const shortTimeoutHub = new OpenCodeHub();
+    shortTimeoutHub.init(
+      () =>
+        Promise.resolve(
+          new OpenCodeClient(
+            { baseUrl: server.baseUrl, password: server.password },
+            { requestTimeoutMs: timeoutMs },
+          ),
+        ),
+      { retryMs: 20 },
+    );
+    const timeoutService = new AgentsServiceImpl();
+    timeoutService.init(shortTimeoutHub, (name) => `/fake/bin/${name}`);
+    const timeoutClient = new RecordingClient();
+    timeoutService.setClient(timeoutClient);
+    try {
+      const started = Date.now();
+      const snapshot = await timeoutService.load(["file:///m"]);
+      const elapsed = Date.now() - started;
+      const alpha = snapshot.groups.find((g) => g.name === "alpha");
+      assert.strictEqual(alpha?.sessions.length, SESSION_COUNT);
+      // Every hung call resolves to 0 (`.catch(() => 0)`), the same value
+      // whether it was genuinely attempted or quietly skipped -- this
+      // alone would not catch the bug, so the request count below is the
+      // real proof: every one of the 8 sessions actually made its own
+      // request, none were skipped.
+      assert.ok(alpha!.sessions.every((s) => s.messageCount === 0));
+      assert.strictEqual(
+        server.requests.filter((r) => /\/message(\?|$)/.test(r)).length,
+        SESSION_COUNT,
+        "every session must make its own message-count request, none skipped",
+      );
+      assert.ok(
+        elapsed >= timeoutMs * 1.5,
+        `expected about two sequential timeout batches (~${timeoutMs * 2}ms), took ${elapsed}ms`,
+      );
+      assert.ok(
+        elapsed < timeoutMs * 4,
+        `expected well under a fully serial run (~${timeoutMs * SESSION_COUNT}ms), took ${elapsed}ms`,
+      );
+    } finally {
+      shortTimeoutHub.dispose();
+      timeoutService.dispose();
+    }
   });
 
   it("limits the message-count calls of a load to 4 at a time", async () => {

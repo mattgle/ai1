@@ -215,7 +215,7 @@ export class AgentsServiceImpl implements AgentsService {
   // above, on success or on failure.
   protected async doLoadFetch(): Promise<AgentsSnapshot> {
     const api = await this.hub.apiClient();
-    const [sessions, active] = await Promise.all([api.listSessions(), api.activeIds()]);
+    const [{ sessions, truncated }, active] = await Promise.all([api.listSessions(), api.activeIds()]);
     // The pending-permission list is scoped by a directory that must equal
     // a session's own directory exactly (no prefix match against an
     // ancestor such as a workspace root, verified live), so it is called
@@ -281,6 +281,7 @@ export class AgentsServiceImpl implements AgentsService {
         this.roots,
       ),
       connected: this.connected,
+      truncated,
     };
   }
 
@@ -295,16 +296,20 @@ export class AgentsServiceImpl implements AgentsService {
     try {
       return await api.lastMessageText(id);
     } catch (error) {
-      // A 404 means the session is gone on the OpenCode side -- the same
-      // case a live `session.deleted` event reports. The card goes the
-      // same way: removed from `tracked`, with a removal notice to the
-      // client, so a later render of that same card (if any is still in
-      // flight) shows nothing, and this method's own guard above stops any
-      // further request for this id from here on.
-      if (error instanceof OpenCodeHttpError && error.status === 404) {
-        if (this.tracked.delete(id)) {
-          this.notifyRemoved(id);
-        }
+      // A 404 alone is not proof the session is gone: that one route could
+      // fail on its own, unrelated to the session's own existence. A
+      // second, independent call (`sessionExists`, `GET
+      // /api/session/{id}`) must also say it is gone before this treats it
+      // that way; otherwise the original 404 is just a normal error,
+      // rethrown below like any other.
+      if (error instanceof OpenCodeHttpError && error.status === 404 && !(await api.sessionExists(id))) {
+        // Confirmed gone, the same case a live `session.deleted` event
+        // reports. Routed through `onEvent`, not applied directly here, so
+        // a load in progress on this instance queues it and replays it
+        // after the rebuild, the same as a live event would -- this
+        // method's own guard above then stops any further request for
+        // this id from here on.
+        this.onEvent("session.deleted", { sessionID: id });
         return undefined;
       }
       throw error;

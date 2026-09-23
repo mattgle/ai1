@@ -14,9 +14,10 @@ import { inject, injectable, postConstruct } from "@theia/core/shared/inversify"
 import * as React from "@theia/core/shared/react";
 import { Message } from "@theia/core/shared/@lumino/messaging";
 import { SessionStatus } from "../common/agents-protocol";
-import { cardThirdLine, oneLine, reconnectingPrefix } from "../common/card-text";
+import { cardThirdLine, oneLine } from "../common/card-text";
 import { clampVisiblePerGroup, DEFAULT_VISIBLE_PER_GROUP } from "../common/visible-per-group";
 import { AgentsModel } from "./agents-model";
+import { renderEmptyState, renderErrorState, renderSummary } from "./agents-status-view";
 import { VISIBLE_PER_GROUP } from "./agents-preferences";
 import { buildRoot, GroupNode, isGroupNode, isSessionNode, SessionNode } from "./agents-tree";
 
@@ -111,30 +112,19 @@ export class AgentsWidget extends TreeWidget {
 
   protected override renderTree(model: TreeModel): React.ReactNode {
     if (this.agents.error) {
-      return (
-        <div className="theia-widget-noInfo ai1-agents-error">
-          <div>{this.agents.error}</div>
-          <button className="theia-button ai1-agents-retry" onClick={() => this.onRetry()}>
-            Retry
-          </button>
-        </div>
-      );
+      return renderErrorState({ error: this.agents.error, onRetry: () => this.onRetry() });
     }
     const root = model.root;
     if (!CompositeTreeNode.is(root) || root.children.length === 0) {
-      return (
-        <div className="theia-widget-noInfo">
-          {reconnectingPrefix(this.agents.connected)}
-          No OpenCode sessions in this workspace.
-        </div>
-      );
+      return renderEmptyState({ connected: this.agents.connected, truncated: this.agents.truncated });
     }
     return (
       <React.Fragment>
-        <div className="ai1-agents-summary">
-          {reconnectingPrefix(this.agents.connected)}
-          {this.agents.openTerminals.size} terminals open
-        </div>
+        {renderSummary({
+          connected: this.agents.connected,
+          truncated: this.agents.truncated,
+          openTerminalsCount: this.agents.openTerminals.size,
+        })}
         {super.renderTree(model)}
       </React.Fragment>
     );

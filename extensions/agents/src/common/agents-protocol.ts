@@ -27,6 +27,12 @@ export interface SessionGroup {
 export interface AgentsSnapshot {
   groups: SessionGroup[];
   connected: boolean;
+  // True when the service's own session list, capped globally at 200
+  // sessions (see `OpenCodeClient.listSessions`), actually cut off real
+  // data -- so some session of this workspace, older than the 200 most
+  // recently active across the whole service, may be missing from
+  // `groups` and there is no way to tell from here alone.
+  truncated: boolean;
 }
 
 export interface AgentsClient {

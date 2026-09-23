@@ -145,7 +145,23 @@ export class OpenCodeClient {
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   }
 
-  async listSessions(): Promise<RawSession[]> {
+  // `order=desc` sorts by `time.updated`, not `time.created` -- verified
+  // live (2026-09-23): a session whose `time.created` is the oldest of two
+  // but whose `time.updated` is the newest (touched with a `PATCH
+  // /api/session/{id}`, which does not change `time.created`) sorted
+  // first. So the 200 sessions this keeps are the 200 most recently
+  // active across the whole service, not the 200 newest by creation.
+  //
+  // The cap below is global, over every session the service holds, taken
+  // before `AgentsServiceImpl` filters by workspace root -- the owner's
+  // own decision (see the M2 backlog ledger, item 3 fix round 1): a
+  // workspace-scoped cap would need a `directory` filter on this same
+  // call, which the live service accepts but a page of 100 could still
+  // mix directories, so filtering after paging remains the correct order.
+  // `truncated` tells a caller when this global cap actually cut off real
+  // data, so the view can say so instead of silently showing fewer
+  // sessions than the workspace may actually have.
+  async listSessions(): Promise<{ sessions: RawSession[]; truncated: boolean }> {
     const all: RawSession[] = [];
     let cursor: string | undefined;
     for (let pages = 0; pages < MAX_SESSION_PAGES; pages += 1) {
@@ -155,32 +171,53 @@ export class OpenCodeClient {
       }
       const page = await this.get<{ data: SessionRecord[]; cursor?: PageCursor }>(`/api/session?${query}`);
       if (page.data.length === 0) {
-        return all;
+        return { sessions: all, truncated: false };
       }
       all.push(...page.data.map(toRawSession));
       const next = page.cursor?.next ?? undefined;
       if (all.length >= MAX_SESSIONS) {
-        if (next && next !== cursor) {
+        const truncated = Boolean(next && next !== cursor);
+        if (truncated) {
           console.warn(
             `ai1-agents: the session list stopped at ${MAX_SESSIONS} sessions; older sessions are not shown.`,
           );
         }
-        return all.slice(0, MAX_SESSIONS);
+        return { sessions: all.slice(0, MAX_SESSIONS), truncated };
       }
       if (!next || next === cursor) {
-        return all;
+        return { sessions: all, truncated: false };
       }
       cursor = next;
     }
     console.warn(
       `ai1-agents: the session list stopped after ${MAX_SESSION_PAGES} pages; older sessions are not shown.`,
     );
-    return all;
+    return { sessions: all, truncated: true };
   }
 
   async activeIds(): Promise<Set<string>> {
     const active = await this.get<{ data: Record<string, unknown> }>("/api/session/active");
     return new Set(Object.keys(active.data));
+  }
+
+  // A second, independent check that one particular session is gone,
+  // verified live 2026-09-23 (`GET /api/session/{id}` gives
+  // `{ data: SessionRecord }` for a real session, and a 404
+  // `SessionNotFoundError` for one that does not exist). Used to confirm a
+  // 404 from the message-list route before treating a session as deleted
+  // (`AgentsServiceImpl.lastMessage`): one 404 alone could be a transient
+  // or unrelated failure of that one route, not proof the session itself
+  // is gone.
+  async sessionExists(id: string): Promise<boolean> {
+    try {
+      await this.get(`/api/session/${id}`);
+      return true;
+    } catch (error) {
+      if (error instanceof OpenCodeHttpError && error.status === 404) {
+        return false;
+      }
+      throw error;
+    }
   }
 
   // Scoped by the `x-opencode-directory` header, verified live: a

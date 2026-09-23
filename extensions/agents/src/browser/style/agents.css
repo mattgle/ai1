@@ -80,3 +80,8 @@
 .ai1-agents .ai1-agents-retry {
   margin-top: 8px;
 }
+.ai1-agents .ai1-agents-truncated {
+  padding: 2px var(--theia-ui-padding) 4px;
+  color: var(--theia-descriptionForeground);
+  font-size: var(--theia-ui-font-size0);
+}

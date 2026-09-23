@@ -41,11 +41,23 @@ export class FakeOpenCodeServer {
   // service does for a session it no longer has (deleted after AI1 already
   // tracked it).
   goneSessionIds = new Set<string>();
+  // Session ids for which the single-session route (`GET
+  // /api/session/{id}`) answers 404, independent of whether the id is
+  // still in `sessions` -- lets a test simulate the message route and the
+  // single-session route agreeing a session is gone while the paginated
+  // list route (`GET /api/session`) still lists it, the way a load
+  // already in flight might see it, to prove the removal is queued and
+  // replayed correctly rather than applied out of turn.
+  singleSessionGoneIds = new Set<string>();
   // Delays every message-list answer by this many milliseconds, so a test
   // can observe how many such requests are in flight at once.
   messageRequestDelayMs = 0;
   concurrentMessageRequests = 0;
   maxConcurrentMessageRequests = 0;
+  // Never answers a message-list request at all -- see the route itself,
+  // below -- so a test can prove the client's own request timeout, not
+  // this server's cooperation, is what bounds a hung message-count call.
+  hangMessageRequests = false;
   private readonly server: http.Server;
   private readonly streams = new Set<http.ServerResponse>();
 
@@ -216,6 +228,19 @@ export class FakeOpenCodeServer {
     }
     if (parts[0] === "api" && parts[1] === "session" && parts[2]) {
       const id = parts[2];
+      if (method === "GET" && parts.length === 3) {
+        // The single-session route, used to confirm a 404 from the message
+        // route before treating a session as gone (a session no longer in
+        // `this.sessions` gives the same 404 shape the live service does
+        // for `SessionNotFoundError`, verified live 2026-09-23).
+        const session = this.sessions.find((candidate) => candidate.id === id);
+        if (!session || this.singleSessionGoneIds.has(id)) {
+          json(404, { error: "not found" });
+          return;
+        }
+        json(200, { data: toSessionRecord(session) });
+        return;
+      }
       if (method === "DELETE" && parts.length === 3) {
         this.sessions = this.sessions.filter((session) => session.id !== id);
         json(200, { data: true });
@@ -224,6 +249,17 @@ export class FakeOpenCodeServer {
       if (method === "GET" && parts[3] === "message") {
         if (this.goneSessionIds.has(id)) {
           json(404, { error: "not found" });
+          return;
+        }
+        if (this.hangMessageRequests) {
+          // Never answers at all, like a truly hung service -- the
+          // client's own per-request timeout is the only thing that ever
+          // settles this promise, not a delay this server chooses itself.
+          this.concurrentMessageRequests += 1;
+          this.maxConcurrentMessageRequests = Math.max(
+            this.maxConcurrentMessageRequests,
+            this.concurrentMessageRequests,
+          );
           return;
         }
         // The live message list has no `total`; a client counts by paging.
