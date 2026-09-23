@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { _electron as electron, expect, test } from "@playwright/test";
 import { TheiaApp, TheiaWorkspace } from "@theia/playwright";
+import { clickTab } from "./click-tab";
 import { createMetaRepoFixture } from "./meta-repo-fixture";
 import { removeTempDir } from "./remove-temp-dir";
 
@@ -60,7 +61,7 @@ async function launchApp(workspacePath: string, userDataDir: string) {
 }
 
 async function activateAndType(app: TheiaApp, tabText: string, text: string): Promise<void> {
-  await app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: tabText }).click();
+  await clickTab(app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: tabText }));
   const input = app.page.locator("#theia-main-content-panel .xterm-helper-textarea:visible");
   await input.click();
   await input.fill(text);
@@ -133,7 +134,7 @@ test("a session tab and a persistent tab survive a restart correctly", async () 
   const start1 = await launchApp(workspacePath, userDataDir);
   try {
     if (!(await start1.app.page.locator("#ai1-agents").isVisible())) {
-      await start1.app.page.locator("#shell-tab-ai1-agents").click();
+      await clickTab(start1.app.page.locator("#shell-tab-ai1-agents"));
     }
     const group = start1.app.page.locator("#ai1-agents .ai1-agents-group", { hasText: "dirty-repo" });
     await expect(group).toBeVisible();

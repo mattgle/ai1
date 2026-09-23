@@ -28,11 +28,12 @@
     "clean": "rimraf lib",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "tsc && mocha \"lib/**/ai-features-off-state.spec.js\" \"lib/**/ai-command-filter.spec.js\" \"lib/**/ai-free-layout-provider.spec.js\""
+    "test": "tsc && mocha \"lib/**/ai-features-off-state.spec.js\" \"lib/**/ai-command-filter.spec.js\" \"lib/**/ai-free-layout-provider.spec.js\" \"lib/**/background-window.spec.js\""
   },
   "theiaExtensions": [
     {
-      "frontend": "lib/browser/shell-layout-frontend-module"
+      "frontend": "lib/browser/shell-layout-frontend-module",
+      "electronMain": "lib/electron-main/shell-layout-electron-main-module"
     }
   ]
 }

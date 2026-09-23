@@ -23,9 +23,41 @@ export class FakeOpenCodeServer {
   brokenSessionBody = false;
   repeatCursor = false;
   endlessPages = false;
+  // Delays the `GET /api/session` answer by this many milliseconds, so a
+  // test can push an event while a load is still waiting for its session
+  // list.
+  delayMs = 0;
+  // Holds every `GET /api/session` answer instead of sending it, so a test
+  // can control exactly when (or whether at all) it is released --
+  // `releaseSessionRequest` sends the oldest held one; a request never
+  // released this way simply never gets an answer, the same as a hung
+  // service.
+  holdSessionResponse = false;
+  private readonly heldSessionAnswers: (() => void)[] = [];
   // Directories for which the permission-request route answers 500, like
   // the live service does for a directory it does not have on disk.
   brokenPermissionDirectories = new Set<string>();
+  // Session ids for which the message-list route answers 404, like the live
+  // service does for a session it no longer has (deleted after AI1 already
+  // tracked it).
+  goneSessionIds = new Set<string>();
+  // Session ids for which the single-session route (`GET
+  // /api/session/{id}`) answers 404, independent of whether the id is
+  // still in `sessions` -- lets a test simulate the message route and the
+  // single-session route agreeing a session is gone while the paginated
+  // list route (`GET /api/session`) still lists it, the way a load
+  // already in flight might see it, to prove the removal is queued and
+  // replayed correctly rather than applied out of turn.
+  singleSessionGoneIds = new Set<string>();
+  // Delays every message-list answer by this many milliseconds, so a test
+  // can observe how many such requests are in flight at once.
+  messageRequestDelayMs = 0;
+  concurrentMessageRequests = 0;
+  maxConcurrentMessageRequests = 0;
+  // Never answers a message-list request at all -- see the route itself,
+  // below -- so a test can prove the client's own request timeout, not
+  // this server's cooperation, is what bounds a hung message-count call.
+  hangMessageRequests = false;
   private readonly server: http.Server;
   private readonly streams = new Set<http.ServerResponse>();
 
@@ -44,6 +76,10 @@ export class FakeOpenCodeServer {
     for (const stream of this.streams) {
       stream.end();
     }
+    // A request that is destroyed before it gets its socket leaves that
+    // socket idle in Node's keep-alive agent pool for up to 5 seconds, and
+    // `close` alone waits for it. So every connection is closed here.
+    this.server.closeAllConnections();
     await new Promise<void>((resolve) => this.server.close(() => resolve()));
   }
 
@@ -61,6 +97,18 @@ export class FakeOpenCodeServer {
         // The socket closed between the read of `streams` and the write.
       }
     }
+  }
+
+  // How many `GET /api/session` requests are currently held (see
+  // `holdSessionResponse`).
+  get heldSessionRequests(): number {
+    return this.heldSessionAnswers.length;
+  }
+
+  // Sends the oldest held `GET /api/session` answer, in the order the
+  // requests arrived.
+  releaseSessionRequest(): void {
+    this.heldSessionAnswers.shift()?.();
   }
 
   dropStreams(): void {
@@ -102,37 +150,46 @@ export class FakeOpenCodeServer {
     };
     const parts = url.pathname.split("/").filter(Boolean);
     if (method === "GET" && url.pathname === "/api/session") {
-      if (this.brokenSessionBody) {
-        response.writeHead(200, { "content-type": "application/json" }).end("not json");
-        return;
+      const answer = (): void => {
+        if (this.brokenSessionBody) {
+          response.writeHead(200, { "content-type": "application/json" }).end("not json");
+          return;
+        }
+        if (this.repeatCursor) {
+          json(200, {
+            data: this.sessions.slice(0, 1).map(toSessionRecord),
+            cursor: { previous: null, next: "1" },
+          });
+          return;
+        }
+        if (this.endlessPages) {
+          const page = Number(url.searchParams.get("cursor") ?? 0);
+          const sessions = Array.from({ length: 100 }, (_, i) => ({
+            id: `endless_${page}_${i}`,
+            title: `Endless ${page}_${i}`,
+            directory: "/m/alpha",
+            model: { id: "m", providerID: "p" },
+            time: { created: 0, updated: 0 },
+          }));
+          json(200, {
+            data: sessions.map(toSessionRecord),
+            cursor: { previous: null, next: String(page + 1) },
+          });
+          return;
+        }
+        const limit = Number(url.searchParams.get("limit") ?? 100);
+        const cursor = Number(url.searchParams.get("cursor") ?? 0);
+        const page = this.sessions.slice(cursor, cursor + limit);
+        const next = cursor + limit < this.sessions.length ? String(cursor + limit) : null;
+        json(200, { data: page.map(toSessionRecord), cursor: { previous: null, next } });
+      };
+      if (this.holdSessionResponse) {
+        this.heldSessionAnswers.push(answer);
+      } else if (this.delayMs > 0) {
+        setTimeout(answer, this.delayMs);
+      } else {
+        answer();
       }
-      if (this.repeatCursor) {
-        json(200, {
-          data: this.sessions.slice(0, 1).map(toSessionRecord),
-          cursor: { previous: null, next: "1" },
-        });
-        return;
-      }
-      if (this.endlessPages) {
-        const page = Number(url.searchParams.get("cursor") ?? 0);
-        const sessions = Array.from({ length: 100 }, (_, i) => ({
-          id: `endless_${page}_${i}`,
-          title: `Endless ${page}_${i}`,
-          directory: "/m/alpha",
-          model: { id: "m", providerID: "p" },
-          time: { created: 0, updated: 0 },
-        }));
-        json(200, {
-          data: sessions.map(toSessionRecord),
-          cursor: { previous: null, next: String(page + 1) },
-        });
-        return;
-      }
-      const limit = Number(url.searchParams.get("limit") ?? 100);
-      const cursor = Number(url.searchParams.get("cursor") ?? 0);
-      const page = this.sessions.slice(cursor, cursor + limit);
-      const next = cursor + limit < this.sessions.length ? String(cursor + limit) : null;
-      json(200, { data: page.map(toSessionRecord), cursor: { previous: null, next } });
       return;
     }
     if (method === "POST" && url.pathname === "/api/session") {
@@ -171,24 +228,65 @@ export class FakeOpenCodeServer {
     }
     if (parts[0] === "api" && parts[1] === "session" && parts[2]) {
       const id = parts[2];
+      if (method === "GET" && parts.length === 3) {
+        // The single-session route, used to confirm a 404 from the message
+        // route before treating a session as gone (a session no longer in
+        // `this.sessions` gives the same 404 shape the live service does
+        // for `SessionNotFoundError`, verified live 2026-09-23).
+        const session = this.sessions.find((candidate) => candidate.id === id);
+        if (!session || this.singleSessionGoneIds.has(id)) {
+          json(404, { error: "not found" });
+          return;
+        }
+        json(200, { data: toSessionRecord(session) });
+        return;
+      }
       if (method === "DELETE" && parts.length === 3) {
         this.sessions = this.sessions.filter((session) => session.id !== id);
         json(200, { data: true });
         return;
       }
       if (method === "GET" && parts[3] === "message") {
+        if (this.goneSessionIds.has(id)) {
+          json(404, { error: "not found" });
+          return;
+        }
+        if (this.hangMessageRequests) {
+          // Never answers at all, like a truly hung service -- the
+          // client's own per-request timeout is the only thing that ever
+          // settles this promise, not a delay this server chooses itself.
+          this.concurrentMessageRequests += 1;
+          this.maxConcurrentMessageRequests = Math.max(
+            this.maxConcurrentMessageRequests,
+            this.concurrentMessageRequests,
+          );
+          return;
+        }
         // The live message list has no `total`; a client counts by paging.
         // Each entry's role is its own `type`, not `info.role`; a user
         // entry carries `text` directly, an assistant entry carries its
         // text in `content`.
-        const texts = this.messages.get(id) ?? [];
-        const records = texts.map((text, index) => toMessageRecord(text, index));
-        const ordered = url.searchParams.get("order") === "desc" ? [...records].reverse() : records;
-        const limit = Number(url.searchParams.get("limit") ?? ordered.length);
-        const offset = Number(url.searchParams.get("cursor") ?? 0);
-        const page = ordered.slice(offset, offset + limit);
-        const next = offset + limit < ordered.length ? String(offset + limit) : null;
-        json(200, { data: page, cursor: { previous: null, next } });
+        const answer = (): void => {
+          const texts = this.messages.get(id) ?? [];
+          const records = texts.map((text, index) => toMessageRecord(text, index));
+          const ordered = url.searchParams.get("order") === "desc" ? [...records].reverse() : records;
+          const limit = Number(url.searchParams.get("limit") ?? ordered.length);
+          const offset = Number(url.searchParams.get("cursor") ?? 0);
+          const page = ordered.slice(offset, offset + limit);
+          const next = offset + limit < ordered.length ? String(offset + limit) : null;
+          json(200, { data: page, cursor: { previous: null, next } });
+          this.concurrentMessageRequests -= 1;
+        };
+        this.concurrentMessageRequests += 1;
+        this.maxConcurrentMessageRequests = Math.max(
+          this.maxConcurrentMessageRequests,
+          this.concurrentMessageRequests,
+        );
+        if (this.messageRequestDelayMs > 0) {
+          setTimeout(answer, this.messageRequestDelayMs);
+        } else {
+          answer();
+        }
         return;
       }
     }

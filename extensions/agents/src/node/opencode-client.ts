@@ -8,6 +8,11 @@ import { SseParser } from "../common/sse-parser";
 export interface Connection {
   baseUrl: string;
   password: string;
+  // The credentials file this connection's own password came from, `~`
+  // for the home folder, never the real, absolute path -- named in a 401
+  // message, so it points at the file AI1 actually read, not a fixed
+  // guess (`chooseServiceConfigPath`'s own `display`).
+  servicePasswordDisplayPath: string;
 }
 
 export interface RawSession {
@@ -45,9 +50,42 @@ interface PageCursor {
 
 export type EventHandler = (type: string, properties: Record<string, unknown>) => void;
 
-const SERVICE_CONFIG = path.join(os.homedir(), ".config", "opencode", "service.json");
+// An OpenCode HTTP error, with the response's own status code, so a caller
+// can act on one particular status (for example `AgentsServiceImpl.lastMessage`,
+// which treats a 404 for one session as "the session is gone", the same as
+// a live `session.deleted` event) without parsing the message text.
+export class OpenCodeHttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "OpenCodeHttpError";
+  }
+}
+
+// Thrown when this client's own per-request timeout (`requestTimeoutMs`)
+// fires before the service answers at all -- a distinct class from
+// `OpenCodeHttpError` (which means the service did answer, just with a
+// 4xx/5xx) and from a plain network `Error`, so a caller like
+// `AgentsServiceImpl`'s message-count phase can react only to a
+// genuinely hung request, never to an ordinary per-item failure such as a
+// 404 or a 500.
+export class OpenCodeTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OpenCodeTimeoutError";
+  }
+}
+
 const PAGE_SIZE = 100;
 const MAX_SESSION_PAGES = 50;
+// The spec value (`2026-09-22-ai1-m2-agents-design.md`, "Initial load"):
+// the session list stops at 200 sessions, newest first. Reached on the
+// second page in the ordinary case (`PAGE_SIZE` 100), well before
+// `MAX_SESSION_PAGES` below, which stays as a second, outer safety net for
+// a service that answers with pages smaller than `PAGE_SIZE`.
+const MAX_SESSIONS = 200;
 
 // The message shown when `program` (its bare name, such as "opencode" or
 // "tmux") cannot be found. Shared with the back end's absolute-path
@@ -76,36 +114,157 @@ export function runCommand(program: string, args: string[]): Promise<string> {
   });
 }
 
-// Reads the service URL and the password. The password stays in this process.
-export async function discoverConnection(): Promise<Connection> {
-  const status = (await runCommand("opencode", ["service", "status"])).trim();
-  const baseUrl = status
-    .split("\n")
-    .map((line) => line.trim())
-    .find((line) => line.startsWith("http"));
-  if (!baseUrl) {
-    throw new Error(`The OpenCode service does not run. Output: ${status}`);
+// `~` for the home folder, never the real, absolute path (which carries
+// the owner's user name), for a message a widget can show on screen. A
+// path outside the home folder (a custom `XDG_STATE_HOME`) is shown as
+// given: there is no home-folder prefix in it to hide.
+function displayHomePath(absolute: string, homeDir: string): string {
+  return absolute === homeDir || absolute.startsWith(`${homeDir}${path.sep}`)
+    ? `~${absolute.slice(homeDir.length)}`
+    : absolute;
+}
+
+// Which credentials file to read. OpenCode 2.0.15 (verified live
+// 2026-09-23, the version the owner's `opencode-v2` tap upgraded to from
+// 2.0.12) writes a fresh `$XDG_STATE_HOME/opencode/service.json` (or
+// `~/.local/state/opencode/service.json` when `XDG_STATE_HOME` is unset,
+// the XDG default) on every service start, with
+// `{ id, version, url, pid, password }` -- the `password` there is
+// always the one the running service actually checks requests against.
+// The older `~/.config/opencode/service.json` (`{ password }` only, no
+// `url`) is read only when that state file does not exist, for an
+// OpenCode version that predates it. Reading the old file
+// unconditionally (AI1's own behavior before this fix) can silently
+// check a stale password left over from before an upgrade -- exactly
+// what broke the owner's own installed app across the 2.0.12 -> 2.0.15
+// upgrade: the state file's password, written at 12:26:29, answered with
+// 200; the old file's, unchanged since Sep 21, answered with 401 --
+// verified live 2026-09-23, a single read-only `GET` with each, status
+// code only, no password logged.
+export function chooseServiceConfigPath(
+  homeDir: string,
+  xdgStateHome: string | undefined,
+  exists: (candidate: string) => boolean,
+): { path: string; display: string } {
+  const stateBase =
+    xdgStateHome && xdgStateHome.trim() !== "" ? xdgStateHome : path.join(homeDir, ".local", "state");
+  const statePath = path.join(stateBase, "opencode", "service.json");
+  if (exists(statePath)) {
+    return { path: statePath, display: displayHomePath(statePath, homeDir) };
   }
-  let password: string | undefined;
+  const oldPath = path.join(homeDir, ".config", "opencode", "service.json");
+  return { path: oldPath, display: displayHomePath(oldPath, homeDir) };
+}
+
+// True when a process with this id runs. `EPERM` means that it runs as
+// another user.
+export function processIsAlive(pid: number): boolean {
   try {
-    password = (JSON.parse(fs.readFileSync(SERVICE_CONFIG, "utf8")) as { password?: string }).password;
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+// The state file's `url`, but only while the service that wrote it runs.
+// A service that stops can leave its file behind, with a `url` that no
+// longer answers. The file's `pid` tells whether that service still runs.
+export function liveServiceUrl(
+  file: { url?: unknown; pid?: unknown } | undefined,
+  isAlive: (pid: number) => boolean,
+): string | undefined {
+  if (typeof file?.url !== "string" || !file.url) {
+    return undefined;
+  }
+  if (typeof file.pid === "number" && !isAlive(file.pid)) {
+    return undefined;
+  }
+  return file.url;
+}
+
+// Reads the service URL and the password. The password stays in this
+// process. `opencode service status` is only run when the credentials
+// file has no live `url` (the old file's own shape, no file at all, or a
+// state file whose service no longer runs, see `liveServiceUrl`). The URL
+// is resolved, and can still throw "the
+// service does not run" (`connectWithStart`, `opencode-hub.ts`, reacts to
+// that by starting the service), before the password is checked -- the
+// same order as before this fix, so a service that has genuinely never
+// run even once (neither credentials file exists yet) still gets that
+// same start-and-retry treatment, not a "no password" error that a start
+// cannot fix.
+export async function discoverConnection(): Promise<Connection> {
+  const homeDir = os.homedir();
+  const chosen = chooseServiceConfigPath(homeDir, process.env.XDG_STATE_HOME, (candidate) =>
+    fs.existsSync(candidate),
+  );
+  let parsed: { password?: string; url?: string; pid?: number } | undefined;
+  try {
+    parsed = JSON.parse(fs.readFileSync(chosen.path, "utf8")) as {
+      password?: string;
+      url?: string;
+      pid?: number;
+    };
   } catch {
-    password = undefined;
+    parsed = undefined;
   }
+  let baseUrl = liveServiceUrl(parsed, processIsAlive);
+  if (!baseUrl) {
+    const status = (await runCommand("opencode", ["service", "status"])).trim();
+    baseUrl = status
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line.startsWith("http"));
+    if (!baseUrl) {
+      throw new Error(`The OpenCode service does not run. Output: ${status}`);
+    }
+  }
+  const password = parsed?.password;
   if (!password) {
-    throw new Error(`AI1 cannot authenticate with the OpenCode service. No password in ${SERVICE_CONFIG}.`);
+    throw new Error(`AI1 cannot authenticate with the OpenCode service. No password in ${chosen.display}.`);
   }
-  return { baseUrl, password };
+  return { baseUrl, password, servicePasswordDisplayPath: chosen.display };
 }
 
 export async function ensureService(): Promise<void> {
   await runCommand("opencode", ["service", "start"]);
 }
 
-export class OpenCodeClient {
-  constructor(private readonly connection: Connection) {}
+// How long an ordinary request (every route except the `GET /api/event`
+// stream, which is long-lived by design and never gets this timeout) waits
+// for the OpenCode service to answer before this client gives up on it. A
+// hung service must not keep a load open, and its event queue growing,
+// forever -- see `AgentsServiceImpl.load`.
+const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 
-  async listSessions(): Promise<RawSession[]> {
+export class OpenCodeClient {
+  private readonly requestTimeoutMs: number;
+
+  constructor(
+    private readonly connection: Connection,
+    options: { requestTimeoutMs?: number } = {},
+  ) {
+    this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  }
+
+  // `order=desc` sorts by `time.updated`, not `time.created` -- verified
+  // live (2026-09-23): a session whose `time.created` is the oldest of two
+  // but whose `time.updated` is the newest (touched with a `PATCH
+  // /api/session/{id}`, which does not change `time.created`) sorted
+  // first. So the 200 sessions this keeps are the 200 most recently
+  // active across the whole service, not the 200 newest by creation.
+  //
+  // The cap below is global, over every session the service holds, taken
+  // before `AgentsServiceImpl` filters by workspace root -- the owner's
+  // own decision (see the M2 backlog ledger, item 3 fix round 1): a
+  // workspace-scoped cap would need a `directory` filter on this same
+  // call, which the live service accepts but a page of 100 could still
+  // mix directories, so filtering after paging remains the correct order.
+  // `truncated` tells a caller when this global cap actually cut off real
+  // data, so the view can say so instead of silently showing fewer
+  // sessions than the workspace may actually have.
+  async listSessions(): Promise<{ sessions: RawSession[]; truncated: boolean }> {
     const all: RawSession[] = [];
     let cursor: string | undefined;
     for (let pages = 0; pages < MAX_SESSION_PAGES; pages += 1) {
@@ -115,24 +274,53 @@ export class OpenCodeClient {
       }
       const page = await this.get<{ data: SessionRecord[]; cursor?: PageCursor }>(`/api/session?${query}`);
       if (page.data.length === 0) {
-        return all;
+        return { sessions: all, truncated: false };
       }
       all.push(...page.data.map(toRawSession));
       const next = page.cursor?.next ?? undefined;
+      if (all.length >= MAX_SESSIONS) {
+        const truncated = Boolean(next && next !== cursor);
+        if (truncated) {
+          console.warn(
+            `ai1-agents: the session list stopped at ${MAX_SESSIONS} sessions; older sessions are not shown.`,
+          );
+        }
+        return { sessions: all.slice(0, MAX_SESSIONS), truncated };
+      }
       if (!next || next === cursor) {
-        return all;
+        return { sessions: all, truncated: false };
       }
       cursor = next;
     }
     console.warn(
       `ai1-agents: the session list stopped after ${MAX_SESSION_PAGES} pages; older sessions are not shown.`,
     );
-    return all;
+    return { sessions: all, truncated: true };
   }
 
   async activeIds(): Promise<Set<string>> {
     const active = await this.get<{ data: Record<string, unknown> }>("/api/session/active");
     return new Set(Object.keys(active.data));
+  }
+
+  // A second, independent check that one particular session is gone,
+  // verified live 2026-09-23 (`GET /api/session/{id}` gives
+  // `{ data: SessionRecord }` for a real session, and a 404
+  // `SessionNotFoundError` for one that does not exist). Used to confirm a
+  // 404 from the message-list route before treating a session as deleted
+  // (`AgentsServiceImpl.lastMessage`): one 404 alone could be a transient
+  // or unrelated failure of that one route, not proof the session itself
+  // is gone.
+  async sessionExists(id: string): Promise<boolean> {
+    try {
+      await this.get(`/api/session/${id}`);
+      return true;
+    } catch (error) {
+      if (error instanceof OpenCodeHttpError && error.status === 404) {
+        return false;
+      }
+      throw error;
+    }
   }
 
   // Scoped by the `x-opencode-directory` header, verified live: a
@@ -304,10 +492,18 @@ export class OpenCodeClient {
         response.on("data", (chunk: string) => (text += chunk));
         response.on("end", () => {
           if (response.statusCode === 401) {
-            reject(new Error("AI1 cannot authenticate with the OpenCode service (401)."));
+            reject(
+              new OpenCodeHttpError(
+                401,
+                `AI1 cannot authenticate with the OpenCode service (401). Check the password in ${this.connection.servicePasswordDisplayPath}.`,
+              ),
+            );
           } else if (response.statusCode && response.statusCode >= 400) {
             reject(
-              new Error(`OpenCode ${method} ${route} gave ${response.statusCode}: ${text.slice(0, 200)}`),
+              new OpenCodeHttpError(
+                response.statusCode,
+                `OpenCode ${method} ${route} gave ${response.statusCode}: ${text.slice(0, 200)}`,
+              ),
             );
           } else if (!text) {
             resolve(undefined as T);
@@ -321,6 +517,18 @@ export class OpenCodeClient {
             }
           }
         });
+      });
+      // Idle-socket timeout, not an overall-duration one: it resets on any
+      // byte of activity, so a slow but live answer is not cut off, only a
+      // truly hung one. `destroy(error)` both ends the request and gives
+      // that error to the `error` listener right below, so this rejects
+      // with a clear message instead of leaving the promise pending.
+      request.setTimeout(this.requestTimeoutMs, () => {
+        request.destroy(
+          new OpenCodeTimeoutError(
+            `OpenCode did not answer within ${this.requestTimeoutMs}ms (${method} ${route}).`,
+          ),
+        );
       });
       request.on("error", reject);
       request.end(payload);

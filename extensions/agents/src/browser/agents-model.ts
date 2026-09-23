@@ -9,10 +9,10 @@ import {
   SessionStatus,
   SessionSummary,
 } from "../common/agents-protocol";
+import { LoadGate, runGatedOnce } from "../common/load-gate";
 import { OncePerKey } from "../common/once-per-key";
 import { groupSessions } from "../common/session-groups";
-import { diffSessions } from "../common/session-diff";
-import { isSnapshotStale } from "../common/sequence-guard";
+import { mergeSnapshot } from "../common/session-merge";
 
 // The front-end copy of the sessions. The back end pushes one card per
 // change; the model regroups and tells the widget.
@@ -42,7 +42,31 @@ export class AgentsModel implements AgentsClient {
   readonly openTerminals = new Set<string>();
   connected = false;
   error: string | undefined;
-  protected loading: Promise<void> | undefined;
+  // Set from the last load's own `AgentsSnapshot.truncated` (see that
+  // field's own comment): the global, service-wide session cap actually
+  // cut off real data, so this workspace may be missing an older session
+  // with no way to tell from here alone. An event
+  // (`onSessionChanged`/`onSessionRemoved`) never changes this -- only a
+  // fresh `load()` can, since only a load re-reads the capped list.
+  truncated = false;
+  // Gates `load()` so a request that arrives while a load is already
+  // running (for example a reconnect's `onConnectionChanged(true)` racing
+  // the widget's own first load) does not join that running load and get
+  // its now-stale answer; it only marks that one more load must run once
+  // the current one ends (see `LoadGate` and `runGatedOnce`). `retryChain`
+  // is what such a joining call is given instead of its own load: the
+  // promise of the retry `loadGate` asks for once the current load ends,
+  // which settles with that retry's own result (success or its own
+  // error), not with the running load's -- a joiner asked for a fresh
+  // load, so a stale, unrelated failure from the load it happened to
+  // arrive during must not be what it is told. In practice the sources of
+  // a joining call are sparse (the widget's own start, a reconnect, the
+  // Refresh command, `pickSession`), but nothing stops one more from
+  // joining while a retry is still settling, in which case that caller
+  // waits through that one too, and so on for as long as requests keep
+  // arriving one after another.
+  protected readonly loadGate = new LoadGate();
+  protected retryChain: Promise<void> | undefined;
   protected loadedOnce = false;
   // A monotonic counter of event-driven updates (`onSessionChanged`/
   // `onSessionRemoved`), and the sequence number of the last one applied
@@ -85,16 +109,26 @@ export class AgentsModel implements AgentsClient {
     }
   }
 
-  // Two overlapping calls (for example the widget's own first load racing
-  // the first `onConnectionChanged(true)`) collapse into the one in-flight
-  // request, so a stale response cannot overwrite a newer one.
+  // A call that arrives while a load is already running does not start its
+  // own load; `loadGate` only marks that one more load must run once the
+  // current one ends (see the field comment above and `LoadGate` itself).
+  // `runGatedOnce` (not a method here: it needs no `AgentsModel` state of
+  // its own, and living in `../common/load-gate` alongside `LoadGate`
+  // lets it be unit-tested on its own, which this class itself cannot be
+  // in this project's plain Node mocha run -- `@theia/workspace` needs a
+  // DOM) also keeps a `doLoad` failure from skipping a retry a joiner is
+  // owed -- see its own comment.
   load(): Promise<void> {
-    if (!this.loading) {
-      this.loading = this.doLoad().finally(() => {
-        this.loading = undefined;
-      });
+    if (!this.loadGate.start()) {
+      return this.retryChain ?? Promise.resolve();
     }
-    return this.loading;
+    const run = runGatedOnce(
+      this.loadGate,
+      () => this.doLoad(),
+      () => this.load(),
+    );
+    this.retryChain = run.retryChain;
+    return run.own;
   }
 
   protected async doLoad(): Promise<void> {
@@ -110,44 +144,36 @@ export class AgentsModel implements AgentsClient {
       return;
     }
     const incoming = snapshot.groups.flatMap((group) => group.sessions);
-    // A session an event already updated after this load started (the RPC
-    // round trip gives no ordering guarantee against the event stream) is
-    // provably more current than this (now stale, for that one session)
-    // load's answer; that id's own current value replaces the load's
-    // answer for it, everywhere below, instead of the load winning the
-    // race and reverting it.
-    const staleIds = new Set(
-      [...this.sessions.keys(), ...incoming.map((session) => session.id)].filter((id) =>
-        isSnapshotStale(this.lastEventSeq.get(id), loadStartedAtSeq),
-      ),
-    );
-    const after = incoming
-      .filter((session) => !staleIds.has(session.id))
-      .concat([...this.sessions].filter(([id]) => staleIds.has(id)).map(([, session]) => session));
-    // A full load replaces the whole map at once, so it needs its own
-    // per-session diff to raise the same `onDidChangeStatus`/
+    // A full load replaces the whole map at once, so `mergeSnapshot` gives
+    // it its own per-session diff, to raise the same `onDidChangeStatus`/
     // `onDidRemoveSession` events a live update raises one at a time --
     // otherwise a session that is already blocked the moment AI1 starts
-    // (or reconnects after a cut) never gets a notice for it.
-    const diff = diffSessions(this.sessions, after);
+    // (or reconnects after a cut) never gets a notice for it. It also
+    // keeps a session an event already updated after this load started
+    // (the RPC round trip gives no ordering guarantee against the event
+    // stream) at its own, more current, value instead of the load's own
+    // (now stale, for that one session) answer winning the race and
+    // reverting it -- see `isSnapshotStale`.
+    const merge = mergeSnapshot(this.sessions, this.lastEventSeq, loadStartedAtSeq, incoming);
     this.sessions.clear();
-    for (const session of after) {
-      this.sessions.set(session.id, session);
+    for (const [id, session] of merge.sessions) {
+      this.sessions.set(id, session);
     }
     this.connected = snapshot.connected;
+    this.truncated = snapshot.truncated;
     this.loadedOnce = true;
-    for (const change of diff.changed) {
-      // Same rule `onSessionChanged` applies to a live update: a session
-      // that just moved to done or failed has a cached last message (if
-      // any) from before it finished, so drop it and let the next
-      // `ensureLastMessage` fetch the real, final one.
-      if (change.session.status === "done" || change.session.status === "failed") {
-        this.lastMessages.delete(change.session.id);
-        this.lastMessageOnce.forget(change.session.id);
-      }
+    // Same rule `onSessionChanged` applies to a live update: a session
+    // that just moved to done or failed has a cached last message (if
+    // any) from before it finished, so drop it and let the next
+    // `ensureLastMessage` fetch the real, final one.
+    for (const id of merge.toForget) {
+      this.lastMessages.delete(id);
+      this.lastMessageOnce.forget(id);
+    }
+    for (const change of merge.changed) {
       this.onDidChangeStatusEmitter.fire(change);
     }
-    for (const id of diff.removed) {
+    for (const id of merge.removed) {
       this.onDidRemoveSessionEmitter.fire(id);
     }
     this.onDidChangeEmitter.fire();
@@ -210,12 +236,29 @@ export class AgentsModel implements AgentsClient {
     this.connected = connected;
     // The widget's own first load already populates the model; only a
     // reconnect after a cut needs a repair load (events could be lost
-    // during the cut). The reentrancy guard in `load()` would also collapse
-    // a duplicate first-connect load into the widget's own call, but
-    // skipping it here avoids starting it at all.
+    // during the cut). The gate in `load()` would also fold a duplicate
+    // first-connect load into the widget's own call, but skipping it here
+    // avoids starting it at all.
     if (connected && !wasConnected && this.loadedOnce) {
-      void this.load();
+      this.loadInBackground("the reconnect load");
     }
     this.onDidChangeEmitter.fire();
+  }
+
+  // The back end's own event queue overflowed while a load was in
+  // progress and was dropped (see `AgentsClient.onReloadRequested`'s own
+  // comment): a fresh load through the model's own gate is the only way
+  // to be current again, the same repair a reconnect runs.
+  onReloadRequested(): void {
+    this.loadInBackground("the reload after an event-queue overflow");
+  }
+
+  // Fires `load()` and forgets it: nothing here awaits it, and `load()`
+  // can throw (see `runGatedOnce`), so a caught rejection here cannot
+  // become an unhandled one.
+  protected loadInBackground(what: string): void {
+    this.load().catch((error) => {
+      console.error(`ai1-agents: ${what} failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
   }
 }

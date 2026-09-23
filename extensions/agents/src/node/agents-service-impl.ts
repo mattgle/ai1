@@ -2,11 +2,11 @@ import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { inject, injectable, preDestroy } from "@theia/core/shared/inversify";
 import { AgentsClient, AgentsService, AgentsSnapshot, SessionSummary } from "../common/agents-protocol";
-import { mapLimit } from "../common/concurrency-limit";
+import { mapLimit, mapLimitUntilFatal } from "../common/concurrency-limit";
 import { groupSessions } from "../common/session-groups";
 import { applyEvent, computeStatus, SessionFacts } from "../common/session-status";
 import { TmuxSession } from "../common/tmux-list";
-import { RawSession } from "./opencode-client";
+import { OpenCodeHttpError, OpenCodeTimeoutError, RawSession } from "./opencode-client";
 import { Disposable, OpenCodeHub } from "./opencode-hub";
 import { resolveProgram } from "./resolve-program";
 import { listTmuxSessions, tmuxNewCommand } from "./tmux-runner";
@@ -21,6 +21,39 @@ interface Tracked {
 // directory) run at once during a load, so a workspace with many
 // repositories does not fire one HTTP request per repository all at once.
 const PERMISSION_CHECK_CONCURRENCY = 4;
+
+// How many `messageCount` calls (one per tracked session) run at once
+// during a load, so a workspace with many sessions does not fire one HTTP
+// request per session all at once.
+const MESSAGE_COUNT_CONCURRENCY = 4;
+
+// How many events `onEvent` queues while a load is in progress (see
+// `load`) before it gives up on replaying them one by one. Nothing today
+// makes a load run long enough for this to matter in practice
+// (`OpenCodeClient`'s own request timeout bounds a hung fetch), but an
+// unbounded queue would otherwise grow forever for as long as any load
+// stays open. Past this many, `onEvent` drops the whole queue and `load`
+// asks for a fresh load instead, once every overlapping load on this
+// instance has ended -- simpler, and just as correct, as replaying a
+// queue this stale would be, and it keeps memory bounded.
+const MAX_QUEUED_EVENTS = 1000;
+
+// Whether `onEvent` acts on an event of this `type` at all: every
+// `session.*` type (`session.created`, `session.deleted`, and every
+// session status event) and every `permission.*` type (`permission.asked`,
+// `permission.replied`), each carrying its own `sessionID` -- verified
+// live, see `session-status.ts`. Anything else (for example the live
+// service's own `server.connected` on a fresh SSE connection) reaches
+// `onEvent` with nothing for it to act on: replayed later, it would just
+// fall through to the same no-op a live one does today, so queuing it
+// while a load is in progress (see `load`) would only spend queue
+// capacity for nothing.
+function isQueueableEvent(type: string, properties: Record<string, unknown>): boolean {
+  return (
+    (type.startsWith("session.") || type.startsWith("permission.")) &&
+    typeof properties.sessionID === "string"
+  );
+}
 
 // Strips a trailing slash, so `isInside` and `groupSessions` compare the
 // same value. Keeps "/" for the file-system root, which would otherwise
@@ -72,6 +105,26 @@ export class AgentsServiceImpl implements AgentsService {
   protected connected = false;
   protected hubEventDisposable: Disposable | undefined;
   protected hubStateDisposable: Disposable | undefined;
+  // How many `load()` calls on this instance are currently in flight, from
+  // each one's own subscribe onward (see `load`) until its own rebuild of
+  // `tracked` ends. An event that reaches `onEvent` while this is above
+  // zero is queued instead of applied straight away: `tracked` still holds
+  // some previous rebuild's sessions (or none, on the very first load), so
+  // applying the event now would either touch a now-stale entry a rebuild
+  // still in flight is about to overwrite, or find no tracked entry at all
+  // and be dropped for good. A depth counter, not a single flag: two
+  // overlapping `load()` calls on this one instance must not let the
+  // first one to finish drain the queue (or reset it on its own start)
+  // while the second is still rebuilding `tracked` -- `load` only drains
+  // once this returns to zero.
+  protected loadDepth = 0;
+  protected queuedEvents: { type: string; properties: Record<string, unknown> }[] = [];
+  // Set when the queue above hit `MAX_QUEUED_EVENTS` and was dropped
+  // while `loadDepth` was still above zero. `load`'s own drain, once
+  // `loadDepth` returns to zero, asks for one more load instead of
+  // replaying the (now empty) queue, since nothing can be replayed for
+  // whatever arrived in the dropped window.
+  protected queueOverflowed = false;
 
   init(hub: OpenCodeHub, resolvePath: (name: "opencode" | "tmux") => string = resolveProgram): void {
     this.hub = hub;
@@ -102,8 +155,67 @@ export class AgentsServiceImpl implements AgentsService {
 
   async load(workspaceRootUris: string[]): Promise<AgentsSnapshot> {
     this.roots = workspaceRootUris.map((uri) => normalizeRoot(fileURLToPath(uri)));
+    // Subscribed before the first await below, so an event that arrives
+    // while the fetches below run (including the very first load, before
+    // this connection ever subscribed) reaches `onEvent` and is queued,
+    // instead of never reaching a listener at all. The `try`/`finally`
+    // below drains that queue once every overlapping `load()` call on this
+    // instance has ended (`loadDepth` back to zero), whether the last one
+    // to end succeeds or fails: on success, `tracked` is current again,
+    // and each queued event replays through the normal `onEvent` -- the
+    // same one a live event runs, including `notifyChanged` -- so a
+    // session already tracked after the rebuild gets exactly the update
+    // it missed, and `session.created` still adds a session the rebuild
+    // did not know about yet, through its own existing rule. An event for
+    // a session that is not tracked after the rebuild, and is not a
+    // `session.created`, is dropped, the same as it is today for a live
+    // event with no tracked match. On a failure before `tracked` is
+    // touched, the queued events simply replay against the still-current,
+    // unchanged `tracked` -- as if they had never been queued. Only reset
+    // when this is the outermost call (`loadDepth` was zero): a second,
+    // overlapping call must not clear what the first is already queuing.
+    this.ensureSubscribed();
+    if (this.loadDepth === 0) {
+      this.queuedEvents = [];
+    }
+    this.loadDepth += 1;
+    try {
+      return await this.doLoadFetch();
+    } finally {
+      this.loadDepth -= 1;
+      if (this.loadDepth === 0) {
+        const queued = this.queuedEvents;
+        const overflowed = this.queueOverflowed;
+        this.queuedEvents = [];
+        this.queueOverflowed = false;
+        for (const event of queued) {
+          // `replay: true`: the fetched `messageCount` this rebuild just
+          // set (`doLoadFetch`'s own `api.messageCount` call) already
+          // counts this event's step, so counting it a second time here
+          // would be wrong -- see `onEvent`.
+          this.onEvent(event.type, event.properties, { replay: true });
+        }
+        if (overflowed) {
+          // Nothing was replayed for whatever the dropped queue held.
+          // Reloading here, on this side, would not fix that: this
+          // service's own answer reaches no client, and rebuilding
+          // `tracked` again raises no `notifyChanged` for any of it (a
+          // load's answer is returned, not pushed) -- the window would
+          // still show whatever was last on screen, now stale. So the
+          // client is told instead: it knows how to run its own load the
+          // same way a reconnect's repair load already does.
+          this.notifyReloadRequested();
+        }
+      }
+    }
+  }
+
+  // The fetch-and-rebuild body of `load`, split out so `load` itself can
+  // wrap it in one `try`/`finally` that always drains the event queue
+  // above, on success or on failure.
+  protected async doLoadFetch(): Promise<AgentsSnapshot> {
     const api = await this.hub.apiClient();
-    const [sessions, active] = await Promise.all([api.listSessions(), api.activeIds()]);
+    const [{ sessions, truncated }, active] = await Promise.all([api.listSessions(), api.activeIds()]);
     // The pending-permission list is scoped by a directory that must equal
     // a session's own directory exactly (no prefix match against an
     // ancestor such as a workspace root, verified live), so it is called
@@ -160,23 +272,66 @@ export class AgentsServiceImpl implements AgentsService {
       });
     }
     const inside = [...this.tracked.values()];
-    await Promise.all(
-      inside.map(async (t) => {
-        t.messageCount = await api.messageCount(t.raw.id).catch(() => 0);
-      }),
+    // A per-session error (a 404, a 500) counts as 0 for that one session
+    // and nothing else changes -- the same as the plain `.catch(() => 0)`
+    // this used before. A request timeout is different: a workspace with
+    // many sessions against a hung service would otherwise cost
+    // `sessions.length / MESSAGE_COUNT_CONCURRENCY` timeouts (200
+    // sessions at the default 15 s timeout is over 12 minutes), during
+    // which the back-end event queue (see `load`, above) can overflow and
+    // ask for another such load. `mapLimitUntilFatal` stops *starting*
+    // any further message-count call the moment one request times out;
+    // every session whose call had not started yet gets 0 at once, with
+    // no request of its own -- the whole phase then costs about one
+    // timeout, not one per batch. A call already in flight when that
+    // happens is not cancelled; it still finishes on its own (success or
+    // its own error).
+    await mapLimitUntilFatal(
+      inside,
+      MESSAGE_COUNT_CONCURRENCY,
+      (t) => api.messageCount(t.raw.id).then((count) => (t.messageCount = count)),
+      (error) => error instanceof OpenCodeTimeoutError,
+      (t) => (t.messageCount = 0),
     );
-    this.ensureSubscribed();
     return {
       groups: groupSessions(
         inside.map((t) => this.summary(t)),
         this.roots,
       ),
       connected: this.connected,
+      truncated,
     };
   }
 
+  // A session already removed from `tracked` (its card is already gone,
+  // the same as after a live `session.deleted`) is not asked about again:
+  // no further request, no further retry.
   async lastMessage(id: string): Promise<string | undefined> {
-    return (await this.hub.apiClient()).lastMessageText(id);
+    if (!this.tracked.has(id)) {
+      return undefined;
+    }
+    const api = await this.hub.apiClient();
+    try {
+      return await api.lastMessageText(id);
+    } catch (error) {
+      // A 404 alone is not proof the session is gone: that one route could
+      // fail on its own, unrelated to the session's own existence. A
+      // second, independent call (`sessionExists`, `GET
+      // /api/session/{id}`) must also say it is gone before this treats it
+      // that way; otherwise the original 404 is just a normal error,
+      // rethrown below like any other.
+      if (error instanceof OpenCodeHttpError && error.status === 404 && !(await api.sessionExists(id))) {
+        // Confirmed gone, the same case a live `session.deleted` event
+        // reports. Routed through `onEvent`, not applied directly here, so
+        // a load in progress on this instance queues it and replays it
+        // after the rebuild, the same as a live event would -- this
+        // method's own guard above then stops any further request for
+        // this id from here on.
+        this.onEvent("session.deleted", { sessionID: id });
+        return undefined;
+      }
+      throw error;
+    }
   }
 
   async createSession(directory: string, title?: string): Promise<SessionSummary> {
@@ -225,7 +380,28 @@ export class AgentsServiceImpl implements AgentsService {
   }
 
   // The event names and the sessionID field are verified live.
-  protected onEvent(type: string, properties: Record<string, unknown>): void {
+  // `options.replay` is set only when `load` replays a queued event after
+  // a rebuild (see `load`): the fresh `messageCount` that rebuild just
+  // fetched already counts a `session.step.ended` this queued event
+  // reports, so this call must not count it again, though it still
+  // applies every other fact and still notifies as usual.
+  protected onEvent(
+    type: string,
+    properties: Record<string, unknown>,
+    options: { replay?: boolean } = {},
+  ): void {
+    if (this.loadDepth > 0) {
+      if (!isQueueableEvent(type, properties)) {
+        return;
+      }
+      if (this.queuedEvents.length >= MAX_QUEUED_EVENTS) {
+        this.queuedEvents = [];
+        this.queueOverflowed = true;
+        return;
+      }
+      this.queuedEvents.push({ type, properties });
+      return;
+    }
     if (type === "session.created") {
       this.onSessionCreated(properties);
       return;
@@ -244,7 +420,7 @@ export class AgentsServiceImpl implements AgentsService {
     }
     const before = computeStatus(tracked.facts);
     tracked.facts = applyEvent(tracked.facts, type, properties);
-    if (type === "session.step.ended") {
+    if (type === "session.step.ended" && !options.replay) {
       tracked.messageCount += 1;
     }
     tracked.raw.time.updated = Date.now();
@@ -320,5 +496,9 @@ export class AgentsServiceImpl implements AgentsService {
 
   protected notifyRemoved(id: string): void {
     this.client?.onSessionRemoved(id);
+  }
+
+  protected notifyReloadRequested(): void {
+    this.client?.onReloadRequested();
   }
 }

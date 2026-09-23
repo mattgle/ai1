@@ -3,7 +3,8 @@ import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { injectable } from "@theia/core/shared/inversify";
 import { ChangesService, FileChangeEntry, RepoChanges } from "../common/changes-protocol";
-import { discardPlan, parseStatusOutput } from "../common/git-status";
+import { discardPlan } from "../common/git-status";
+import { parseStatusV2 } from "../common/status-v2";
 import { readGit, runGit } from "./git-runner";
 import { resolveInsideRepo } from "./repo-path";
 
@@ -142,15 +143,18 @@ export class ChangesServiceImpl implements ChangesService {
 
   protected async scanRepo(candidate: RepoCandidate): Promise<RepoChanges | undefined> {
     // -c core.quotepath=off stops git from C-style quoting a path with a
-    // quote, a space, or a non-ASCII byte. -z separates records with `\0`
+    // quote, a space, or a non-ASCII byte. --porcelain=v2 --branch adds the
+    // branch.oid and branch.head headers to the same call, so one call gives
+    // both the changed files and the branch. -z separates records with `\0`
     // instead of `\n`, so such a path never needs quoting or escaping.
     // --untracked-files=all lists each untracked file, not only its folder.
-    const files = parseStatusOutput(
+    const { branch, detached, files } = parseStatusV2(
       await readGit(candidate.path, [
         "-c",
         "core.quotepath=off",
         "status",
-        "--porcelain",
+        "--porcelain=v2",
+        "--branch",
         "-z",
         "--untracked-files=all",
       ]),
@@ -158,7 +162,6 @@ export class ChangesServiceImpl implements ChangesService {
     if (files.length === 0) {
       return undefined;
     }
-    const { branch, detached } = await this.readBranch(candidate.path);
     return {
       name: candidate.name,
       rootUri: pathToFileURL(candidate.path).toString(),
@@ -166,19 +169,5 @@ export class ChangesServiceImpl implements ChangesService {
       ...(detached ? { detached: true } : {}),
       files,
     };
-  }
-
-  // `git branch --show-current` is empty for a detached HEAD, but it gives
-  // the branch name for a repository with no commits yet, because HEAD is
-  // still a symbolic ref to that branch. So a detached HEAD and a repository
-  // with no commits both need `git rev-parse --verify HEAD` to tell apart: it
-  // fails only when there is no commit yet.
-  protected async readBranch(repoPath: string): Promise<{ branch: string; detached: boolean }> {
-    const current = (await readGit(repoPath, ["branch", "--show-current"])).trim();
-    const hasCommit = (await readGit(repoPath, ["rev-parse", "--verify", "HEAD"])).trim().length > 0;
-    if (!hasCommit) {
-      return { branch: "", detached: false };
-    }
-    return { branch: current, detached: current === "" };
   }
 }

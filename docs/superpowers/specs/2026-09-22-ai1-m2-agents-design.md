@@ -36,6 +36,21 @@ Checked on the installed binaries on 2026-09-22 (OpenCode v2.0.12, Herdr 0.9.1):
 - The service uses HTTP basic authentication. The password is in
   `~/.config/opencode/service.json`, key `password`. A request with no password
   gets 401.
+- Update, verified live 2026-09-23 against OpenCode v2.0.15: the service
+  now writes its own credentials to
+  `$XDG_STATE_HOME/opencode/service.json` (`~/.local/state/opencode
+  /service.json` when `XDG_STATE_HOME` is not set), key `password`, plus
+  `id`, `version`, `url`, and `pid`, fresh on every service start. AI1
+  reads this file first, and the old `~/.config/opencode/service.json`
+  only when the state file does not exist -- reading the old file
+  unconditionally (its own earlier behavior) checks a stale password
+  after an OpenCode upgrade, which is exactly what happened on the
+  owner's machine across the 2.0.12 -> 2.0.15 upgrade (the running
+  service's own password, from the state file, got 200; the unchanged
+  old file's got 401). The state file's own `url` is used directly while
+  the process in its `pid` runs, so `opencode service status` is not
+  called then. A stopped service can leave its file behind, so a dead
+  `pid` sends AI1 back to `opencode service status`.
 - `GET /api/session` lists sessions with `id`, `title`, `model`, `outcome`
   (`succeeded`, `failed`, `interrupted`), `time` (`created`, `updated`, `idle`),
   and `location.directory`. Query parameters: `limit`, `order`, `search`,
@@ -85,9 +100,14 @@ detection that `changes-view` has (direct children of the workspace root with a
 
 `OpenCodeClient`:
 
-- Finds the service URL with `opencode service status`. If the service does not
-  run, runs `opencode service start` one time and waits up to 10 seconds.
-- Reads the password from `~/.config/opencode/service.json`.
+- Reads the password, and the service URL if the file has one, from
+  `$XDG_STATE_HOME/opencode/service.json` (or
+  `~/.local/state/opencode/service.json`), falling back to the older
+  `~/.config/opencode/service.json` only when that file does not exist.
+  Finds the service URL with `opencode service status` only when the file
+  it read has none, or when the process in the file's `pid` does not run.
+  If the service does not run, runs `opencode service
+  start` one time and waits up to 10 seconds.
 - Holds one connection to `GET /api/event`. On a cut, it reconnects with a
   growing wait from 1 to 30 seconds. After a reconnect it repeats the initial
   load, because events can be lost.
@@ -119,10 +139,18 @@ Pure logic, from three sources:
 
 **Initial load.** Three calls in parallel: the session list (pages of 100,
 newest first, up to 200 by default), the active map, and the pending
-permissions. The cards are complete except for the last message. The last
-message comes in a second pass, only for the visible sessions (the 30 newest of
-each group). A card that is not visible shows its title until its group
-expands.
+permissions. "Newest first" means the order of `time.updated`, not
+`time.created` (verified live 2026-09-23: `order=desc` puts a session with
+an old creation time but a recent update ahead of one created after it but
+never touched since). The 200-session cap is global, over every session
+the OpenCode service holds, taken before AI1 filters by workspace root --
+so a workspace can show fewer of its own sessions than it actually has,
+when 200 more recently active sessions of other workspaces or repositories
+push its older ones past the cap. When this happens, the view shows one
+line saying so. The cards are complete except for the last message. The
+last message comes in a second pass, only for the visible sessions (the 30
+newest of each group). A card that is not visible shows its title until
+its group expands.
 
 **Live updates.** Each event changes the state of one session in memory. The
 back end emits `onSessionChanged` with that card. The view updates that card
@@ -156,6 +184,10 @@ Two levels:
   a third line `<N> msgs · <age> · <model>`. On hover: "open terminal" and
   "delete session" (with a confirm dialog).
 - A line at the top of the view: "<N> terminals open".
+- A second line, only when the 200-session cap actually hid a session:
+  "Showing the 200 newest OpenCode sessions of the service. Older sessions
+  are not listed." Shown too when the workspace has no session card yet,
+  so the cap is not silently invisible in an otherwise empty view.
 
 **Commands**, in the palette under the category "Agents":
 
@@ -189,11 +221,13 @@ session is no longer blocked.
 
 | Case | Behavior |
 |---|---|
-| `opencode` is not in the PATH | The view shows "OpenCode is not installed" and the install command (`brew install anomalyco/tap/opencode-v2`, the owner's OpenCode v2 tap; the plain `opencode` formula installs the old 1.x line). No retry. |
-| The service does not start | A message with the output of `opencode service start` and a button "Retry". |
-| No password in `service.json`, or 401 | "AI1 cannot authenticate with the OpenCode service" and the path of the file. |
-| The event stream is cut | "Reconnecting" in the view; a growing wait from 1 to 30 seconds; a full load after the reconnect. |
-| A call for one session fails (404, the session was deleted) | The card goes. No notice. |
+| `opencode` is not in the PATH | The view shows "OpenCode is not installed" and the install command (`brew install anomalyco/tap/opencode-v2`, the owner's OpenCode v2 tap; the plain `opencode` formula installs the old 1.x line), with a Retry button. |
+| The service does not start | A message with the output of `opencode service start` and a Retry button. |
+| No password in the credentials file, or 401 | The view shows "AI1 cannot authenticate with the OpenCode service" and the exact name of the file AI1 actually read (`~/.local/state/opencode/service.json`, or `~/.config/opencode/service.json` when the state file does not exist), never the full, absolute path. A Retry button shows too. |
+| A load error of any other kind | The view shows the error message, with a Retry button. A click on Retry runs a fresh load, the same as the Refresh command. |
+| The event stream is cut | "Reconnecting…" shows in the view, also when the view lists no session yet. The wait grows from 1 to 30 seconds. A full load runs after the reconnect. |
+| The global session cap (200) hides an older session of this workspace | The view shows a line: "Showing the 200 newest OpenCode sessions of the service. Older sessions are not listed." Shown also with no session card yet. |
+| A call for one session fails (404, the session was deleted) | AI1 confirms with a second, independent call (`GET /api/session/{id}`) before it trusts the 404. Confirmed: the card goes, the same way a `session.deleted` event removes it, and AI1 does not ask again for that session. No notice shows. Not confirmed (the session still exists): AI1 treats the 404 as a normal error and asks again later. |
 | `tmux` is not in the PATH | "New Persistent Terminal" shows the install command. Theia's own terminal stays available. |
 | `opencode --session` exits with an error in a tab | The tab keeps the error output, as any terminal. |
 

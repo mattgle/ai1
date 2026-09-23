@@ -17,7 +17,13 @@ describe("OpenCodeHub", () => {
     hub.init(
       () => {
         connects += 1;
-        return Promise.resolve(new OpenCodeClient({ baseUrl, password: server.password }));
+        return Promise.resolve(
+          new OpenCodeClient({
+            baseUrl,
+            password: server.password,
+            servicePasswordDisplayPath: "~/test/service.json",
+          }),
+        );
       },
       { retryMs: 20 },
     );
@@ -42,7 +48,13 @@ describe("OpenCodeHub", () => {
       attempts += 1;
       return attempts === 1
         ? Promise.reject(new Error("OpenCode is not running"))
-        : Promise.resolve(new OpenCodeClient({ baseUrl, password: server.password }));
+        : Promise.resolve(
+            new OpenCodeClient({
+              baseUrl,
+              password: server.password,
+              servicePasswordDisplayPath: "~/test/service.json",
+            }),
+          );
     });
     try {
       await assert.rejects(retrying.apiClient(), /not running/);
