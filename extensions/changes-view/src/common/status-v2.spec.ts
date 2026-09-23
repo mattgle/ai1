@@ -2,6 +2,20 @@ import * as assert from "node:assert";
 import { parseStatusV2 } from "./status-v2";
 
 describe("parseStatusV2", () => {
+  it("sorts the tracked entries by path, conflicts included, and keeps untracked entries last, as version 1 did", () => {
+    const h =
+      "N... 100644 100644 100644 1111111111111111111111111111111111111111 1111111111111111111111111111111111111111";
+    const u =
+      "N... 100644 100644 100644 100644 1111111111111111111111111111111111111111 1111111111111111111111111111111111111111 1111111111111111111111111111111111111111";
+    const result = parseStatusV2(
+      `1 .M ${h} b.ts\x001 .M ${h} d.ts\x00u AA ${u} a.ts\x00u UU ${u} c.ts\x00? 0-new.ts\x00`,
+    );
+    assert.deepStrictEqual(
+      result.files.map((file) => `${file.status}|${file.path}`),
+      ["AA|a.ts", " M|b.ts", "UU|c.ts", " M|d.ts", "??|0-new.ts"],
+    );
+  });
+
   it("returns an empty branch and no files for empty output", () => {
     assert.deepStrictEqual(parseStatusV2(""), { branch: "", detached: false, files: [] });
   });

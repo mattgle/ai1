@@ -10,10 +10,9 @@ import { FileChangeEntry } from "./changes-protocol";
 //
 // Two headers give the branch:
 //   `# branch.oid <commit>` — `(initial)` means the repository has no
-//     commit yet. `git branch --show-current` gave the branch name even
-//     then, because HEAD is still a symbolic ref to that branch, so
-//     `branch.head` is not enough on its own to tell a repository with no
-//     commits apart from a detached HEAD.
+//     commit yet. `branch.head` still gives the branch name then, because
+//     HEAD is a symbolic ref to that branch, so `branch.head` alone does not
+//     show a repository with no commits.
 //   `# branch.head <branch>` — `(detached)` means HEAD is detached.
 // Every other header (`# branch.upstream`, `# branch.ab`, `# stash`) and any
 // header this parser does not know is skipped.
@@ -39,7 +38,7 @@ import { FileChangeEntry } from "./changes-protocol";
 // rest of the service already expects, unchanged since before this parser:
 // for example " M", "R " (and " R", which `git add -N` on a moved file
 // reports, R in the second column), "C ". An unmerged entry's `<XY>` is
-// never a "unchanged" half, so it is kept as-is, for example "AA", "UD".
+// never an "unchanged" half, so it is kept as-is, for example "AA", "UD".
 export interface StatusV2 {
   branch: string;
   detached: boolean;
@@ -110,8 +109,20 @@ export function parseStatusV2(stdout: string): StatusV2 {
   }
   const hasCommit = oid !== undefined && oid !== "(initial)";
   if (!hasCommit) {
-    return { branch: "", detached: false, files };
+    return { branch: "", detached: false, files: inVersion1Order(files) };
   }
   const detached = head === "(detached)";
-  return { branch: detached ? "" : (head ?? ""), detached, files };
+  return { branch: detached ? "" : (head ?? ""), detached, files: inVersion1Order(files) };
+}
+
+// Version 2 lists the ordinary and rename entries first and the conflict
+// entries after them. Version 1 gave all tracked entries, conflicts
+// included, in path order, then the untracked entries. The view keeps the
+// version 1 order. Code-unit order is the same as git's byte order for every
+// path outside the Unicode surrogate range.
+function inVersion1Order(files: FileChangeEntry[]): FileChangeEntry[] {
+  const tracked = files.filter((file) => file.status !== "??");
+  const untracked = files.filter((file) => file.status === "??");
+  tracked.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  return [...tracked, ...untracked];
 }
