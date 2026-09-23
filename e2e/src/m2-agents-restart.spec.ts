@@ -7,8 +7,8 @@ import { TheiaApp, TheiaWorkspace } from "@theia/playwright";
 import { createMetaRepoFixture } from "./meta-repo-fixture";
 import { removeTempDir } from "./remove-temp-dir";
 
-// This test proves the fix of Critical 1 (fix round 1): a session tab and a
-// persistent-terminal tab must survive a real app restart correctly. That
+// This test proves that a session tab and a persistent-terminal tab survive
+// a real app restart correctly. That
 // needs two separate Electron app instances sharing the same Electron
 // user-data folder (the workbench layout lives there, in the browser's
 // `localStorage`; Theia's `ShellLayoutRestorer` uses `LocalStorageService`,

@@ -29,7 +29,7 @@ export class AgentsModel implements AgentsClient {
   protected readonly lastMessageOnce = new OncePerKey();
   protected readonly onDidChangeEmitter = new Emitter<void>();
   readonly onDidChange: Event<void> = this.onDidChangeEmitter.event;
-  readonly onDidChangeStatusEmitter = new Emitter<{
+  protected readonly onDidChangeStatusEmitter = new Emitter<{
     session: SessionSummary;
     previous: SessionStatus | undefined;
   }>();
@@ -99,10 +99,10 @@ export class AgentsModel implements AgentsClient {
 
   protected async doLoad(): Promise<void> {
     const loadStartedAtSeq = this.sequence;
-    const roots = await this.workspace.roots;
+    const workspaceRoots = await this.workspace.roots;
     let snapshot: AgentsSnapshot;
     try {
-      snapshot = await this.service.load(roots.map((root) => root.resource.toString()));
+      snapshot = await this.service.load(workspaceRoots.map((root) => root.resource.toString()));
       this.error = undefined;
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
@@ -137,16 +137,20 @@ export class AgentsModel implements AgentsClient {
     this.connected = snapshot.connected;
     this.loadedOnce = true;
     for (const change of diff.changed) {
+      // Same rule `onSessionChanged` applies to a live update: a session
+      // that just moved to done or failed has a cached last message (if
+      // any) from before it finished, so drop it and let the next
+      // `ensureLastMessage` fetch the real, final one.
+      if (change.session.status === "done" || change.session.status === "failed") {
+        this.lastMessages.delete(change.session.id);
+        this.lastMessageOnce.forget(change.session.id);
+      }
       this.onDidChangeStatusEmitter.fire(change);
     }
     for (const id of diff.removed) {
       this.onDidRemoveSessionEmitter.fire(id);
     }
     this.onDidChangeEmitter.fire();
-  }
-
-  async refresh(): Promise<void> {
-    await this.load();
   }
 
   // A card asks for its last message on every re-render. `lastMessageOnce`
@@ -156,11 +160,17 @@ export class AgentsModel implements AgentsClient {
     if (this.lastMessages.has(id)) {
       return;
     }
-    this.lastMessageOnce.run(id, async () => {
+    this.lastMessageOnce.run(id, async (stillCurrent) => {
       // A failed request rejects, so `lastMessageOnce` lets a later
-      // re-render try again.
+      // re-render try again. `stillCurrent` is false when `forget` ran for
+      // this id while the request was in flight (the session finished
+      // while its old last message was still loading, see
+      // `onSessionChanged` and `doLoad`'s own `forget` calls); this
+      // request's answer is then for a state this id has already moved
+      // past, and storing it would overwrite whatever a fresher request
+      // fetches instead.
       const text = await this.service.lastMessage(id);
-      if (text !== undefined) {
+      if (text !== undefined && stillCurrent()) {
         this.lastMessages.set(id, text);
         this.onDidChangeEmitter.fire();
       }

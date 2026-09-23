@@ -7,6 +7,7 @@ import { AgentsClient, SessionSummary } from "../common/agents-protocol";
 import { AgentsServiceImpl } from "./agents-service-impl";
 import { FakeOpenCodeServer } from "./fake-opencode-server";
 import { OpenCodeClient } from "./opencode-client";
+import { OpenCodeHub } from "./opencode-hub";
 
 class RecordingClient implements AgentsClient {
   changed: SessionSummary[] = [];
@@ -25,6 +26,7 @@ class RecordingClient implements AgentsClient {
 
 describe("AgentsServiceImpl", () => {
   let server: FakeOpenCodeServer;
+  let hub: OpenCodeHub;
   let service: AgentsServiceImpl;
   let client: RecordingClient;
   let symlinkFixture: { folder: string; link: string } | undefined;
@@ -58,19 +60,19 @@ describe("AgentsServiceImpl", () => {
     ];
     server.active.add("ses_a");
     server.messages.set("ses_b", ["hello", "world"]);
+    hub = new OpenCodeHub();
+    hub.init(() => Promise.resolve(new OpenCodeClient({ baseUrl, password: server.password })), {
+      retryMs: 20,
+    });
     service = new AgentsServiceImpl();
-    service.init(
-      () => Promise.resolve(new OpenCodeClient({ baseUrl, password: server.password })),
-      { retryMs: 20 },
-      (name) => `/fake/bin/${name}`,
-    );
+    service.init(hub, (name) => `/fake/bin/${name}`);
     client = new RecordingClient();
     service.setClient(client);
   });
 
   afterEach(async () => {
-    service.setClient(undefined);
     service.dispose();
+    hub.dispose();
     await server.stop();
     if (symlinkFixture) {
       fs.rmSync(symlinkFixture.link, { force: true });
@@ -123,15 +125,135 @@ describe("AgentsServiceImpl", () => {
   it("marks a session blocked on a permission event and clears it on the reply", async () => {
     await service.load(["file:///m"]);
     await until(() => client.connection.includes(true));
-    server.pushEvent("permission.asked", { sessionID: "ses_a" });
+    server.pushEvent("permission.asked", { sessionID: "ses_a", id: "req_1" });
     await until(() => client.changed.some((s) => s.id === "ses_a" && s.status === "blocked"));
-    server.pushEvent("permission.replied", { sessionID: "ses_a" });
+    server.pushEvent("permission.replied", { sessionID: "ses_a", requestID: "req_1" });
     await until(() => client.changed.some((s) => s.id === "ses_a" && s.status === "working"));
+  });
+
+  it("stays blocked while a second permission request is still open", async () => {
+    await service.load(["file:///m"]);
+    await until(() => client.connection.includes(true));
+    server.pushEvent("permission.asked", { sessionID: "ses_a", id: "req_1" });
+    server.pushEvent("permission.asked", { sessionID: "ses_a", id: "req_2" });
+    await until(() => client.changed.some((s) => s.id === "ses_a" && s.status === "blocked"));
+    server.pushEvent("permission.replied", { sessionID: "ses_a", requestID: "req_1" });
+    // The reply to req_1 alone must not clear the blocked status: req_2 is
+    // still open. Give the (wrong, pre-fix) behavior a moment to show up
+    // before asserting it stays blocked.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.ok(!client.changed.some((s) => s.id === "ses_a" && s.status !== "blocked"));
+    server.pushEvent("permission.replied", { sessionID: "ses_a", requestID: "req_2" });
+    await until(() => client.changed.some((s) => s.id === "ses_a" && s.status === "working"));
+  });
+
+  it("clears the working status once a succeeded event arrives, even for a session the load found in server.active", async () => {
+    // ses_a is in server.active at load time, so its facts start
+    // {active: true, running: false}; a bare `running: false` after the
+    // succeeded event must not leave it "working" if `active` itself is
+    // not cleared too.
+    await service.load(["file:///m"]);
+    await until(() => client.connection.includes(true));
+    server.pushEvent("session.execution.succeeded", { sessionID: "ses_a" });
+    await until(() => client.changed.some((s) => s.id === "ses_a" && s.status === "done"));
+    assert.ok(!client.changed.some((s) => s.id === "ses_a" && s.status === "working"));
+  });
+
+  it("sends no event to a client for a session outside the workspace roots", async () => {
+    await service.load(["file:///m"]);
+    await until(() => client.connection.includes(true));
+    // ses_x is /elsewhere, a real, already-loaded session (in
+    // server.sessions from the start), not inside any workspace root -- an
+    // ordinary status event for it must reach no client, the same as a
+    // session this connection never heard of at all.
+    server.pushEvent("session.execution.started", { sessionID: "ses_x" });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.ok(!client.changed.some((s) => s.id === "ses_x"));
+  });
+
+  it("adds a session created elsewhere inside the workspace, and ignores one outside it", async () => {
+    await service.load(["file:///m"]);
+    await until(() => client.connection.includes(true));
+    server.pushEvent("session.created", {
+      sessionID: "ses_new",
+      location: { directory: "/m/alpha" },
+      title: "New from elsewhere",
+    });
+    await until(() => client.changed.some((s) => s.id === "ses_new"));
+    const added = client.changed.find((s) => s.id === "ses_new")!;
+    assert.strictEqual(added.directory, "/m/alpha");
+    assert.strictEqual(added.title, "New from elsewhere");
+    const changedBefore = client.changed.length;
+    server.pushEvent("session.created", {
+      sessionID: "ses_outside",
+      location: { directory: "/elsewhere/new" },
+      title: "Outside the workspace",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.strictEqual(client.changed.length, changedBefore);
+  });
+
+  it("removes a session deleted elsewhere, idempotently with AI1's own deleteSession", async () => {
+    await service.load(["file:///m"]);
+    await until(() => client.connection.includes(true));
+    server.pushEvent("session.deleted", { sessionID: "ses_a" });
+    await until(() => client.removed.includes("ses_a"));
+    const removedCount = client.removed.filter((id) => id === "ses_a").length;
+    assert.strictEqual(removedCount, 1);
+    // A second event for the same (already removed) id is a no-op.
+    server.pushEvent("session.deleted", { sessionID: "ses_a" });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.strictEqual(client.removed.filter((id) => id === "ses_a").length, 1);
+  });
+
+  it("keeps two connections' sessions and roots apart, and disposing one does not stop the other", async () => {
+    // The standard Theia per-connection pattern: one `AgentsServiceImpl`
+    // instance per window, sharing one `OpenCodeHub`. `service` (this
+    // describe block's own instance, opened on /m/alpha) plays the first
+    // window; `second` (opened on /m/beta) plays a second window.
+    const secondClient = new RecordingClient();
+    const second = new AgentsServiceImpl();
+    second.init(hub, (name) => `/fake/bin/${name}`);
+    second.setClient(secondClient);
+    try {
+      const snapshotA = await service.load(["file:///m/alpha"]);
+      const snapshotB = await second.load(["file:///m/beta"]);
+      // Each connection's own load shows only its own root's sessions --
+      // never the other connection's.
+      assert.deepStrictEqual(
+        snapshotA.groups.map((g) => g.sessions.map((s) => s.id)),
+        [["ses_a"]],
+      );
+      assert.deepStrictEqual(
+        snapshotB.groups.map((g) => g.sessions.map((s) => s.id)),
+        [["ses_b"]],
+      );
+      await until(() => client.connection.includes(true) && secondClient.connection.includes(true));
+      // An event for ses_a (alpha, the first connection's own root) must
+      // reach only the first connection's client. ses_a is already
+      // "working" at load time (server.active has it), so a permission
+      // event, not another execution-started event, is the one that
+      // actually changes its status here.
+      server.pushEvent("permission.asked", { sessionID: "ses_a", id: "req_1" });
+      await until(() => client.changed.some((s) => s.id === "ses_a" && s.status === "blocked"));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      assert.ok(!secondClient.changed.some((s) => s.id === "ses_a"));
+      // Disposing the first connection (closing that window) must not stop
+      // the second connection's own events -- the hub, and its one
+      // subscription, are shared and outlive either one window.
+      service.dispose();
+      const secondChangedBefore = secondClient.changed.length;
+      server.pushEvent("session.execution.started", { sessionID: "ses_b" });
+      await until(() => secondClient.changed.length > secondChangedBefore);
+      assert.ok(secondClient.changed.some((s) => s.id === "ses_b" && s.status === "working"));
+    } finally {
+      second.dispose();
+    }
   });
 
   it("loads a session that already has a pending permission as blocked", async () => {
     // ses_a is /m/alpha, ses_b is /m/beta: a permission already pending for
-    // ses_a at load time (the M4 "already blocked at startup" case) must not
+    // ses_a at load time (the "already blocked at startup" case) must not
     // leak into ses_b's directory-scoped call, and must not need the header
     // to be the workspace root -- only ses_a's own directory matches it.
     server.pending.add("ses_a");
@@ -208,15 +330,13 @@ describe("AgentsServiceImpl", () => {
   });
 
   it("rejects sessionCommand with the install message when opencode is not on PATH", async () => {
-    // `sessionCommand` never connects, so the connect factory here is a
-    // stand-in that must not be called.
-    service.init(
-      () => Promise.reject(new Error("not used")),
-      {},
-      () => {
-        throw new Error("OpenCode is not installed. Install it with: brew install opencode");
-      },
-    );
+    // `sessionCommand` never connects, so the hub here is a stand-in that
+    // must not be called.
+    const unusedHub = new OpenCodeHub();
+    unusedHub.init(() => Promise.reject(new Error("not used")));
+    service.init(unusedHub, () => {
+      throw new Error("OpenCode is not installed. Install it with: brew install opencode");
+    });
     await assert.rejects(service.sessionCommand("ses_a", "/m/alpha"), /OpenCode is not installed/);
   });
 
@@ -232,13 +352,11 @@ describe("AgentsServiceImpl", () => {
   });
 
   it("rejects tmuxCommand with the install message when tmux is not on PATH", async () => {
-    service.init(
-      () => Promise.reject(new Error("not used")),
-      {},
-      () => {
-        throw new Error("tmux is not installed. Install it with: brew install tmux");
-      },
-    );
+    const unusedHub = new OpenCodeHub();
+    unusedHub.init(() => Promise.reject(new Error("not used")));
+    service.init(unusedHub, () => {
+      throw new Error("tmux is not installed. Install it with: brew install tmux");
+    });
     await assert.rejects(service.tmuxCommand("ai1-1", "/m/alpha"), /tmux is not installed/);
   });
 });

@@ -89,9 +89,20 @@ export class BlockedNotifier implements FrontendApplicationContribution {
     if (!stillWanted) {
       return;
     }
-    void progress.result.then((action) => {
+    void progress.result.then(async (action) => {
       if (action === "Open") {
-        void this.terminals.openSession(session);
+        // Same error handling as a card click (`AgentsContribution`'s
+        // `openSessionTerminal`): the terminal can fail to open (the
+        // process behind `opencode` is gone, `tmux` is missing, ...), and
+        // that failure must reach the user, not disappear as a silent
+        // rejection of this handler's own promise.
+        try {
+          await this.terminals.openSession(session);
+        } catch (error) {
+          this.messages.error(
+            `Open session failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
       }
       this.notices.clearIfCurrent(session.id, progress);
     });

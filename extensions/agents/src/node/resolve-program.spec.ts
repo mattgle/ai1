@@ -38,7 +38,7 @@ describe("resolveProgram", () => {
     process.env.PATH = dir;
     assert.throws(
       () => resolveProgram("opencode"),
-      /OpenCode is not installed\. Install it with: brew install opencode/,
+      /OpenCode is not installed\. Install it with: brew install anomalyco\/tap\/opencode-v2/,
     );
   });
 
@@ -49,7 +49,7 @@ describe("resolveProgram", () => {
     process.env.PATH = dir;
     assert.throws(
       () => resolveProgram("opencode"),
-      /OpenCode is not installed\. Install it with: brew install opencode/,
+      /OpenCode is not installed\. Install it with: brew install anomalyco\/tap\/opencode-v2/,
     );
   });
 });

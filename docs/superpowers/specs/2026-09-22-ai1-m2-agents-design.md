@@ -189,7 +189,7 @@ session is no longer blocked.
 
 | Case | Behavior |
 |---|---|
-| `opencode` is not in the PATH | The view shows "OpenCode is not installed" and the install command. No retry. |
+| `opencode` is not in the PATH | The view shows "OpenCode is not installed" and the install command (`brew install anomalyco/tap/opencode-v2`, the owner's OpenCode v2 tap; the plain `opencode` formula installs the old 1.x line). No retry. |
 | The service does not start | A message with the output of `opencode service start` and a button "Retry". |
 | No password in `service.json`, or 401 | "AI1 cannot authenticate with the OpenCode service" and the path of the file. |
 | The event stream is cut | "Reconnecting" in the view; a growing wait from 1 to 30 seconds; a full load after the reconnect. |

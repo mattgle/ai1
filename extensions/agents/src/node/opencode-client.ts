@@ -30,15 +30,15 @@ interface SessionRecord {
 
 // A message list entry. The role lives in `type` directly, not under
 // `info.role`. A user entry carries its text directly in `text`; an
-// assistant entry carries its text blocks in `content`. Verified in Task 3.
+// assistant entry carries its text blocks in `content`. Verified live.
 interface MessageRecord {
   type?: string;
   text?: string;
   content?: { type?: string; text?: string }[];
 }
 
-// The opaque pagination cursor of a list response. Verified in Task 3: it
-// is an object with `next`, not a plain string.
+// The opaque pagination cursor of a list response. Verified live: it is an
+// object with `next`, not a plain string.
 interface PageCursor {
   next?: string | null;
 }
@@ -52,8 +52,13 @@ const MAX_SESSION_PAGES = 50;
 // The message shown when `program` (its bare name, such as "opencode" or
 // "tmux") cannot be found. Shared with the back end's absolute-path
 // resolution (`resolve-program.ts`), so both paths give the same wording.
+// The owner's OpenCode is the v2 formula of a third-party tap, confirmed
+// with `brew`: the plain "opencode" formula installs the old 1.x line.
 export function notInstalledMessage(program: string): string {
-  return `${program === "opencode" ? "OpenCode" : program} is not installed. Install it with: brew install ${program}`;
+  if (program === "opencode") {
+    return "OpenCode is not installed. Install it with: brew install anomalyco/tap/opencode-v2";
+  }
+  return `${program} is not installed. Install it with: brew install ${program}`;
 }
 
 // Runs one command and gives its stdout. A failure rejects with the stderr text.
@@ -130,18 +135,30 @@ export class OpenCodeClient {
     return new Set(Object.keys(active.data));
   }
 
-  // Scoped by the `x-opencode-directory` header, verified live in the Task 6
-  // fix round: a `?location[directory]=` query parameter (the shape the
-  // OpenAPI schema itself documents) is accepted but has no effect, while
-  // the header restricts the result to permission requests of sessions
-  // whose own directory equals it exactly (no prefix match: the parent of a
+  // Scoped by the `x-opencode-directory` header, verified live: a
+  // `?location[directory]=` query parameter (the shape the OpenAPI schema
+  // itself documents) is accepted but has no effect, while the header
+  // restricts the result to permission requests of sessions whose own
+  // directory equals it exactly (no prefix match: the parent of a
   // session's directory gives an empty list). The caller passes one
   // session's own directory, not a workspace root, for that reason.
-  async pendingPermissionSessionIds(directory: string): Promise<Set<string>> {
-    const pending = await this.get<{ data: { sessionID: string }[] }>("/api/permission/request", {
+  //
+  // Grouped by session id, with each request's own id kept (not just a
+  // session id): a session can have more than one request open at once,
+  // and `applyEvent`'s `permission.replied` handling clears one request's
+  // id at a time, so the load path must hand it the same per-request ids a
+  // live `permission.asked` event would.
+  async pendingPermissionRequestIds(directory: string): Promise<Map<string, Set<string>>> {
+    const pending = await this.get<{ data: { id: string; sessionID: string }[] }>("/api/permission/request", {
       "x-opencode-directory": directory,
     });
-    return new Set(pending.data.map((item) => item.sessionID));
+    const bySession = new Map<string, Set<string>>();
+    for (const item of pending.data) {
+      const ids = bySession.get(item.sessionID) ?? new Set<string>();
+      ids.add(item.id);
+      bySession.set(item.sessionID, ids);
+    }
+    return bySession;
   }
 
   async lastMessageText(id: string): Promise<string | undefined> {
@@ -208,7 +225,7 @@ export class OpenCodeClient {
         try {
           // The envelope carries the event payload under `data`, not
           // `properties`, and `sessionID` lives inside that `data` object.
-          // Verified live in Task 3.
+          // Verified live.
           const parsed = JSON.parse(event.data) as { type?: string; data?: Record<string, unknown> };
           if (parsed.type) {
             onEvent(parsed.type, parsed.data ?? {});

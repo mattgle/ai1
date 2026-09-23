@@ -157,8 +157,7 @@ export class FakeOpenCodeServer {
     if (method === "GET" && url.pathname === "/api/permission/request") {
       // The live service scopes this list by the `x-opencode-directory`
       // header, with an exact match against each session's own directory
-      // (no prefix match against an ancestor). Verified live in the Task 6
-      // fix round.
+      // (no prefix match against an ancestor). Verified live.
       const directory = headers["x-opencode-directory"];
       if (typeof directory === "string" && this.brokenPermissionDirectories.has(directory)) {
         json(500, { error: "directory not found" });

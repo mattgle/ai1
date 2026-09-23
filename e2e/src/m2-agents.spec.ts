@@ -102,17 +102,17 @@ test.beforeAll(async ({ playwright, browser }) => {
   workspace.initialize();
   createMetaRepoFixture(workspace.path);
   // OpenCode stores `location.directory` verbatim, with no resolution of
-  // its own (fact 4a of theia-api-facts-m2.md). The Electron main process,
-  // on its side, resolves the workspace path with `fs.realpath` before it
-  // opens the window (`electron-main-application.ts`), so on a system where
-  // the temporary folder is a symlink (`/var` on macOS) the running app's
-  // workspace root is already the resolved path. This directory must equal
-  // that resolved root, or the Agents service filters the session out of
-  // every group. `AgentsServiceImpl.normalizeRoot`'s own `fs.realpathSync`
-  // call (fix round 1, defect 4) resolves symbolic links on the root's
-  // side of that comparison, for a root a real deployment might hand it
-  // unresolved; it does not touch this session directory, the other side
-  // of the comparison, so this resolution still belongs here.
+  // its own. The Electron main process, on its side, resolves the
+  // workspace path with `fs.realpath` before it opens the window
+  // (`electron-main-application.ts`), so on a system where the temporary
+  // folder is a symlink (`/var` on macOS) the running app's workspace root
+  // is already the resolved path. This directory must equal that resolved
+  // root, or the Agents service filters the session out of every group.
+  // `AgentsServiceImpl.normalizeRoot`'s own `fs.realpathSync` call resolves
+  // symbolic links on the root's side of that comparison, for a root a
+  // real deployment might hand it unresolved; it does not touch this
+  // session directory, the other side of the comparison, so this
+  // resolution still belongs here.
   dirtyRepo = path.join(fs.realpathSync(workspace.path), "dirty-repo");
   // The directory of a created session comes from the request body, not a
   // query parameter or the process cwd of the opencode CLI's own server.
@@ -154,6 +154,44 @@ test.afterAll(async () => {
     await app.page.close();
     if (sessionId) {
       execFileSync("opencode", ["api", "DELETE", `/api/session/${sessionId}`]);
+    }
+    // The "New Session" test (criterion 3) creates further sessions in the
+    // fixture's own dirty-repo directory. `directory=` is meant to be an
+    // exact match against a session's own `location.directory`, verified
+    // live (a parent or a sibling directory gave no match) -- but a
+    // server-side filter is never trusted alone for a delete against the
+    // owner's real data: skip this whole block if the fixture directory
+    // was never set (a failure earlier in `beforeAll`, before the
+    // assignment), and, for each session the listing returns, check its
+    // own `location.directory` from the response body and delete it only
+    // when that field equals `dirtyRepo` exactly. A filter that silently
+    // matched more than the exact directory (a bug, a future API change,
+    // a prefix match, ...) can then never delete a session of a different
+    // directory -- including one of the owner's own.
+    if (dirtyRepo) {
+      try {
+        const raw = execFileSync(
+          "opencode",
+          ["api", "GET", `/api/session?directory=${encodeURIComponent(dirtyRepo)}`],
+          { encoding: "utf8" },
+        );
+        const remaining = JSON.parse(raw).data as { id: string; location?: { directory?: string } }[];
+        for (const session of remaining) {
+          if (session.location?.directory !== dirtyRepo) {
+            console.warn(
+              `skipped session '${session.id}': its own directory '${session.location?.directory}' does not equal the fixture directory '${dirtyRepo}' exactly`,
+            );
+            continue;
+          }
+          try {
+            execFileSync("opencode", ["api", "DELETE", `/api/session/${session.id}`]);
+          } catch (error) {
+            console.warn(`could not delete session '${session.id}':`, error);
+          }
+        }
+      } catch (error) {
+        console.warn(`could not list the sessions of '${dirtyRepo}':`, error);
+      }
     }
     // Kill only the ai1-* tmux sessions this test made, never one that
     // existed before it (the owner's own sessions). Each kill is its own
@@ -217,6 +255,29 @@ test("a second click focuses the same terminal", async () => {
   await expect(
     app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "OC · ai1-e2e-session" }),
   ).toHaveCount(1);
+});
+
+// Placed here, right after the test above: exactly one "OC · " tab is open
+// at this point (the fixture session's own, opened by the two tests
+// above), so `before` below is a known quantity, not just "whatever the
+// suite happened to leave open" -- and no later test opens a further
+// OpenCode interface tab, so this session's own tab is the only one that
+// count still includes for the rest of the suite.
+test("New Session creates a session in the picked repository and opens it", async () => {
+  await showAgentsView();
+  const tabs = app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "OC · " });
+  const before = await tabs.count();
+  expect(before).toBe(1);
+  const group = app.page.locator("#ai1-agents .ai1-agents-group", { hasText: "dirty-repo" });
+  const groupRow = group.locator("xpath=ancestor::div[contains(@class,'theia-TreeNode')][1]");
+  const badgeBefore = Number(await groupRow.locator(".ai1-agents-badge").innerText());
+
+  await app.quickCommandPalette.type("Agents: New Session");
+  await app.page.locator(".quick-input-widget .monaco-list-row", { hasText: "New Session" }).click();
+  await app.page.locator(".quick-input-widget .monaco-list-row", { hasText: "dirty-repo" }).click();
+
+  await expect(tabs).toHaveCount(before + 1);
+  await expect(groupRow.locator(".ai1-agents-badge")).toHaveText(String(badgeBefore + 1));
 });
 
 test("a persistent terminal creates a tmux session", async () => {
@@ -361,6 +422,47 @@ test("closing and reopening the Agents view keeps the card callbacks and the bad
       JSON.stringify({ decision: "reject" }),
     ]);
     await expect(badge).toHaveCount(0);
+  } finally {
+    replyToAllPending(sessionId);
+  }
+});
+
+test("a real permission request still shows a notice while the Agents view is closed", async () => {
+  // Close the tab itself (not just switch away from it, which the Agents
+  // view already tolerates by design): `AgentsWidget` is disposed, so the
+  // event stream and the notice can only still work because
+  // `AgentsContribution.onStart` loads the model on its own, independent of
+  // the widget's own `init()`.
+  await showAgentsView();
+  await app.page.locator("#shell-tab-ai1-agents").click({ button: "right" });
+  await app.page.locator(".lm-Menu-item", { hasText: /^Close$/ }).click();
+  await expect(app.page.locator("#ai1-agents")).toHaveCount(0);
+
+  execFileSync(
+    "opencode",
+    [
+      "api",
+      "POST",
+      `/api/session/${sessionId}/permission`,
+      "--data",
+      JSON.stringify({ action: "external_directory", resources: ["/etc/y/*"] }),
+    ],
+    { cwd: dirtyRepo, stdio: "ignore", timeout: 10_000 },
+  );
+  const notice = app.page.locator(".theia-notification-toasts.open .theia-notification-list-item", {
+    hasText: "waits for a permission",
+  });
+  try {
+    const requestId = await waitForPendingPermissionId(sessionId);
+    await expect(notice).toBeVisible({ timeout: 30_000 });
+    execFileSync("opencode", [
+      "api",
+      "POST",
+      `/api/session/${sessionId}/permission/${requestId}/reply`,
+      "--data",
+      JSON.stringify({ decision: "reject" }),
+    ]);
+    await expect(notice).toHaveCount(0, { timeout: 30_000 });
   } finally {
     replyToAllPending(sessionId);
   }

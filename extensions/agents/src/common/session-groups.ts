@@ -5,7 +5,10 @@ export function repoName(directory: string): string {
   return trimmed.slice(trimmed.lastIndexOf("/") + 1);
 }
 
-function isInside(directory: string, root: string): boolean {
+// Exported so a caller other than `groupSessions` -- `AgentsModel`'s own
+// defence-in-depth check against a summary outside its workspace roots --
+// can reuse the exact same rule.
+export function isInside(directory: string, root: string): boolean {
   const base = root.replace(/\/+$/, "");
   return directory === base || directory.startsWith(`${base}/`);
 }

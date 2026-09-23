@@ -131,6 +131,17 @@ export class AgentsContribution
     if (existing) {
       this.wireWidget(existing);
     }
+    // The event stream and the blocked notice must work even while the
+    // Agents view itself is closed (`BlockedNotifier` and the tab badge
+    // both read `AgentsModel`, not the widget). `AgentsWidget.init()`
+    // starts its own `load()` when the view is open, and `AgentsModel.load`'s
+    // own reentrancy guard (`this.loading`) joins this call with that one
+    // into a single in-flight request when both happen to start close
+    // together, so this does not double the work. `load()` already carries
+    // its own error handling (`doLoad`'s try/catch sets `this.error` and
+    // fires `onDidChange`, and never rejects), so no further handling is
+    // needed here.
+    void this.agents.load();
   }
 
   protected wireWidget(widget: AgentsWidget): void {
@@ -155,8 +166,7 @@ export class AgentsContribution
   // (`@theia/core/src/browser/badges`, always bound by the core frontend
   // module): it already decorates a plain widget's tab from
   // `BadgeService.getBadge(widget)`, so the Agents tab needs no
-  // `TabBarDecorator` of its own, less code than the one this task
-  // originally added.
+  // `TabBarDecorator` of its own.
   protected applyBadge(widget: AgentsWidget): void {
     const badge = sessionBadge(this.agents.sessionsWithStatus("blocked").length);
     if (badge?.value === this.lastBadge.get(widget)?.value) {

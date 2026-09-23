@@ -49,4 +49,4 @@ export interface AgentsService {
   tmuxSessions(): Promise<TmuxSession[]>;
 }
 // The RPC transport sets the client of the back-end service. The interface has
-// no setClient method; the implementation class of Task 3 has one.
+// no setClient method; the implementation class has one.

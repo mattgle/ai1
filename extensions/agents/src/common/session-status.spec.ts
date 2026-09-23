@@ -1,7 +1,12 @@
 import * as assert from "node:assert";
 import { applyEvent, computeStatus, SessionFacts } from "./session-status";
 
-const base: SessionFacts = { active: false, pendingPermission: false, outcome: undefined, running: false };
+const base: SessionFacts = {
+  active: false,
+  pendingPermissionIds: new Set(),
+  outcome: undefined,
+  running: false,
+};
 
 describe("computeStatus", () => {
   it("is idle when nothing happened", () => {
@@ -17,7 +22,10 @@ describe("computeStatus", () => {
   });
 
   it("is blocked when a permission is pending, also while working", () => {
-    assert.strictEqual(computeStatus({ ...base, active: true, pendingPermission: true }), "blocked");
+    assert.strictEqual(
+      computeStatus({ ...base, active: true, pendingPermissionIds: new Set(["p1"]) }),
+      "blocked",
+    );
   });
 
   it("is done or failed from the outcome when nothing runs", () => {
@@ -36,29 +44,67 @@ describe("applyEvent", () => {
     assert.deepStrictEqual(applyEvent(base, "session.execution.started"), { ...base, running: true });
   });
 
-  it("ends the run on success and records the outcome", () => {
-    const running = { ...base, running: true };
+  it("ends the run on success, failure, or an interrupt, and clears active as well as running", () => {
+    const running = { ...base, active: true, running: true };
     assert.deepStrictEqual(applyEvent(running, "session.execution.succeeded"), {
       ...base,
+      active: false,
       running: false,
       outcome: "succeeded",
     });
     assert.deepStrictEqual(applyEvent(running, "session.execution.failed"), {
       ...base,
+      active: false,
       running: false,
       outcome: "failed",
     });
     assert.deepStrictEqual(applyEvent(running, "session.execution.interrupted"), {
       ...base,
+      active: false,
       running: false,
       outcome: "interrupted",
     });
   });
 
-  it("sets and clears the pending permission", () => {
-    const blocked = applyEvent(base, "permission.asked");
-    assert.strictEqual(blocked.pendingPermission, true);
-    assert.strictEqual(applyEvent(blocked, "permission.replied").pendingPermission, false);
+  it("is not working after a succeeded event even when the session was still in the active map", () => {
+    // The I1 regression: a session the load found in the active map, with no
+    // running flag of its own yet, must leave "working" once its execution
+    // is reported done -- `active` alone must not keep it there.
+    const facts: SessionFacts = {
+      active: true,
+      running: false,
+      pendingPermissionIds: new Set(),
+      outcome: undefined,
+    };
+    const after = applyEvent(facts, "session.execution.succeeded");
+    assert.notStrictEqual(computeStatus(after), "working");
+    assert.strictEqual(computeStatus(after), "done");
+  });
+
+  it("adds a permission request's own id and stays blocked with more than one open", () => {
+    let facts = applyEvent(base, "permission.asked", { id: "req_1" });
+    assert.deepStrictEqual([...facts.pendingPermissionIds], ["req_1"]);
+    assert.strictEqual(computeStatus(facts), "blocked");
+    facts = applyEvent(facts, "permission.asked", { id: "req_2" });
+    assert.deepStrictEqual([...facts.pendingPermissionIds].sort(), ["req_1", "req_2"]);
+    assert.strictEqual(computeStatus(facts), "blocked");
+  });
+
+  it("clears only the replied request's own id, staying blocked until every request is replied", () => {
+    let facts = applyEvent(base, "permission.asked", { id: "req_1" });
+    facts = applyEvent(facts, "permission.asked", { id: "req_2" });
+    facts = applyEvent(facts, "permission.replied", { requestID: "req_1" });
+    assert.deepStrictEqual([...facts.pendingPermissionIds], ["req_2"]);
+    assert.strictEqual(computeStatus(facts), "blocked");
+    facts = applyEvent(facts, "permission.replied", { requestID: "req_2" });
+    assert.deepStrictEqual([...facts.pendingPermissionIds], []);
+    assert.strictEqual(computeStatus(facts), "idle");
+  });
+
+  it("ignores an ask event with no id, and a reply for an id it does not hold", () => {
+    assert.deepStrictEqual(applyEvent(base, "permission.asked", {}), base);
+    const facts = applyEvent(base, "permission.asked", { id: "req_1" });
+    assert.deepStrictEqual(applyEvent(facts, "permission.replied", { requestID: "req_other" }), facts);
   });
 
   it("ignores an unknown event", () => {

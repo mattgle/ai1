@@ -36,7 +36,7 @@ test.beforeAll(async ({ playwright, browser }) => {
   // app's own code runs (this also covers `DevToolsActivePort`, written by
   // Chromium's own DevTools activation, which Playwright's Electron support
   // needs). Confirmed by hand: only with both flags does a full run leave
-  // the real folder's newest file time unchanged (see the report).
+  // the real folder's newest file time unchanged.
   userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-userdata-"));
   const workspace = new TheiaWorkspace();
   workspace.initialize();
