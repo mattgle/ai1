@@ -44,6 +44,9 @@ export class FakeOpenCodeServer {
     for (const stream of this.streams) {
       stream.end();
     }
+    // A client socket can connect after its request was destroyed; `close`
+    // alone waits for that socket, so every connection is closed here.
+    this.server.closeAllConnections();
     await new Promise<void>((resolve) => this.server.close(() => resolve()));
   }
 
