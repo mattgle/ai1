@@ -25,5 +25,10 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "tsc && mocha \"lib/common/*.spec.js\""
-  }
+  },
+  "theiaExtensions": [
+    {
+      "electronMain": "lib/electron-main/browser-electron-main-module"
+    }
+  ]
 }
