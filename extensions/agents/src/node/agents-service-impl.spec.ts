@@ -193,14 +193,18 @@ describe("AgentsServiceImpl", () => {
     assert.strictEqual(client.removed.filter((id) => id === "ses_b").length, 1);
   });
 
-  it("times out each hung message-count call on its own, instead of skipping the rest of the phase after the first timeout", async () => {
-    // 8 sessions at a concurrency of 4 (`MESSAGE_COUNT_CONCURRENCY`) is two
-    // sequential batches. A hung message route, bounded only by the
-    // client's own request timeout (never by this fake server), makes the
-    // load's own message-count phase take about two timeouts -- not one
-    // (every session past the first batch quietly skipped, with no
-    // request at all) and not eight (fully serial).
-    const SESSION_COUNT = 8;
+  it("stops the message-count phase after the first request timeout, instead of costing one timeout per batch", async () => {
+    // 20 sessions at a concurrency of 4 (`MESSAGE_COUNT_CONCURRENCY`) is
+    // five sequential batches if every one of them has to time out on its
+    // own -- 5 x 200ms here, and 200 sessions at the real 15s default
+    // would be over 12 minutes. Once the first request times out, the
+    // phase must stop starting new ones: every session whose call has not
+    // started yet gets 0 at once, with no request of its own, so the
+    // whole phase costs about one timeout, not `sessions / 4`.
+    const SESSION_COUNT = 20;
+    // The value of `MESSAGE_COUNT_CONCURRENCY` in `agents-service-impl.ts`
+    // (private to that module, so mirrored here as a literal).
+    const CONCURRENCY = 4;
     server.sessions = Array.from({ length: SESSION_COUNT }, (_, i) => ({
       id: `ses_hang_${i}`,
       title: `${i}`,
@@ -231,28 +235,56 @@ describe("AgentsServiceImpl", () => {
       const elapsed = Date.now() - started;
       const alpha = snapshot.groups.find((g) => g.name === "alpha");
       assert.strictEqual(alpha?.sessions.length, SESSION_COUNT);
-      // Every hung call resolves to 0 (`.catch(() => 0)`), the same value
-      // whether it was genuinely attempted or quietly skipped -- this
-      // alone would not catch the bug, so the request count below is the
-      // real proof: every one of the 8 sessions actually made its own
-      // request, none were skipped.
+      // Every session ends up at 0: the ones that were actually attempted
+      // time out (`.catch`-equivalent fallback), and the rest never get a
+      // request at all -- so this alone would not catch the old bug. The
+      // request count and the elapsed time below are the real proof.
       assert.ok(alpha!.sessions.every((s) => s.messageCount === 0));
-      assert.strictEqual(
-        server.requests.filter((r) => /\/message(\?|$)/.test(r)).length,
-        SESSION_COUNT,
-        "every session must make its own message-count request, none skipped",
+      const messageRequestCount = server.requests.filter((r) => /\/message(\?|$)/.test(r)).length;
+      assert.ok(
+        messageRequestCount <= CONCURRENCY,
+        `expected at most ${CONCURRENCY} message requests (the concurrency limit), saw ${messageRequestCount}`,
       );
       assert.ok(
-        elapsed >= timeoutMs * 1.5,
-        `expected about two sequential timeout batches (~${timeoutMs * 2}ms), took ${elapsed}ms`,
+        elapsed < (SESSION_COUNT / CONCURRENCY) * timeoutMs,
+        `expected well under a full ${SESSION_COUNT / CONCURRENCY} x ${timeoutMs}ms run, took ${elapsed}ms`,
       );
-      assert.ok(
-        elapsed < timeoutMs * 4,
-        `expected well under a fully serial run (~${timeoutMs * SESSION_COUNT}ms), took ${elapsed}ms`,
-      );
+      assert.ok(elapsed < timeoutMs * 2, `expected about one timeout, took ${elapsed}ms`);
     } finally {
       shortTimeoutHub.dispose();
       timeoutService.dispose();
+    }
+  });
+
+  it("does not stop the message-count phase for an ordinary per-session error, only for a request timeout", async () => {
+    // A 404 for one session (`goneSessionIds`) must count as 0 for that
+    // one session alone, the same as before this fix round; every other
+    // session must still get its own real message count, not be skipped.
+    server.sessions = Array.from({ length: 6 }, (_, i) => ({
+      id: `ses_mix_${i}`,
+      title: `${i}`,
+      directory: "/m/alpha",
+      model: { id: "m", providerID: "p" },
+      time: { created: i, updated: i },
+    }));
+    for (let i = 0; i < 6; i += 1) {
+      server.messages.set(`ses_mix_${i}`, ["a", "b", "c"]);
+    }
+    server.goneSessionIds.add("ses_mix_2");
+    const snapshot = await service.load(["file:///m"]);
+    const alpha = snapshot.groups.find((g) => g.name === "alpha");
+    assert.strictEqual(alpha?.sessions.length, 6);
+    const byId = new Map(alpha!.sessions.map((s) => [s.id, s.messageCount]));
+    assert.strictEqual(byId.get("ses_mix_2"), 0, "the 404'd session counts as 0");
+    for (let i = 0; i < 6; i += 1) {
+      if (i === 2) {
+        continue;
+      }
+      assert.strictEqual(
+        byId.get(`ses_mix_${i}`),
+        3,
+        `ses_mix_${i} must still get its own real count, not be skipped after the 404`,
+      );
     }
   });
 

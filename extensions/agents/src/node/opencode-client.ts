@@ -59,6 +59,20 @@ export class OpenCodeHttpError extends Error {
   }
 }
 
+// Thrown when this client's own per-request timeout (`requestTimeoutMs`)
+// fires before the service answers at all -- a distinct class from
+// `OpenCodeHttpError` (which means the service did answer, just with a
+// 4xx/5xx) and from a plain network `Error`, so a caller like
+// `AgentsServiceImpl`'s message-count phase can react only to a
+// genuinely hung request, never to an ordinary per-item failure such as a
+// 404 or a 500.
+export class OpenCodeTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OpenCodeTimeoutError";
+  }
+}
+
 const SERVICE_CONFIG = path.join(os.homedir(), ".config", "opencode", "service.json");
 // The same file, for a message a widget can show on screen: `~` for the
 // home folder, never the real, absolute path (which carries the owner's
@@ -422,7 +436,9 @@ export class OpenCodeClient {
       // with a clear message instead of leaving the promise pending.
       request.setTimeout(this.requestTimeoutMs, () => {
         request.destroy(
-          new Error(`OpenCode did not answer within ${this.requestTimeoutMs}ms (${method} ${route}).`),
+          new OpenCodeTimeoutError(
+            `OpenCode did not answer within ${this.requestTimeoutMs}ms (${method} ${route}).`,
+          ),
         );
       });
       request.on("error", reject);

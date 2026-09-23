@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import * as os from "node:os";
 import { FakeOpenCodeServer } from "./fake-opencode-server";
-import { OpenCodeClient, runCommand } from "./opencode-client";
+import { OpenCodeClient, OpenCodeTimeoutError, runCommand } from "./opencode-client";
 
 describe("OpenCodeClient", () => {
   let server: FakeOpenCodeServer;
@@ -99,6 +99,7 @@ describe("OpenCodeClient", () => {
     const started = Date.now();
     await assert.rejects(impatient.listSessions(), /did not answer/);
     assert.ok(Date.now() - started < 1000, "must reject well within the test's own timeout, not hang");
+    await assert.rejects(impatient.listSessions(), (error: unknown) => error instanceof OpenCodeTimeoutError);
   });
 
   it("does not time out a request that answers before the configured timeout", async () => {

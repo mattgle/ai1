@@ -2,11 +2,11 @@ import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { inject, injectable, preDestroy } from "@theia/core/shared/inversify";
 import { AgentsClient, AgentsService, AgentsSnapshot, SessionSummary } from "../common/agents-protocol";
-import { mapLimit } from "../common/concurrency-limit";
+import { mapLimit, mapLimitUntilFatal } from "../common/concurrency-limit";
 import { groupSessions } from "../common/session-groups";
 import { applyEvent, computeStatus, SessionFacts } from "../common/session-status";
 import { TmuxSession } from "../common/tmux-list";
-import { OpenCodeHttpError, RawSession } from "./opencode-client";
+import { OpenCodeHttpError, OpenCodeTimeoutError, RawSession } from "./opencode-client";
 import { Disposable, OpenCodeHub } from "./opencode-hub";
 import { resolveProgram } from "./resolve-program";
 import { listTmuxSessions, tmuxNewCommand } from "./tmux-runner";
@@ -272,9 +272,27 @@ export class AgentsServiceImpl implements AgentsService {
       });
     }
     const inside = [...this.tracked.values()];
-    await mapLimit(inside, MESSAGE_COUNT_CONCURRENCY, async (t) => {
-      t.messageCount = await api.messageCount(t.raw.id).catch(() => 0);
-    });
+    // A per-session error (a 404, a 500) counts as 0 for that one session
+    // and nothing else changes -- the same as the plain `.catch(() => 0)`
+    // this used before. A request timeout is different: a workspace with
+    // many sessions against a hung service would otherwise cost
+    // `sessions.length / MESSAGE_COUNT_CONCURRENCY` timeouts (200
+    // sessions at the default 15 s timeout is over 12 minutes), during
+    // which the back-end event queue (see `load`, above) can overflow and
+    // ask for another such load. `mapLimitUntilFatal` stops *starting*
+    // any further message-count call the moment one request times out;
+    // every session whose call had not started yet gets 0 at once, with
+    // no request of its own -- the whole phase then costs about one
+    // timeout, not one per batch. A call already in flight when that
+    // happens is not cancelled; it still finishes on its own (success or
+    // its own error).
+    await mapLimitUntilFatal(
+      inside,
+      MESSAGE_COUNT_CONCURRENCY,
+      (t) => api.messageCount(t.raw.id).then((count) => (t.messageCount = count)),
+      (error) => error instanceof OpenCodeTimeoutError,
+      (t) => (t.messageCount = 0),
+    );
     return {
       groups: groupSessions(
         inside.map((t) => this.summary(t)),
