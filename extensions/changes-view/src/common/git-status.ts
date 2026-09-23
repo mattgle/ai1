@@ -1,38 +1,5 @@
 import { FileChangeEntry } from "./changes-protocol";
 
-// Parses the output of `git -c core.quotepath=off status --porcelain -z
-// --untracked-files=all`. With `-z`, records are separated by `\0` instead of
-// `\n`, and `core.quotepath=off` stops git from C-style quoting a path that
-// has a quote, a space, or a non-ASCII byte. A rename or a copy reports two
-// records: the status letters and the new path, then a second record that
-// holds only the source path. `R` or `C` can be in either status column: for
-// example `git add -N` on a moved file reports " R", not "R ". A copy needs
-// `status.renames=copies` or `diff.renames=copies` in the user's git config;
-// this service does not turn it on, but the parser still reads it correctly
-// when the user's config does.
-export function parseStatusOutput(stdout: string): FileChangeEntry[] {
-  const records = stdout.split("\0");
-  const entries: FileChangeEntry[] = [];
-  for (let index = 0; index < records.length; index += 1) {
-    const record = records[index];
-    if (record.length === 0) {
-      continue;
-    }
-    const status = record.slice(0, 2);
-    const path = record.slice(3);
-    if (status.includes("R")) {
-      index += 1;
-      entries.push({ status, path, sourcePath: records[index] });
-    } else if (status.includes("C")) {
-      index += 1;
-      entries.push({ status, path, copyOf: records[index] });
-    } else {
-      entries.push({ status, path });
-    }
-  }
-  return entries;
-}
-
 // The one letter that a file row shows.
 export function statusBadge(status: string): string {
   if (status === "??") {

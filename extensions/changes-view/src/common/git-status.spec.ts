@@ -5,61 +5,8 @@ import {
   discardPrompt,
   isDeleted,
   isUntracked,
-  parseStatusOutput,
   statusBadge,
 } from "./git-status";
-
-describe("parseStatusOutput", () => {
-  it("parses a modified file from a \\0-separated record", () => {
-    assert.deepStrictEqual(parseStatusOutput(" M src/index.ts\0"), [{ status: " M", path: "src/index.ts" }]);
-  });
-
-  it("parses a rename into two records, the new path first, then the source path", () => {
-    assert.deepStrictEqual(parseStatusOutput("R  new/b.ts\0old/a.ts\0"), [
-      { status: "R ", path: "new/b.ts", sourcePath: "old/a.ts" },
-    ]);
-  });
-
-  it("parses a rename with R in the second status column, as `git add -N` reports it", () => {
-    assert.deepStrictEqual(parseStatusOutput(" R moved.txt\0old.txt\0"), [
-      { status: " R", path: "moved.txt", sourcePath: "old.txt" },
-    ]);
-  });
-
-  it("parses a rename that is staged and then modified again, status RM", () => {
-    assert.deepStrictEqual(parseStatusOutput("RM new.txt\0old.txt\0"), [
-      { status: "RM", path: "new.txt", sourcePath: "old.txt" },
-    ]);
-  });
-
-  it("keeps a source path with a slash intact", () => {
-    assert.deepStrictEqual(parseStatusOutput("R  new.ts\0old/sub/path.ts\0"), [
-      { status: "R ", path: "new.ts", sourcePath: "old/sub/path.ts" },
-    ]);
-  });
-
-  it("parses a copy into the copy path and copyOf, not sourcePath", () => {
-    assert.deepStrictEqual(parseStatusOutput("C  copy.ts\0src.ts\0"), [
-      { status: "C ", path: "copy.ts", copyOf: "src.ts" },
-    ]);
-  });
-
-  it("parses a path with a quote and a space, unquoted because of core.quotepath=off", () => {
-    assert.deepStrictEqual(parseStatusOutput('A  we "ird".ts\0'), [{ status: "A ", path: 'we "ird".ts' }]);
-  });
-
-  it("parses many records and skips the trailing empty one", () => {
-    const entries = parseStatusOutput("?? notes.md\0 M a.ts\0");
-    assert.deepStrictEqual(
-      entries.map((entry) => entry.path),
-      ["notes.md", "a.ts"],
-    );
-  });
-
-  it("returns no entries for empty output", () => {
-    assert.deepStrictEqual(parseStatusOutput(""), []);
-  });
-});
 
 describe("statusBadge", () => {
   it("shows U for an untracked file", () => {
