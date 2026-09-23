@@ -46,17 +46,20 @@ export class AgentsModel implements AgentsClient {
   // running (for example a reconnect's `onConnectionChanged(true)` racing
   // the widget's own first load) does not join that running load and get
   // its now-stale answer; it only marks that one more load must run once
-  // the current one ends. `loadChain` is the promise of the whole run --
-  // the current load and every "one more" load `loadGate` still asks for
-  // -- so every caller who joined along the way waits for, and gets, an
-  // answer that started at or after its own call. In practice the sources
-  // of a joining call are sparse (the widget's own start, a reconnect, the
+  // the current one ends (see `LoadGate` and `runGatedOnce`). `retryChain`
+  // is what such a joining call is given instead of its own load: the
+  // promise of the retry `loadGate` asks for once the current load ends,
+  // which settles with that retry's own result (success or its own
+  // error), not with the running load's -- a joiner asked for a fresh
+  // load, so a stale, unrelated failure from the load it happened to
+  // arrive during must not be what it is told. In practice the sources of
+  // a joining call are sparse (the widget's own start, a reconnect, the
   // Refresh command, `pickSession`), but nothing stops one more from
-  // joining while `loadChain` is still settling, in which case a caller
-  // waits through that one more load too, and so on for as long as
-  // requests keep arriving one after another.
+  // joining while a retry is still settling, in which case that caller
+  // waits through that one too, and so on for as long as requests keep
+  // arriving one after another.
   protected readonly loadGate = new LoadGate();
-  protected loadChain: Promise<void> | undefined;
+  protected retryChain: Promise<void> | undefined;
   protected loadedOnce = false;
   // A monotonic counter of event-driven updates (`onSessionChanged`/
   // `onSessionRemoved`), and the sequence number of the last one applied
@@ -107,18 +110,18 @@ export class AgentsModel implements AgentsClient {
   // lets it be unit-tested on its own, which this class itself cannot be
   // in this project's plain Node mocha run -- `@theia/workspace` needs a
   // DOM) also keeps a `doLoad` failure from skipping a retry a joiner is
-  // owed, and still surfaces that failure afterward instead of dropping
-  // it -- see its own comment.
+  // owed -- see its own comment.
   load(): Promise<void> {
     if (!this.loadGate.start()) {
-      return this.loadChain ?? Promise.resolve();
+      return this.retryChain ?? Promise.resolve();
     }
-    this.loadChain = runGatedOnce(
+    const run = runGatedOnce(
       this.loadGate,
       () => this.doLoad(),
       () => this.load(),
     );
-    return this.loadChain;
+    this.retryChain = run.retryChain;
+    return run.own;
   }
 
   protected async doLoad(): Promise<void> {
@@ -227,16 +230,27 @@ export class AgentsModel implements AgentsClient {
     // reconnect after a cut needs a repair load (events could be lost
     // during the cut). The gate in `load()` would also fold a duplicate
     // first-connect load into the widget's own call, but skipping it here
-    // avoids starting it at all. `load()` can now throw (see
-    // `runGatedOnce`), so this is caught here: nothing here awaits this
-    // call, and a caught rejection cannot become an unhandled one.
+    // avoids starting it at all.
     if (connected && !wasConnected && this.loadedOnce) {
-      this.load().catch((error) => {
-        console.error(
-          `ai1-agents: the reconnect load failed: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      });
+      this.loadInBackground("the reconnect load");
     }
     this.onDidChangeEmitter.fire();
+  }
+
+  // The back end's own event queue overflowed while a load was in
+  // progress and was dropped (see `AgentsClient.onReloadRequested`'s own
+  // comment): a fresh load through the model's own gate is the only way
+  // to be current again, the same repair a reconnect runs.
+  onReloadRequested(): void {
+    this.loadInBackground("the reload after an event-queue overflow");
+  }
+
+  // Fires `load()` and forgets it: nothing here awaits it, and `load()`
+  // can throw (see `runGatedOnce`), so a caught rejection here cannot
+  // become an unhandled one.
+  protected loadInBackground(what: string): void {
+    this.load().catch((error) => {
+      console.error(`ai1-agents: ${what} failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
   }
 }

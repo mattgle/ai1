@@ -37,6 +37,7 @@ export default new ContainerModule((bind) => {
         onSessionChanged: (summary) => context.container.get(AgentsModel).onSessionChanged(summary),
         onSessionRemoved: (id) => context.container.get(AgentsModel).onSessionRemoved(id),
         onConnectionChanged: (connected) => context.container.get(AgentsModel).onConnectionChanged(connected),
+        onReloadRequested: () => context.container.get(AgentsModel).onReloadRequested(),
       };
       return ServiceConnectionProvider.createProxy<AgentsService>(
         context.container,

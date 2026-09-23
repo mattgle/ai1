@@ -56,112 +56,124 @@ describe("LoadGate", () => {
 });
 
 describe("runGatedOnce", () => {
-  it("runs the task once and resolves when nothing else asked for a retry", async () => {
+  it("gives the first caller (`own`) the task's own success", async () => {
     const gate = new LoadGate();
     gate.start();
-    let taskRuns = 0;
-    let retryRuns = 0;
-    await runGatedOnce(
+    const { own } = runGatedOnce(
+      gate,
+      async () => undefined,
+      async () => undefined,
+    );
+    await own;
+  });
+
+  it("gives the first caller (`own`) the task's own error, unchanged", async () => {
+    const gate = new LoadGate();
+    gate.start();
+    const { own } = runGatedOnce(
       gate,
       async () => {
-        taskRuns += 1;
+        throw new Error("task failed");
       },
+      async () => undefined,
+    );
+    await assert.rejects(own, /task failed/);
+  });
+
+  it("does not call retry when nothing joined", async () => {
+    const gate = new LoadGate();
+    gate.start();
+    let retryRuns = 0;
+    const { own, retryChain } = runGatedOnce(
+      gate,
+      async () => undefined,
       async () => {
         retryRuns += 1;
       },
     );
-    assert.strictEqual(taskRuns, 1);
+    await own;
+    await retryChain;
     assert.strictEqual(retryRuns, 0);
   });
 
-  it("calls retry once when a request joined while the task ran, and resolves when both succeed", async () => {
+  it("gives a joiner (`retryChain`) the task's own error too, when nothing joined", async () => {
     const gate = new LoadGate();
     gate.start();
-    let retryRuns = 0;
-    await runGatedOnce(
+    const { retryChain } = runGatedOnce(
+      gate,
+      async () => {
+        throw new Error("task failed");
+      },
+      async () => undefined,
+    );
+    await assert.rejects(retryChain, /task failed/);
+  });
+
+  it("gives a joiner (`retryChain`) the retry's own success, even though the first call's own task failed", async () => {
+    const gate = new LoadGate();
+    gate.start();
+    const { own, retryChain } = runGatedOnce(
       gate,
       async () => {
         // A joiner's own call, gated because `gate` is already running --
         // the same thing a real second `load()` call does.
         gate.start();
+        throw new Error("task failed");
+      },
+      async () => undefined,
+    );
+    // The first caller still sees its own call's own failure...
+    await assert.rejects(own, /task failed/);
+    // ...but the joiner, who asked for a fresh load, is not stuck with
+    // that unrelated, already-stale failure: it gets the retry's own
+    // (successful) result instead.
+    await retryChain;
+  });
+
+  it("gives a joiner (`retryChain`) the retry's own error, even though the first call's own task succeeded", async () => {
+    const gate = new LoadGate();
+    gate.start();
+    const { own, retryChain } = runGatedOnce(
+      gate,
+      async () => {
+        gate.start();
       },
       async () => {
-        retryRuns += 1;
+        throw new Error("retry failed");
       },
     );
-    assert.strictEqual(retryRuns, 1);
+    await own;
+    await assert.rejects(retryChain, /retry failed/);
   });
 
   it("still calls retry when the task throws, instead of skipping the joiner's own request", async () => {
     const gate = new LoadGate();
     gate.start();
     let retryRuns = 0;
-    await assert.rejects(
-      runGatedOnce(
-        gate,
-        async () => {
-          gate.start();
-          throw new Error("task failed");
-        },
-        async () => {
-          retryRuns += 1;
-        },
-      ),
-      /task failed/,
+    const { own } = runGatedOnce(
+      gate,
+      async () => {
+        gate.start();
+        throw new Error("task failed");
+      },
+      async () => {
+        retryRuns += 1;
+      },
     );
+    await assert.rejects(own, /task failed/);
     assert.strictEqual(retryRuns, 1);
   });
 
-  it("rethrows the task's own error even after a successful retry, so it is never silently dropped", async () => {
+  it("treats a task that rejects with undefined as a failure, not a success", async () => {
+    // The regression this guards against: checking a captured rejection
+    // reason for `!== undefined` treats `undefined` itself as "no error",
+    // silently swallowing a task that fails with no reason at all. A
+    // plain boolean, set in the `catch`, cannot make that mistake.
     const gate = new LoadGate();
     gate.start();
-    await assert.rejects(
-      runGatedOnce(
-        gate,
-        async () => {
-          gate.start();
-          throw new Error("task failed");
-        },
-        async () => {
-          // succeeds
-        },
-      ),
-      /task failed/,
-    );
-  });
-
-  it("rethrows the task's own error when nothing joined, and never calls retry", async () => {
-    const gate = new LoadGate();
-    gate.start();
-    await assert.rejects(
-      runGatedOnce(
-        gate,
-        async () => {
-          throw new Error("task failed");
-        },
-        async () => {
-          throw new Error("must not run");
-        },
-      ),
-      /task failed/,
-    );
-  });
-
-  it("lets the retry's own error take the place of the task's error", async () => {
-    const gate = new LoadGate();
-    gate.start();
-    await assert.rejects(
-      runGatedOnce(
-        gate,
-        async () => {
-          gate.start();
-          throw new Error("task failed");
-        },
-        async () => {
-          throw new Error("retry failed");
-        },
-      ),
-      /retry failed/,
-    );
+    const task = (): Promise<void> => Promise.reject(undefined);
+    const { own, retryChain } = runGatedOnce(gate, task, async () => undefined);
+    await assert.rejects(own);
+    await assert.rejects(retryChain);
   });
 });

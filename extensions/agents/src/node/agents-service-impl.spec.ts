@@ -13,6 +13,7 @@ class RecordingClient implements AgentsClient {
   changed: SessionSummary[] = [];
   removed: string[] = [];
   connection: boolean[] = [];
+  reloadRequests = 0;
   onSessionChanged(summary: SessionSummary): void {
     this.changed.push(summary);
   }
@@ -21,6 +22,9 @@ class RecordingClient implements AgentsClient {
   }
   onConnectionChanged(connected: boolean): void {
     this.connection.push(connected);
+  }
+  onReloadRequested(): void {
+    this.reloadRequests += 1;
   }
 }
 
@@ -165,7 +169,7 @@ describe("AgentsServiceImpl", () => {
     await until(() => client.changed.some((s) => s.id === "ses_b" && s.status === "working"));
   });
 
-  it("drops an overflowing event queue and asks for a fresh load instead of replaying it", async () => {
+  it("keeps a flooded event queue bounded", async () => {
     server.holdSessionResponse = true;
     const first = service.load(["file:///m"]);
     await until(() => client.connection.includes(true));
@@ -174,18 +178,62 @@ describe("AgentsServiceImpl", () => {
       server.pushEvent("session.execution.started", { sessionID: "ses_b" });
     }
     await until(() => (service as unknown as { queueOverflowed: boolean }).queueOverflowed === true);
-    // Bounded: the flood above never grew the queue past the limit -- it
-    // was dropped, at least once, along the way.
     const queueLength = (service as unknown as { queuedEvents: unknown[] }).queuedEvents.length;
     assert.ok(queueLength <= 1000, `expected the queue to stay at or under the limit, got ${queueLength}`);
     server.releaseSessionRequest();
     await first;
-    // The overflow asked for a fresh load instead of replaying a queue
-    // this stale: a new `GET /api/session` request follows on its own,
-    // with nothing further from this test.
+  });
+
+  it("notifies the client to reload after an event-queue overflow, instead of reloading itself", async () => {
+    // The reviewer's own scenario: a real, actionable event for ses_b,
+    // surrounded by 1500 unrelated events for another session, all while
+    // a load is held open.
+    server.holdSessionResponse = true;
+    const first = service.load(["file:///m"]);
+    await until(() => client.connection.includes(true));
     await until(() => server.heldSessionRequests === 1);
+    server.pushEvent("session.execution.started", { sessionID: "ses_b" });
+    for (let i = 0; i < 1500; i += 1) {
+      server.pushEvent("session.execution.started", { sessionID: "ses_a" });
+    }
+    await until(() => (service as unknown as { queueOverflowed: boolean }).queueOverflowed === true);
+    assert.strictEqual(client.reloadRequests, 0, "not yet -- the held load has not ended");
     server.releaseSessionRequest();
-    await until(() => server.requests.filter((r) => r === "GET /api/session").length === 2);
+    await first;
+    await until(() => client.reloadRequests === 1);
+    // No self-reload: the fake server sees no second `GET /api/session`
+    // on the service's own initiative.
+    assert.strictEqual(server.requests.filter((r) => r === "GET /api/session").length, 1);
+    // ses_b's own event was queued (it arrived first, so it is part of
+    // the batch the overflow at event 1000 drops), then lost for good
+    // when the queue was dropped -- the reload notification above is the
+    // only way this connection's window can still learn ses_b is
+    // working. `AgentsModel.onReloadRequested` reacts to it with its own
+    // `load()`; this test plays that part directly, the same way the
+    // live OpenCode service's own state (not just the one lost event)
+    // would already show ses_b active by the time a fresh load runs.
+    server.active.add("ses_b");
+    server.holdSessionResponse = false;
+    const snapshot = await service.load(["file:///m"]);
+    const beta = snapshot.groups.find((group) => group.name === "beta");
+    assert.strictEqual(beta?.sessions[0].status, "working");
+  });
+
+  it("does not queue an event onEvent would not act on anyway", async () => {
+    server.holdSessionResponse = true;
+    const first = service.load(["file:///m"]);
+    await until(() => client.connection.includes(true));
+    await until(() => server.heldSessionRequests === 1);
+    // Wrong prefix; right prefix but no `sessionID`; then the one real,
+    // actionable event. The fake server's own "server.connected" welcome
+    // line on connect (above) is the same case as the first of these.
+    server.pushEvent("server.custom", {});
+    server.pushEvent("session.step.ended", {});
+    server.pushEvent("session.execution.started", { sessionID: "ses_b" });
+    await until(() => queuedEventTypes(service).includes("session.execution.started"));
+    assert.deepStrictEqual(queuedEventTypes(service), ["session.execution.started"]);
+    server.releaseSessionRequest();
+    await first;
   });
 
   it("pushes one card when an event changes a session", async () => {

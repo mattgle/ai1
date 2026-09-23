@@ -33,6 +33,12 @@ export interface AgentsClient {
   onSessionChanged(summary: SessionSummary): void;
   onSessionRemoved(id: string): void;
   onConnectionChanged(connected: boolean): void;
+  // The back end's own event queue overflowed while a load was in
+  // progress (see `AgentsServiceImpl.load`) and was dropped, so nothing
+  // was replayed for whatever arrived in that window: the client must ask
+  // for a fresh load itself to be current again. Called once every
+  // overlapping load on that connection has ended.
+  onReloadRequested(): void;
 }
 
 export interface AgentsService {

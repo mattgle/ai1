@@ -33,6 +33,23 @@ const PERMISSION_CHECK_CONCURRENCY = 4;
 // queue this stale would be, and it keeps memory bounded.
 const MAX_QUEUED_EVENTS = 1000;
 
+// Whether `onEvent` acts on an event of this `type` at all: every
+// `session.*` type (`session.created`, `session.deleted`, and every
+// session status event) and every `permission.*` type (`permission.asked`,
+// `permission.replied`), each carrying its own `sessionID` -- verified
+// live, see `session-status.ts`. Anything else (for example the live
+// service's own `server.connected` on a fresh SSE connection) reaches
+// `onEvent` with nothing for it to act on: replayed later, it would just
+// fall through to the same no-op a live one does today, so queuing it
+// while a load is in progress (see `load`) would only spend queue
+// capacity for nothing.
+function isQueueableEvent(type: string, properties: Record<string, unknown>): boolean {
+  return (
+    (type.startsWith("session.") || type.startsWith("permission.")) &&
+    typeof properties.sessionID === "string"
+  );
+}
+
 // Strips a trailing slash, so `isInside` and `groupSessions` compare the
 // same value. Keeps "/" for the file-system root, which would otherwise
 // strip to the empty string. Resolves the result with the real file system
@@ -174,16 +191,15 @@ export class AgentsServiceImpl implements AgentsService {
           this.onEvent(event.type, event.properties, { replay: true });
         }
         if (overflowed) {
-          // Nothing was replayed for whatever the dropped queue held: a
-          // fresh load is the only way to be current again. Fire-and-
-          // forget, with its own failure caught here so it cannot become
-          // a second, unrelated unhandled rejection on top of whatever
-          // this call itself returns or throws.
-          this.load(workspaceRootUris).catch((error) => {
-            console.warn(
-              `ai1-agents: the reload after an event-queue overflow failed: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          });
+          // Nothing was replayed for whatever the dropped queue held.
+          // Reloading here, on this side, would not fix that: this
+          // service's own answer reaches no client, and rebuilding
+          // `tracked` again raises no `notifyChanged` for any of it (a
+          // load's answer is returned, not pushed) -- the window would
+          // still show whatever was last on screen, now stale. So the
+          // client is told instead: it knows how to run its own load the
+          // same way a reconnect's repair load already does.
+          this.notifyReloadRequested();
         }
       }
     }
@@ -326,6 +342,9 @@ export class AgentsServiceImpl implements AgentsService {
     options: { replay?: boolean } = {},
   ): void {
     if (this.loadDepth > 0) {
+      if (!isQueueableEvent(type, properties)) {
+        return;
+      }
       if (this.queuedEvents.length >= MAX_QUEUED_EVENTS) {
         this.queuedEvents = [];
         this.queueOverflowed = true;
@@ -428,5 +447,9 @@ export class AgentsServiceImpl implements AgentsService {
 
   protected notifyRemoved(id: string): void {
     this.client?.onSessionRemoved(id);
+  }
+
+  protected notifyReloadRequested(): void {
+    this.client?.onReloadRequested();
   }
 }
