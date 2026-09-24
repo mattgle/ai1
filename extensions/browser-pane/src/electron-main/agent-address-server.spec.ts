@@ -130,4 +130,83 @@ describe("AgentAddressServer", () => {
       await new Promise<void>((resolve) => blocker.close(() => resolve()));
     }
   });
+
+  it("answers 404 for an upgrade with the right secret but the wrong path", async () => {
+    await server.start(await freePort());
+    const socket = new WebSocket(`ws://127.0.0.1:${server.port}/${secret}/devtools/page/x`);
+    socket.on("error", () => undefined);
+    const status = await new Promise<number>((resolve) =>
+      socket.on("unexpected-response", (_request, response) => resolve(response.statusCode!)),
+    );
+    assert.strictEqual(status, 404);
+    assert.strictEqual(target.clients.length, 0);
+  });
+
+  it("answers 403 for an HTTP request with the wrong Host header", async () => {
+    await server.start(await freePort());
+    const response = await new Promise<http.IncomingMessage>((resolve) => {
+      const request = http.request(
+        {
+          host: "127.0.0.1",
+          port: server.port,
+          path: `/${secret}/json/version`,
+          headers: { host: "evil.example" },
+        },
+        resolve,
+      );
+      request.end();
+    });
+    assert.strictEqual(response.statusCode, 403);
+  });
+
+  it("answers an HTTP request with the Host header localhost:<port>", async () => {
+    await server.start(await freePort());
+    const response = await new Promise<http.IncomingMessage>((resolve) => {
+      const request = http.request(
+        {
+          host: "127.0.0.1",
+          port: server.port,
+          path: `/${secret}/json/version`,
+          headers: { host: `localhost:${server.port}` },
+        },
+        resolve,
+      );
+      request.end();
+    });
+    assert.strictEqual(response.statusCode, 200);
+  });
+
+  it("answers 403 for an upgrade with the wrong Host header", async () => {
+    await server.start(await freePort());
+    const socket = new WebSocket(`ws://127.0.0.1:${server.port}/${secret}/devtools/browser`, {
+      headers: { host: "evil.example" },
+    });
+    socket.on("error", () => undefined);
+    const status = await new Promise<number>((resolve) =>
+      socket.on("unexpected-response", (_request, response) => resolve(response.statusCode!)),
+    );
+    assert.strictEqual(status, 403);
+    assert.strictEqual(target.clients.length, 0);
+  });
+
+  it("answers 403 for an upgrade that carries an Origin header", async () => {
+    await server.start(await freePort());
+    const socket = new WebSocket(`ws://127.0.0.1:${server.port}/${secret}/devtools/browser`, {
+      origin: "http://evil.example",
+    });
+    socket.on("error", () => undefined);
+    const status = await new Promise<number>((resolve) =>
+      socket.on("unexpected-response", (_request, response) => resolve(response.statusCode!)),
+    );
+    assert.strictEqual(status, 403);
+    assert.strictEqual(target.clients.length, 0);
+  });
+
+  it("accepts an upgrade with no Origin header and the right Host and path", async () => {
+    await server.start(await freePort());
+    const client = new WebSocket(server.webSocketUrl());
+    await new Promise((resolve) => client.once("open", resolve));
+    assert.strictEqual(target.clients.length, 1);
+    client.close();
+  });
 });

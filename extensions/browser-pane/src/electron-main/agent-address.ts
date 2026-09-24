@@ -16,6 +16,7 @@ import { captureScreenshot } from "./cdp-screenshot";
 import { GuestPolicies } from "./guest-policies";
 import { GuestRegistry } from "./guest-registry";
 import { OnePageProxy } from "./one-page-proxy";
+import { SerialQueue } from "./serial-queue";
 
 @injectable()
 export class AgentAddress {
@@ -30,6 +31,9 @@ export class AgentAddress {
   protected config: AgentAddressConfig = { enabled: false, port: 0 };
   protected readonly proxies = new AgentProxies<OnePageProxy>();
   protected lastFocusedWindow: number | undefined;
+  // Runs each `configure` call after the previous one has finished, so two
+  // quick changes cannot leave a server without a reference.
+  protected readonly configureQueue = new SerialQueue();
 
   @postConstruct()
   protected init(): void {
@@ -62,9 +66,25 @@ export class AgentAddress {
     return this.server?.address();
   }
 
-  async configure(config: AgentAddressConfig): Promise<AgentAddressResult> {
+  // Runs after the previous `configure` call has finished, so two quick
+  // changes cannot leave a server without a reference.
+  configure(config: AgentAddressConfig): Promise<AgentAddressResult> {
+    return this.configureQueue.run(() => this.configureNow(config));
+  }
+
+  protected async configureNow(config: AgentAddressConfig): Promise<AgentAddressResult> {
     if (config.enabled === this.config.enabled && config.port === this.config.port) {
       return { ok: true };
+    }
+    // Read or create the secret file before any state changes. On failure,
+    // the state stays as it was (off, or the previous configuration).
+    let secret: string | undefined;
+    if (config.enabled) {
+      try {
+        secret = readOrCreateSecret(path.join(app.getPath("userData"), "ai1-browser-agent-secret"));
+      } catch (error) {
+        return { ok: false, error: `The agent secret cannot be read or created: ${String(error)}` };
+      }
     }
     this.config = config;
     await this.server?.stop();
@@ -75,8 +95,7 @@ export class AgentAddress {
     if (!config.enabled) {
       return { ok: true };
     }
-    const secret = readOrCreateSecret(path.join(app.getPath("userData"), "ai1-browser-agent-secret"));
-    const server = new AgentAddressServer(secret, () => this.resolveTarget());
+    const server = new AgentAddressServer(secret!, () => this.resolveTarget());
     try {
       await server.start(config.port);
     } catch (error) {

@@ -79,6 +79,7 @@ export class OnePageProxy {
       this.hooks.onClientChange(false);
     }
     const ready = this.attachDebugger();
+    ready.catch(() => this.onAttachFailed(client));
     let chain: Promise<void> = ready;
     client.on("message", (data) => {
       chain = chain.then(() => this.onClientMessage(client, String(data))).catch(() => undefined);
@@ -122,6 +123,20 @@ export class OnePageProxy {
       client.close();
       this.hooks.onClientChange(false);
     }
+  }
+
+  // The debugger did not attach (for example, the guest closed, or DevTools
+  // took the debugger, between `resolveTarget` and this call). Close the
+  // client instead of leaving it open with no working session.
+  protected onAttachFailed(client: ProxyClient): void {
+    if (this.client !== client) {
+      return;
+    }
+    this.client = undefined;
+    this.pageSessionId = undefined;
+    this.detachDebugger();
+    client.close();
+    this.hooks.onClientChange(false);
   }
 
   protected async attachDebugger(): Promise<void> {

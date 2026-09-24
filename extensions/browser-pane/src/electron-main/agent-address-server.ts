@@ -68,7 +68,19 @@ export class AgentAddressServer {
     }
   }
 
+  // Only the loopback names, with this server's own port. A browser's fetch
+  // sends the real host of the page; a CDP client sends the address it
+  // connects to. Both give one of these two forms.
+  protected hostAllowed(request: http.IncomingMessage): boolean {
+    const host = request.headers.host;
+    return host === `127.0.0.1:${this.listeningPort}` || host === `localhost:${this.listeningPort}`;
+  }
+
   protected async onRequest(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
+    if (!this.hostAllowed(request)) {
+      response.writeHead(403).end();
+      return;
+    }
     const path = stripSecret(request.url ?? "", this.secret);
     if (path === undefined) {
       response.writeHead(404).end();
@@ -95,7 +107,19 @@ export class AgentAddressServer {
   }
 
   protected async onUpgrade(request: http.IncomingMessage, socket: Socket, head: Buffer): Promise<void> {
-    if (stripSecret(request.url ?? "", this.secret) === undefined) {
+    if (!this.hostAllowed(request)) {
+      socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+      return;
+    }
+    // A CDP client (for example Playwright) sends no Origin header. A web
+    // page always sends one, even for a same-origin request. Refuse it, so
+    // a page cannot open this WebSocket from inside a browser tab.
+    if (request.headers.origin !== undefined) {
+      socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+      return;
+    }
+    const path = stripSecret(request.url ?? "", this.secret);
+    if (path !== TARGET_PATH) {
       socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
       return;
     }
