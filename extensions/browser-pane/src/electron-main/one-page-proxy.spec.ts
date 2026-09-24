@@ -82,6 +82,14 @@ class FakeClient implements ProxyClient {
   }
 }
 
+// A real `ws` client sends its "close" event later, not in `close()`.
+class LateCloseClient extends FakeClient {
+  override close(): void {
+    this.closed = true;
+    this.readyState = 3;
+  }
+}
+
 function setup() {
   const debuggerFake = new FakeDebugger();
   const guest: ProxyGuest = {
@@ -398,6 +406,19 @@ describe("OnePageProxy", () => {
     assert.strictEqual(second.client.closed, false);
     assert.strictEqual(debuggerFake.attached, true);
     assert.deepStrictEqual(changes, [true, false, true]);
+  });
+
+  it("stop closes the client and reports no client one time, also when the close event comes later", async () => {
+    const { proxy, debuggerFake, changes } = setup();
+    const client = new LateCloseClient();
+    proxy.acceptClient(client);
+    assert.strictEqual(proxy.connected, true);
+    proxy.stop();
+    assert.strictEqual(client.closed, true);
+    assert.strictEqual(proxy.connected, false);
+    assert.strictEqual(debuggerFake.attached, false);
+    client.emit("close");
+    assert.deepStrictEqual(changes, [true, false]);
   });
 
   it("sends Target.detachedFromTarget and closes the client when the debugger detaches", async () => {

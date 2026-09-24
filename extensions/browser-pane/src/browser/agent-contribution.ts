@@ -5,6 +5,7 @@ import { PreferenceService } from "@theia/core/lib/common/preferences";
 import { inject, injectable } from "@theia/core/shared/inversify";
 import { buildMcpConfig } from "../common/mcp-config";
 import { AGENT_PROFILE_ID } from "../common/profiles";
+import { userPreference } from "../common/user-preference";
 import { browserApi } from "./browser-api";
 import { AGENT_ADDRESS_ENABLED, AGENT_ADDRESS_PORT } from "./browser-preferences";
 import { BrowserTabs } from "./browser-tabs";
@@ -33,7 +34,7 @@ export class AgentContribution implements FrontendApplicationContribution, Comma
   async onStart(): Promise<void> {
     const api = browserApi();
     api.onCreateAgentTab(async (request) => {
-      const widget = await this.tabs.open("about:blank", AGENT_PROFILE_ID);
+      const widget = await this.tabs.open("about:blank", AGENT_PROFILE_ID, { activate: false });
       await api.agentTabCreated(request.requestId, widget.tabId);
     });
     api.onAgentState((state) => {
@@ -52,8 +53,10 @@ export class AgentContribution implements FrontendApplicationContribution, Comma
 
   protected async applyPreferences(): Promise<void> {
     const result = await browserApi().configureAgentAddress({
-      enabled: this.preferences.get<boolean>(AGENT_ADDRESS_ENABLED, false),
-      port: this.preferences.get<number>(AGENT_ADDRESS_PORT, 9333),
+      // Only the user settings count: a repository must not turn on the
+      // agent address.
+      enabled: userPreference(this.preferences, AGENT_ADDRESS_ENABLED, false),
+      port: userPreference(this.preferences, AGENT_ADDRESS_PORT, 9333),
     });
     if (!result.ok) {
       void this.messages.error(result.error);

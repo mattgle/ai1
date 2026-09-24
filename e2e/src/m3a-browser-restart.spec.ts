@@ -1,4 +1,6 @@
 import * as fs from "node:fs";
+import * as http from "node:http";
+import { AddressInfo } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import { _electron as electron, expect, test } from "@playwright/test";
@@ -32,6 +34,14 @@ async function launchApp(workspacePath: string, userDataDir: string) {
   const app = new TheiaApp(page, new TheiaWorkspace(), true);
   await app.waitForShellAndInitialized();
   return { app, electronApp };
+}
+
+async function freePort(): Promise<number> {
+  const server = http.createServer();
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return port;
 }
 
 let configDir: string;
@@ -92,5 +102,39 @@ test("a restored tab gets the profile list, and moves to Default when its profil
     await expect(select).toHaveValue("default");
   } finally {
     await start2.electronApp.close();
+  }
+});
+
+test("the settings of a repository do not turn on the agent address", async () => {
+  // The user settings of this file are empty. Only the workspace settings of
+  // the opened folder turn the agent address on.
+  const workspace = new TheiaWorkspace();
+  workspace.initialize();
+  const repositoryPath = fs.realpathSync(workspace.path);
+  const port = await freePort();
+  fs.mkdirSync(path.join(repositoryPath, ".theia"), { recursive: true });
+  fs.writeFileSync(
+    path.join(repositoryPath, ".theia", "settings.json"),
+    JSON.stringify({ "ai1.browser.agentAddress.enabled": true, "ai1.browser.agentAddress.port": port }),
+  );
+  const ownUserDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-m3a-scope-userdata-"));
+  try {
+    const start = await launchApp(repositoryPath, ownUserDataDir);
+    try {
+      // The agent address starts after the preferences are ready. Give it
+      // time to start, if it does.
+      await start.app.page.waitForTimeout(3000);
+      // Compare in the page, so that a failure does not print the address
+      // with its secret.
+      const off = await start.app.page.evaluate(
+        "window.electronAi1Browser.agentAddress().then((a) => a === undefined)",
+      );
+      expect(off).toBe(true);
+      await expect(fetch(`http://127.0.0.1:${port}/`)).rejects.toThrow();
+    } finally {
+      await start.electronApp.close();
+    }
+  } finally {
+    await removeTempDir(ownUserDataDir);
   }
 });

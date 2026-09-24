@@ -9,6 +9,7 @@ import {
   CreateAgentTabRequest,
 } from "../common/browser-ipc";
 import { AgentAddressServer, AgentTarget } from "./agent-address-server";
+import { AgentProxies } from "./agent-proxies";
 import { readOrCreateSecret } from "./agent-secret";
 import { AgentTabs } from "./agent-tabs";
 import { captureScreenshot } from "./cdp-screenshot";
@@ -27,7 +28,7 @@ export class AgentAddress {
   tabs!: AgentTabs;
   protected server: AgentAddressServer | undefined;
   protected config: AgentAddressConfig = { enabled: false, port: 0 };
-  protected readonly proxies = new Map<number, OnePageProxy>();
+  protected readonly proxies = new AgentProxies<OnePageProxy>();
   protected lastFocusedWindow: number | undefined;
 
   @postConstruct()
@@ -44,7 +45,7 @@ export class AgentAddress {
       },
       // Close the agent's connection to the old agent tab. The next
       // connection gets the new agent tab.
-      releaseGuest: (guestId) => this.proxies.get(guestId)?.stop(),
+      releaseGuest: (guestId) => this.proxies.release(guestId),
     });
   }
 
@@ -68,6 +69,9 @@ export class AgentAddress {
     this.config = config;
     await this.server?.stop();
     this.server = undefined;
+    // Closing the server does not close the WebSocket connections: end the
+    // client of every agent tab.
+    this.proxies.stopAll();
     if (!config.enabled) {
       return { ok: true };
     }
@@ -119,11 +123,8 @@ export class AgentAddress {
             captureScreenshot(guest, params, resolve, (message) => reject(new Error(message))),
           ),
       });
-      guest.once("destroyed", () => {
-        created.stop();
-        this.proxies.delete(guestId);
-      });
-      this.proxies.set(guestId, created);
+      guest.once("destroyed", () => this.proxies.remove(guestId));
+      this.proxies.add(guestId, created);
       proxy = created;
     }
     return {
@@ -135,8 +136,14 @@ export class AgentAddress {
         }
         response.writeHead(404).end();
       },
-      acceptClient: (client) => proxy!.acceptClient(client),
+      acceptClient: (client) => this.proxies.accept(guestId, client),
     };
+  }
+
+  // True when an agent is connected to the agent tab of this window.
+  agentConnected(windowId: number): boolean {
+    const tabId = this.tabs.agentTabOf(windowId);
+    return this.proxies.isConnected(tabId === undefined ? undefined : this.registry.guestOf(windowId, tabId));
   }
 
   sendState(windowId: number, connected: boolean): void {

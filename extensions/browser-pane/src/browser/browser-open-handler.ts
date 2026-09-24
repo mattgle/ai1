@@ -5,6 +5,7 @@ import { PreferenceScope, PreferenceService } from "@theia/core/lib/common/prefe
 import { inject, injectable } from "@theia/core/shared/inversify";
 import { decideLinkTarget, OpenLinksIn } from "../common/link-choice";
 import { DEFAULT_PROFILE_ID } from "../common/profiles";
+import { userPreference } from "../common/user-preference";
 import { OPEN_LINKS_IN } from "./browser-preferences";
 import { BrowserTabs } from "./browser-tabs";
 import { ShiftTracker } from "./shift-tracker";
@@ -41,7 +42,7 @@ export class BrowserOpenHandler implements OpenHandler {
 
   async open(uri: URI): Promise<undefined> {
     const url = uri.toString(true);
-    const setting = this.preferences.get<OpenLinksIn>(OPEN_LINKS_IN, "ask");
+    const setting = userPreference<OpenLinksIn>(this.preferences, OPEN_LINKS_IN, "ask");
     let target = decideLinkTarget(setting, this.shift.wasShiftHeld());
     if (target === "ask") {
       const answer = await this.messages.info(

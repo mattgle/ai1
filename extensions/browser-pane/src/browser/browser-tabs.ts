@@ -27,18 +27,29 @@ export class BrowserTabs {
     });
   }
 
-  async open(url: string, profileId: string, ref?: Widget): Promise<BrowserWidget> {
+  // `activate: false` shows the tab but leaves the keyboard focus where it
+  // is. A tab that the agent address opens uses it: the owner can type in
+  // another view at that time.
+  async open(
+    url: string,
+    profileId: string,
+    placement: { ref?: Widget; activate?: boolean } = {},
+  ): Promise<BrowserWidget> {
     const options: BrowserWidgetOptions = { tabId: newTabId(Date.now(), this.counter++), url, profileId };
     const widget = await this.widgets.getOrCreateWidget<BrowserWidget>(BrowserWidget.FACTORY_ID, options);
     // A new tab goes next to the current tab of the main area. The current
     // widget can also be in a side or bottom panel (for example a terminal).
-    const anchor = ref ?? this.shell.currentWidget;
+    const anchor = placement.ref ?? this.shell.currentWidget;
     const inMainArea = anchor !== undefined && anchor.isAttached && this.shell.getAreaFor(anchor) === "main";
     await this.shell.addWidget(
       widget,
       inMainArea ? { area: "main", mode: "tab-after", ref: anchor } : { area: "main" },
     );
-    await this.shell.activateWidget(widget.id);
+    if (placement.activate === false) {
+      await this.shell.revealWidget(widget.id);
+    } else {
+      await this.shell.activateWidget(widget.id);
+    }
     return widget;
   }
 

@@ -1,4 +1,5 @@
 import { ContextMenuRenderer, Message, ReactWidget } from "@theia/core/lib/browser";
+import { Emitter } from "@theia/core/lib/common";
 import { inject, injectable, postConstruct } from "@theia/core/shared/inversify";
 import * as React from "@theia/core/shared/react";
 import { WorkspaceService } from "@theia/workspace/lib/browser";
@@ -35,7 +36,9 @@ export class PortsWidget extends ReactWidget {
   protected scanResult: PortsScan | undefined;
   protected otherOpen = false;
   protected timer: ReturnType<typeof setInterval> | undefined;
-  protected readonly listeners: ((scan: PortsScan) => void)[] = [];
+  protected readonly scanEmitter = new Emitter<PortsScan>();
+  // The subscriptions end when the widget is disposed.
+  readonly onDidScan = this.scanEmitter.event;
 
   @postConstruct()
   protected init(): void {
@@ -45,18 +48,19 @@ export class PortsWidget extends ReactWidget {
     this.title.iconClass = "codicon codicon-plug";
     this.title.closable = true;
     this.addClass("ai1-ports");
+    this.toDispose.push(this.scanEmitter);
     this.toDispose.push(this.workspace.onWorkspaceChanged(() => void this.refresh()));
     this.update();
   }
 
-  onDidScan(listener: (scan: PortsScan) => void): void {
-    this.listeners.push(listener);
-  }
-
   async refresh(): Promise<void> {
     const roots = (await this.workspace.roots).map((root) => root.resource.path.fsPath());
-    this.scanResult = await this.ports.scan(roots);
-    this.listeners.forEach((listener) => listener(this.scanResult!));
+    const scan = await this.ports.scan(roots);
+    if (this.isDisposed) {
+      return;
+    }
+    this.scanResult = scan;
+    this.scanEmitter.fire(scan);
     this.update();
   }
 

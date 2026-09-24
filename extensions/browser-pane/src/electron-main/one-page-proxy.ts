@@ -106,10 +106,22 @@ export class OnePageProxy {
     };
   }
 
+  get connected(): boolean {
+    return this.client !== undefined;
+  }
+
+  // Ends the connection of the client. A `ws` client sends its "close" event
+  // later, and then it is no longer the proxy's client, so report the change
+  // here.
   stop(): void {
-    this.client?.close();
+    const client = this.client;
     this.client = undefined;
+    this.pageSessionId = undefined;
     this.detachDebugger();
+    if (client) {
+      client.close();
+      this.hooks.onClientChange(false);
+    }
   }
 
   protected async attachDebugger(): Promise<void> {

@@ -281,6 +281,41 @@ test("the Ports view lists a server under its repository and opens it", async ()
   }
 });
 
+test("the Ports view works again after a close and a reopen, and its badge still updates", async () => {
+  // A side-panel tab has no close icon: close it with its own context menu.
+  await clickTab(app.page.locator("#shell-tab-ai1-ports"), { button: "right" });
+  await app.page.locator(".lm-Menu-item", { hasText: /^Close$/ }).click();
+  await expect(app.page.locator("#ai1-ports")).toHaveCount(0);
+  await app.quickCommandPalette.type("Toggle Ports");
+  await app.page.locator(".quick-input-widget .monaco-list-row", { hasText: "Toggle Ports" }).click();
+  await expect(app.page.locator("#theia-right-side-panel #ai1-ports")).toBeVisible();
+
+  const server: ChildProcess = spawn(
+    process.execPath,
+    [
+      "-e",
+      "require('http').createServer((q, s) => s.end('ok')).listen(0, '127.0.0.1', function () { process.stdout.write(String(this.address().port)) })",
+    ],
+    { cwd: path.join(app.workspace.path, "dirty-repo"), stdio: ["ignore", "pipe", "inherit"] },
+  );
+  try {
+    const port = await new Promise<string>((resolve) =>
+      server.stdout!.once("data", (data) => resolve(String(data).trim())),
+    );
+    const row = app.page
+      .locator("#ai1-ports .ai1-ports-group", { hasText: "dirty-repo" })
+      .locator(".ai1-ports-row", {
+        hasText: `:${port}`,
+      });
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    // The server of `beforeAll` and this server.
+    const badge = app.page.locator("#shell-tab-ai1-ports .theia-badge-decorator-sidebar");
+    await expect(badge).toHaveText("2", { timeout: 15_000 });
+  } finally {
+    server.kill();
+  }
+});
+
 test("the agent address refuses a wrong secret", async () => {
   const response = await fetch(`http://127.0.0.1:${agentPort}/${"x".repeat(43)}/json/version`);
   expect(response.status).toBe(404);
@@ -324,4 +359,29 @@ test("Playwright controls the agent tab through the agent address, and sees only
   // The agent tab stays open and keeps its mark, without the connected mark.
   await expect(agentTab).toHaveText(/Welcome/);
   await expect(agentTab).not.toHaveClass(/ai1-browser-agent-connected/);
+});
+
+test("a new agent connection opens the agent tab and does not take the keyboard focus", async () => {
+  const secret = fs.readFileSync(path.join(userDataDir, "ai1-browser-agent-secret"), "utf8").trim();
+  const agentTab = app.page.locator("#theia-main-content-panel .lm-TabBar-tab.ai1-browser-agent-tab");
+  // Close the agent tab of the previous test, so the next connection opens a
+  // new one.
+  await clickTab(agentTab, { button: "right" });
+  await app.page.locator(".lm-Menu-item", { hasText: /^Close$/ }).click();
+  await expect(agentTab).toHaveCount(0);
+
+  await app.quickCommandPalette.trigger("Terminal: Create New Terminal");
+  const input = app.page.locator(".terminal-container:not(.lm-mod-hidden) .xterm-helper-textarea").last();
+  await expect(input).toBeFocused();
+
+  const browser = await chromium.connectOverCDP(`http://127.0.0.1:${agentPort}/${secret}/`);
+  try {
+    await expect(agentTab).toHaveCount(1);
+    await expect(agentTab).toHaveClass(/lm-mod-current/);
+    // Give a late focus change time to occur before the check.
+    await app.page.waitForTimeout(1000);
+    await expect(input).toBeFocused({ timeout: 1000 });
+  } finally {
+    await browser.close();
+  }
 });

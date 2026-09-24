@@ -97,6 +97,30 @@ describe("AgentAddressServer", () => {
     assert.strictEqual((await fetch(`${server.address()}json/version`)).status, 200);
   });
 
+  it("refuses a client whose target comes after the server stopped", async () => {
+    let giveTarget!: () => void;
+    let asked!: () => void;
+    const targetAsked = new Promise<void>((resolve) => (asked = resolve));
+    server = new AgentAddressServer(secret, async () => {
+      asked();
+      await new Promise<void>((resolve) => (giveTarget = resolve));
+      return target;
+    });
+    await server.start(await freePort());
+    const client = new WebSocket(server.webSocketUrl());
+    client.on("error", () => undefined);
+    const ended = new Promise<string>((resolve) => {
+      client.once("open", () => resolve("open"));
+      client.once("unexpected-response", () => resolve("refused"));
+      client.once("close", () => resolve("closed"));
+    });
+    await targetAsked;
+    await server.stop();
+    giveTarget();
+    assert.notStrictEqual(await ended, "open");
+    assert.strictEqual(target.clients.length, 0);
+  });
+
   it("fails to start when the port is in use", async () => {
     const blocker = http.createServer();
     await new Promise<void>((resolve) => blocker.listen(0, "127.0.0.1", resolve));

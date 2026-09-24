@@ -35,6 +35,8 @@ export class PortsContribution
   @inject(ClipboardService)
   protected readonly clipboard!: ClipboardService;
 
+  protected readonly wiredWidgets = new WeakSet<PortsWidget>();
+
   constructor() {
     super({
       widgetId: PortsWidget.ID,
@@ -48,16 +50,38 @@ export class PortsContribution
     await this.openView({ reveal: false });
   }
 
+  // Closing the Ports tab disposes its widget, and the next open makes a new
+  // one. `onDidCreateWidget` wires the badge of each new widget.
+  // `tryGetWidget` wires a widget that exists before this subscription.
+  onStart(): void {
+    this.widgetManager.onDidCreateWidget(({ factoryId, widget }) => {
+      if (factoryId === PortsWidget.ID) {
+        this.wireWidget(widget as PortsWidget);
+      }
+    });
+    const existing = this.tryGetWidget();
+    if (existing) {
+      this.wireWidget(existing);
+    }
+  }
+
+  protected wireWidget(widget: PortsWidget): void {
+    if (this.wiredWidgets.has(widget)) {
+      return;
+    }
+    this.wiredWidgets.add(widget);
+    widget.onDidScan((scan) => this.updateBadge(widget, scan));
+  }
+
   // The Ports view opens hidden, behind the Changes and Agents views (see
   // `initializeLayout`), and its own 5-second scan only runs while it is
   // visible (`PortsWidget.onAfterShow`/`onAfterHide`). Without a scan here,
   // the tab badge would stay unset until the owner clicks the Ports tab once.
-  // One scan here, right after the badge subscription, sets it correctly at
-  // start, and does not start the 5-second interval (that stays tied to
-  // visibility, in the widget itself).
+  // One scan here sets it correctly at start, and does not start the
+  // 5-second interval (that stays tied to visibility, in the widget itself).
   async onDidInitializeLayout(): Promise<void> {
     const widget = await this.widget;
-    widget.onDidScan((scan) => this.updateBadge(widget, scan));
+    this.wireWidget(widget);
     try {
       await widget.refresh();
     } catch (error) {

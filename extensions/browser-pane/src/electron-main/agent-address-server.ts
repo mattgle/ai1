@@ -18,6 +18,8 @@ export class AgentAddressServer {
   protected server: http.Server | undefined;
   protected readonly webSockets = new WebSocketServer({ noServer: true });
   protected client: WebSocket | undefined;
+  // Upgrade requests that wait for their target. `stop` ends them.
+  protected readonly pendingSockets = new Set<Socket>();
   protected listeningPort = 0;
 
   constructor(
@@ -54,6 +56,10 @@ export class AgentAddressServer {
   async stop(): Promise<void> {
     this.client?.close();
     this.client = undefined;
+    for (const socket of this.pendingSockets) {
+      socket.destroy();
+    }
+    this.pendingSockets.clear();
     const server = this.server;
     this.server = undefined;
     if (server) {
@@ -93,6 +99,8 @@ export class AgentAddressServer {
       socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
       return;
     }
+    const server = this.server;
+    this.pendingSockets.add(socket);
     let target: AgentTarget;
     try {
       target = await this.resolveTarget();
@@ -101,6 +109,14 @@ export class AgentAddressServer {
       socket.end(
         `HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n${text}`,
       );
+      return;
+    } finally {
+      this.pendingSockets.delete(socket);
+    }
+    // The server stopped while this request waited for its target (for
+    // example, the owner turned the agent address off). Refuse the client.
+    if (server === undefined || this.server !== server || socket.destroyed) {
+      socket.destroy();
       return;
     }
     this.webSockets.handleUpgrade(request, socket, head, (client) => {

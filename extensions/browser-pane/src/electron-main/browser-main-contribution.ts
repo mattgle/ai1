@@ -65,7 +65,7 @@ export class BrowserMainContribution implements ElectronMainApplicationContribut
     ipcMain.handle(Channels.agentAddress, () => this.agentAddress.address());
     ipcMain.handle(Channels.setAgentTab, (event, tabId: string | undefined) => {
       this.agentAddress.tabs.setAgentTab(event.sender.id, tabId);
-      this.agentAddress.sendState(event.sender.id, false);
+      this.agentAddress.sendState(event.sender.id, this.agentAddress.agentConnected(event.sender.id));
     });
     ipcMain.handle(Channels.agentTabCreated, (event, requestId: string, tabId: string) =>
       this.agentAddress.tabs.tabCreated(event.sender.id, requestId, tabId),

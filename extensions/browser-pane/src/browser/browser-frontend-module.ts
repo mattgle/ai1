@@ -51,7 +51,9 @@ export default new ContainerModule((bind) => {
       ServiceConnectionProvider.createProxy<PortsService>(context.container, PORTS_SERVICE_PATH),
     )
     .inSingletonScope();
-  bind(PortsWidget).toSelf().inSingletonScope();
+  // Not a singleton: Theia disposes a closed view, so each open needs a new
+  // widget.
+  bind(PortsWidget).toSelf();
   bind(WidgetFactory)
     .toDynamicValue((context) => ({
       id: PortsWidget.ID,
