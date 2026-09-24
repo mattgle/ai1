@@ -111,11 +111,23 @@ export class BrowserFixtureServer {
       case "/secure":
         html(page("Secure page"));
         return;
+      case "/fetch-file":
+        html(
+          page(
+            "Fetching",
+            "",
+            "fetch('file:///etc/hosts').then((r) => r.text()).then((t) => { document.title = 'fetch: read ' + t.length; }, () => { document.title = 'fetch: failed'; });",
+          ),
+        );
+        return;
+      case "/popup-flood":
+        html(page("Flood", "", "for (let i = 0; i < 8; i++) { window.open('/flood-tab?' + i); }"));
+        return;
       case "/button":
         html(page("Button", `<button id="go" onclick="document.title='Clicked'">Go</button>`));
         return;
       default:
-        html(page("Start"));
+        html(page(request.url?.startsWith("/flood-tab") ? "Flood tab" : "Start"));
     }
   }
 }

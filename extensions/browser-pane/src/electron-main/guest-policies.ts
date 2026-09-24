@@ -9,6 +9,8 @@ import {
   forceGuestPreferences,
   isLocalCertificateHost,
   isPermissionAllowed,
+  POPUP_WINDOW_MS,
+  popupAllowed,
   profileIdFromStoragePath,
   shouldAttachGuest,
   shouldStopNavigation,
@@ -16,8 +18,10 @@ import {
 } from "../common/guest-policy";
 import { DEFAULT_PROFILE_ID, partitionFor, profileIdFromPartition } from "../common/profiles";
 
+const POPUP_NOTICE = "A page tried to open too many popups. AI1 blocked the rest.";
+
 // The rules for the pages of the AI1 browser: the attach check, popups,
-// navigation, permissions, downloads, and certificate errors.
+// navigation, local files, permissions, downloads, and certificate errors.
 @injectable()
 export class GuestPolicies {
   protected readonly preparedSessions = new Set<string>();
@@ -55,16 +59,17 @@ export class GuestPolicies {
     });
   }
 
-  // A `<webview>` page, or a popup window that a page of an AI1 profile
-  // opened (it has the session of that profile).
+  // A `<webview>` page or a popup window with the session of an AI1
+  // profile. A `<webview>` in another session is not an AI1 page.
   isAi1BrowserContents(contents: WebContents): boolean {
-    return (
-      contents.getType() === "webview" || profileIdFromStoragePath(contents.session.storagePath) !== undefined
-    );
+    return profileIdFromStoragePath(contents.session.storagePath) !== undefined;
   }
 
   attach(contents: WebContents): void {
     contents.setBackgroundThrottling(false);
+    // A page cannot hold a nested `<webview>` page. `webviewTag` is off, and
+    // this refuses the attach if a page gets one all the same.
+    contents.on("will-attach-webview", (event) => event.preventDefault());
     contents.on("will-navigate", (event) => {
       if (!isAllowedGuestUrl(event.url)) {
         event.preventDefault();
@@ -83,8 +88,26 @@ export class GuestPolicies {
         });
       }
     });
+    // The times of the popups that this page opened, and whether the owner
+    // got the notice for the current burst of refused popups.
+    let popupTimes: number[] = [];
+    let burstNoticeSent = false;
     contents.setWindowOpenHandler((details) => {
       const action = decidePopup(details.url, details.disposition);
+      if (action === "deny") {
+        return { action: "deny" };
+      }
+      const now = this.now();
+      popupTimes = popupTimes.filter((time) => now - time < POPUP_WINDOW_MS);
+      if (!popupAllowed(popupTimes, now)) {
+        if (!burstNoticeSent) {
+          burstNoticeSent = true;
+          this.sendToWindowOf(contents, Channels.notice, POPUP_NOTICE);
+        }
+        return { action: "deny" };
+      }
+      popupTimes.push(now);
+      burstNoticeSent = false;
       const profileId = profileIdFromStoragePath(contents.session.storagePath) ?? DEFAULT_PROFILE_ID;
       if (action === "tab") {
         const request: OpenTabRequest = { url: details.url, profileId };
@@ -102,6 +125,7 @@ export class GuestPolicies {
               nodeIntegration: false,
               contextIsolation: true,
               sandbox: true,
+              webviewTag: false,
             },
           },
         };
@@ -116,6 +140,10 @@ export class GuestPolicies {
     }
     this.preparedSessions.add(partition);
     const target = session.fromPartition(partition);
+    // No page of an AI1 profile loads a local file: not a navigation, not a
+    // fetch, and not a subresource. The navigation checks stay as a second
+    // layer.
+    target.protocol.handle("file", () => Response.error());
     target.setPermissionRequestHandler((_contents, permission, callback) =>
       callback(isPermissionAllowed(permission)),
     );
@@ -136,15 +164,22 @@ export class GuestPolicies {
     });
   }
 
+  // Only for a local host, and only for an AI1 page that exists.
   acceptCertificate(webContentsId: number, host: string): void {
-    if (!isLocalCertificateHost(host)) {
+    const guest = this.contentsFromId(webContentsId);
+    if (!isLocalCertificateHost(host) || !guest || guest.isDestroyed() || !this.isAi1BrowserContents(guest)) {
       return;
     }
     this.acceptedCertificateHosts.add(host);
-    const guest = webContents.fromId(webContentsId);
-    if (guest && !guest.isDestroyed()) {
-      guest.reload();
-    }
+    guest.reload();
+  }
+
+  protected contentsFromId(id: number): WebContents | undefined {
+    return webContents.fromId(id);
+  }
+
+  protected now(): number {
+    return Date.now();
   }
 
   // Sends to the Theia window that shows this page: the embedder of a
