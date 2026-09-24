@@ -71,3 +71,44 @@
   color: var(--theia-charts-green);
   opacity: 1;
 }
+
+.ai1-ports-list,
+.ai1-ports-empty,
+.ai1-ports-error {
+  padding: 6px 0;
+}
+
+.ai1-ports-empty,
+.ai1-ports-error {
+  padding-left: 12px;
+  opacity: 0.8;
+}
+
+.ai1-ports-group-name {
+  padding: 4px 12px;
+  font-weight: 600;
+}
+
+.ai1-ports-toggle {
+  cursor: pointer;
+  font-weight: normal;
+}
+
+.ai1-ports-row {
+  display: flex;
+  gap: 8px;
+  padding: 2px 24px;
+  cursor: pointer;
+}
+
+.ai1-ports-row:hover {
+  background: var(--theia-list-hoverBackground);
+}
+
+.ai1-ports-port {
+  font-family: var(--theia-code-font-family);
+}
+
+.ai1-ports-program {
+  opacity: 0.7;
+}

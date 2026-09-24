@@ -16,6 +16,7 @@
   "devDependencies": {
     "@types/mocha": "^10.0.0",
     "@types/node": "^20.0.0",
+    "@types/react": "^19.0.0",
     "@types/ws": "^8.18.1",
     "mocha": "^10.0.0",
     "rimraf": "^5.0.0"
@@ -24,11 +25,12 @@
     "clean": "rimraf lib",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "tsc && mocha \"lib/common/*.spec.js\" \"lib/electron-main/*.spec.js\""
+    "test": "tsc && mocha \"lib/common/*.spec.js\" \"lib/electron-main/*.spec.js\" \"lib/node/*.spec.js\""
   },
   "theiaExtensions": [
     {
       "frontend": "lib/browser/browser-frontend-module",
+      "backend": "lib/node/browser-backend-module",
       "electronMain": "lib/electron-main/browser-electron-main-module",
       "preload": "lib/electron-browser/preload"
     }

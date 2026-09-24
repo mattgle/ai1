@@ -1,9 +1,11 @@
+import { ChildProcess, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { TheiaApp, TheiaAppLoader, TheiaWorkspace } from "@theia/playwright";
 import { BrowserFixtureServer, makeLocalCertificate } from "./browser-fixture-server";
+import { clickTab } from "./click-tab";
 import { createMetaRepoFixture } from "./meta-repo-fixture";
 import { openBrowserTab } from "./open-browser-tab";
 import { removeTempDir } from "./remove-temp-dir";
@@ -191,4 +193,33 @@ test("a ⌘-click on a terminal link asks one time, then opens the AI1 tab", asy
   await expect(mainTab("Button")).toBeVisible();
   const settings = fs.readFileSync(path.join(configDir, "settings.json"), "utf8");
   expect(JSON.parse(settings)["ai1.browser.openLinksIn"]).toBe("ai1");
+});
+
+test("the Ports view lists a server under its repository and opens it", async () => {
+  const dirtyRepo = path.join(app.workspace.path, "dirty-repo");
+  // `process.stdout.write` (not `console.log`) prints the port with no color
+  // codes: Playwright sets `FORCE_COLOR` in its own process, and a child
+  // process inherits it, so `console.log` of a number would add them even
+  // though stdout is a pipe, not a terminal.
+  const server: ChildProcess = spawn(
+    process.execPath,
+    [
+      "-e",
+      "require('http').createServer((q, s) => s.end('<title>From dirty-repo</title>')).listen(0, '127.0.0.1', function () { process.stdout.write(String(this.address().port)) })",
+    ],
+    { cwd: dirtyRepo, stdio: ["ignore", "pipe", "inherit"] },
+  );
+  try {
+    const port = await new Promise<string>((resolve) =>
+      server.stdout!.once("data", (data) => resolve(String(data).trim())),
+    );
+    await clickTab(app.page.locator("#shell-tab-ai1-ports"));
+    const group = app.page.locator(".ai1-ports-group", { hasText: "dirty-repo" });
+    const row = group.locator(".ai1-ports-row", { hasText: `:${port}` });
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    await row.click();
+    await expect(mainTab("From dirty-repo")).toBeVisible();
+  } finally {
+    server.kill();
+  }
 });
