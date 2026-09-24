@@ -7,6 +7,8 @@ export interface AgentTabsHost {
   // Asks that window to open a tab in the Agent profile.
   requestAgentTab(windowId: number, requestId: string): void;
   guestAlive(guestId: number): boolean;
+  // The tab of this guest is no longer the agent tab: an agent must lose it.
+  releaseGuest(guestId: number): void;
 }
 
 interface Pending {
@@ -30,6 +32,13 @@ export class AgentTabs {
   ) {}
 
   setAgentTab(windowId: number, tabId: string | undefined): void {
+    const oldTabId = this.agentTabs.get(windowId);
+    if (oldTabId !== undefined && oldTabId !== tabId) {
+      const oldGuestId = this.registry.guestOf(windowId, oldTabId);
+      if (oldGuestId !== undefined) {
+        this.host.releaseGuest(oldGuestId);
+      }
+    }
     if (tabId === undefined) {
       this.agentTabs.delete(windowId);
     } else {

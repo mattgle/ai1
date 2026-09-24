@@ -42,6 +42,9 @@ export class AgentAddress {
         const guest = webContents.fromId(guestId);
         return guest !== undefined && !guest.isDestroyed();
       },
+      // Close the agent's connection to the old agent tab. The next
+      // connection gets the new agent tab.
+      releaseGuest: (guestId) => this.proxies.get(guestId)?.stop(),
     });
   }
 

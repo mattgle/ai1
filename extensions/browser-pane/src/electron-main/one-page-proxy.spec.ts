@@ -234,6 +234,136 @@ describe("OnePageProxy", () => {
     }
   });
 
+  for (const [method, params] of [
+    ["Target.getTargets", {}],
+    ["Target.setDiscoverTargets", { discover: true }],
+    ["Target.getTargetInfo", { targetId: "OTHER-TARGET" }],
+    ["Target.activateTarget", { targetId: "OTHER-TARGET" }],
+    ["Target.sendMessageToTarget", { message: "{}", targetId: "OTHER-TARGET" }],
+    ["Target.attachToTarget", { targetId: "OTHER-TARGET", flatten: true }],
+    ["Target.createTarget", { url: "http://127.0.0.1:1/" }],
+    ["Target.closeTarget", { targetId: "OTHER-TARGET" }],
+    ["Target.detachFromTarget", { sessionId: "UNKNOWN" }],
+    ["Target.exposeDevToolsProtocol", { targetId: "OTHER-TARGET" }],
+    ["Page.setDownloadBehavior", { behavior: "allow", downloadPath: "/tmp" }],
+    ["Browser.setDownloadBehavior", { behavior: "allow", downloadPath: "/tmp" }],
+    ["Browser.getVersion", {}],
+  ] as const) {
+    it(`refuses ${method} on the page session and on a child session, and does not forward it`, async () => {
+      const { proxy, debuggerFake } = setup();
+      const { client, sessionId } = await attachedClient(proxy);
+      debuggerFake.emit("message", {}, "Target.attachedToTarget", { sessionId: "CHILD", targetInfo: {} });
+      const sentBefore = debuggerFake.sent.length;
+      for (const [id, session] of [
+        [20, sessionId],
+        [21, "CHILD"],
+      ] as const) {
+        const reply = await client.request({ id, method, params, sessionId: session });
+        assert.ok(reply.error, `${method} on ${session}`);
+        assert.strictEqual(reply.sessionId, session);
+      }
+      assert.deepStrictEqual(debuggerFake.sent.slice(sentBefore), []);
+    });
+  }
+
+  it("forwards Target.setAutoAttach on the page session, for child sessions", async () => {
+    const { proxy, debuggerFake } = setup();
+    const { client, sessionId } = await attachedClient(proxy);
+    const params = { autoAttach: true, waitForDebuggerOnStart: true, flatten: true };
+    await client.request({ id: 30, method: "Target.setAutoAttach", params, sessionId });
+    assert.deepStrictEqual(debuggerFake.sent.at(-1), {
+      method: "Target.setAutoAttach",
+      params,
+      sessionId: undefined,
+    });
+  });
+
+  it("forwards Target.detachFromTarget only for a known child session", async () => {
+    const { proxy, debuggerFake } = setup();
+    const { client, sessionId } = await attachedClient(proxy);
+    debuggerFake.emit("message", {}, "Target.attachedToTarget", { sessionId: "CHILD", targetInfo: {} });
+    const reply = await client.request({
+      id: 31,
+      method: "Target.detachFromTarget",
+      params: { sessionId: "CHILD" },
+      sessionId,
+    });
+    assert.deepStrictEqual(reply.result, {});
+    assert.deepStrictEqual(debuggerFake.sent.at(-1), {
+      method: "Target.detachFromTarget",
+      params: { sessionId: "CHILD" },
+      sessionId: undefined,
+    });
+    const own = await client.request({
+      id: 32,
+      method: "Target.detachFromTarget",
+      params: { sessionId },
+      sessionId,
+    });
+    assert.ok(own.error);
+  });
+
+  it("answers Target.getTargetInfo without a target id on the page session with the page, locally", async () => {
+    const { proxy, debuggerFake } = setup();
+    const { client, sessionId } = await attachedClient(proxy);
+    const sentBefore = debuggerFake.sent.length;
+    const reply = await client.request({ id: 33, method: "Target.getTargetInfo", sessionId });
+    const info = (reply.result as { targetInfo: Record<string, unknown> }).targetInfo;
+    assert.strictEqual(info.targetId, "REAL-FRAME-ID");
+    assert.strictEqual(info.type, "page");
+    assert.deepStrictEqual(debuggerFake.sent.slice(sentBefore), []);
+  });
+
+  it("refuses Page.navigate to an address that is not http, https, or about:blank", async () => {
+    const { proxy, debuggerFake } = setup();
+    const { client, sessionId } = await attachedClient(proxy);
+    debuggerFake.emit("message", {}, "Target.attachedToTarget", { sessionId: "CHILD", targetInfo: {} });
+    const sentBefore = debuggerFake.sent.length;
+    for (const [id, url, session] of [
+      [40, "file:///etc/hosts", sessionId],
+      [41, "chrome://version", sessionId],
+      [42, "javascript:alert(1)", sessionId],
+      [43, "file:///etc/hosts", "CHILD"],
+    ] as const) {
+      const reply = await client.request({
+        id,
+        method: "Page.navigate",
+        params: { url },
+        sessionId: session,
+      });
+      assert.match(String((reply.error as { message: string }).message), /only http and https/, url);
+    }
+    assert.deepStrictEqual(debuggerFake.sent.slice(sentBefore), []);
+  });
+
+  it("forwards Page.navigate to an http address and to about:blank", async () => {
+    const { proxy, debuggerFake } = setup();
+    const { client, sessionId } = await attachedClient(proxy);
+    for (const [id, url] of [
+      [44, "http://127.0.0.1:1/form"],
+      [45, "about:blank"],
+    ] as const) {
+      await client.request({ id, method: "Page.navigate", params: { url }, sessionId });
+      assert.deepStrictEqual(debuggerFake.sent.at(-1), {
+        method: "Page.navigate",
+        params: { url },
+        sessionId: undefined,
+      });
+    }
+  });
+
+  it("refuses Target.createTarget on the root with an address that is not http or https", async () => {
+    const { proxy, debuggerFake } = setup();
+    const { client } = await attachedClient(proxy);
+    const reply = await client.request({
+      id: 46,
+      method: "Target.createTarget",
+      params: { url: "file:///etc/hosts" },
+    });
+    assert.match(String((reply.error as { message: string }).message), /only http and https/);
+    assert.ok(!debuggerFake.sent.some((command) => command.method === "Page.navigate"));
+  });
+
   it("answers Page.bringToFront locally and sends a screenshot through the hook", async () => {
     const { proxy, debuggerFake, screenshots } = setup();
     const { client, sessionId } = await attachedClient(proxy);

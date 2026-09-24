@@ -6,12 +6,14 @@ function setup(window: number | undefined, timeoutMs = 1000) {
   const registry = new GuestRegistry();
   const requests: { windowId: number; requestId: string }[] = [];
   const alive = new Set<number>();
+  const released: number[] = [];
   const host: AgentTabsHost = {
     lastFocusedWindow: () => window,
     requestAgentTab: (windowId, requestId) => requests.push({ windowId, requestId }),
     guestAlive: (guestId) => alive.has(guestId),
+    releaseGuest: (guestId) => released.push(guestId),
   };
-  return { tabs: new AgentTabs(registry, host, timeoutMs), registry, requests, alive };
+  return { tabs: new AgentTabs(registry, host, timeoutMs), registry, requests, alive, released };
 }
 
 describe("AgentTabs", () => {
@@ -51,5 +53,29 @@ describe("AgentTabs", () => {
   it("fails when the window does not open an agent tab in time", async () => {
     const { tabs } = setup(1, 50);
     await assert.rejects(tabs.resolve(), /did not open an agent tab/);
+  });
+
+  it("releases the guest of the old agent tab when the agent tab of the window changes", () => {
+    const { tabs, registry, released } = setup(1);
+    registry.register(7, "tab-a", 1);
+    registry.register(8, "tab-b", 1);
+    tabs.setAgentTab(1, "tab-a");
+    assert.deepStrictEqual(released, []);
+    tabs.setAgentTab(1, "tab-a");
+    assert.deepStrictEqual(released, []);
+    tabs.setAgentTab(1, "tab-b");
+    assert.deepStrictEqual(released, [7]);
+    tabs.setAgentTab(1, undefined);
+    assert.deepStrictEqual(released, [7, 8]);
+  });
+
+  it("does not release a guest of another window", () => {
+    const { tabs, registry, released } = setup(1);
+    registry.register(7, "tab-a", 1);
+    registry.register(9, "tab-a", 2);
+    tabs.setAgentTab(1, "tab-a");
+    tabs.setAgentTab(2, "tab-a");
+    tabs.setAgentTab(2, "tab-c");
+    assert.deepStrictEqual(released, [9]);
   });
 });

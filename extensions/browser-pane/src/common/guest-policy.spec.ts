@@ -6,6 +6,7 @@ import {
   isPermissionAllowed,
   profileIdFromStoragePath,
   shouldAttachGuest,
+  shouldStopNavigation,
   uniqueDownloadName,
 } from "./guest-policy";
 
@@ -141,5 +142,29 @@ describe("profileIdFromStoragePath", () => {
     assert.strictEqual(profileIdFromStoragePath("/data/Partitions/other"), undefined);
     assert.strictEqual(profileIdFromStoragePath(null), undefined);
     assert.strictEqual(profileIdFromStoragePath(undefined), undefined);
+  });
+});
+
+describe("shouldStopNavigation", () => {
+  it("stops a main-frame navigation to an address that is not http, https, or about:blank", () => {
+    for (const url of [
+      "file:///etc/hosts",
+      "chrome://version",
+      "data:text/html,x",
+      "view-source:http://a/",
+    ]) {
+      assert.strictEqual(shouldStopNavigation(url, true, false), true, url);
+    }
+  });
+
+  it("lets web addresses, about:blank, and same-document navigations go on", () => {
+    assert.strictEqual(shouldStopNavigation("http://127.0.0.1:1/", true, false), false);
+    assert.strictEqual(shouldStopNavigation("https://example.com/", true, false), false);
+    assert.strictEqual(shouldStopNavigation("about:blank", true, false), false);
+    assert.strictEqual(shouldStopNavigation("file:///etc/hosts", true, true), false);
+  });
+
+  it("leaves a subframe to Chromium, which does not load a local file in a web page", () => {
+    assert.strictEqual(shouldStopNavigation("file:///etc/hosts", false, false), false);
   });
 });

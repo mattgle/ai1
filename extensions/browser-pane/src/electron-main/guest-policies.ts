@@ -11,6 +11,7 @@ import {
   isPermissionAllowed,
   profileIdFromStoragePath,
   shouldAttachGuest,
+  shouldStopNavigation,
   uniqueDownloadName,
 } from "../common/guest-policy";
 import { DEFAULT_PROFILE_ID, partitionFor, profileIdFromPartition } from "../common/profiles";
@@ -67,6 +68,19 @@ export class GuestPolicies {
     contents.on("will-navigate", (event) => {
       if (!isAllowedGuestUrl(event.url)) {
         event.preventDefault();
+      }
+    });
+    // `will-navigate` is only for navigations that the page starts. Replace
+    // the others with an empty page. Do not call `contents.stop()` in this
+    // event: it ends the main process. A new navigation cancels the pending
+    // one, before it commits.
+    contents.on("did-start-navigation", (event) => {
+      if (shouldStopNavigation(event.url, event.isMainFrame, event.isSameDocument)) {
+        setImmediate(() => {
+          if (!contents.isDestroyed()) {
+            contents.loadURL("about:blank").catch(() => undefined);
+          }
+        });
       }
     });
     contents.setWindowOpenHandler((details) => {

@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { isAllowedGuestUrl } from "../common/address";
 
 // The part of a `<webview>` guest's `WebContents` that the proxy uses.
 export interface ProxyGuest {
@@ -42,8 +43,7 @@ interface Message {
 
 const OPEN = 1;
 const BROWSER_CONTEXT_ID = "ai1-agent-context";
-const REFUSED_ON_PAGE =
-  /^(Browser\.|Target\.(createTarget|closeTarget|attachToTarget|attachToBrowserTarget|createBrowserContext|disposeBrowserContext|exposeDevToolsProtocol)$)/;
+const WEB_ONLY = "The AI1 agent tab opens only http and https addresses.";
 
 // A Chrome DevTools Protocol endpoint with exactly one page: the agent tab.
 // It answers the browser-level commands itself and forwards the page
@@ -192,11 +192,17 @@ export class OnePageProxy {
   }
 
   protected async onPageCommand(client: ProxyClient, message: Message): Promise<void> {
-    if (REFUSED_ON_PAGE.test(message.method)) {
-      return this.fail(client, message, `${message.method} is not allowed on the AI1 agent tab.`);
+    const refusal = this.pageRefusal(message);
+    if (refusal !== undefined) {
+      return this.fail(client, message, refusal);
     }
     if (message.method === "Page.bringToFront") {
       return this.reply(client, message, {});
+    }
+    // Without a target id, the debugger would answer for its own target.
+    // On the page session, that is the page, so answer it here.
+    if (message.method === "Target.getTargetInfo" && message.sessionId === this.pageSessionId) {
+      return this.reply(client, message, { targetInfo: this.pageTargetInfo() });
     }
     try {
       if (message.method === "Page.captureScreenshot") {
@@ -207,6 +213,36 @@ export class OnePageProxy {
       this.reply(client, message, result ?? {});
     } catch (error) {
       this.fail(client, message, error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  // The debugger of a guest can reach every target of AI1 (the IDE window,
+  // the other tabs and profiles) through the Target domain. The agent gets
+  // only what it needs for its one page and the frames and workers of that
+  // page. Gives the error text, or `undefined` when the command can go on.
+  protected pageRefusal(message: Message): string | undefined {
+    const params = message.params ?? {};
+    const notAllowed = `${message.method} is not allowed on the AI1 agent tab.`;
+    if (message.method.startsWith("Browser.") || message.method === "Page.setDownloadBehavior") {
+      return notAllowed;
+    }
+    if (message.method === "Page.navigate") {
+      return isAllowedGuestUrl(String(params.url)) ? undefined : WEB_ONLY;
+    }
+    if (!message.method.startsWith("Target.")) {
+      return undefined;
+    }
+    switch (message.method) {
+      case "Target.setAutoAttach":
+        return undefined;
+      case "Target.detachFromTarget":
+        return typeof params.sessionId === "string" && this.childSessions.has(params.sessionId)
+          ? undefined
+          : notAllowed;
+      case "Target.getTargetInfo":
+        return params.targetId === undefined ? undefined : notAllowed;
+      default:
+        return notAllowed;
     }
   }
 
@@ -262,6 +298,9 @@ export class OnePageProxy {
         }
         return this.reply(client, message, { sessionId: this.pageSessionId });
       case "Target.createTarget":
+        if (typeof params.url === "string" && params.url !== "" && !isAllowedGuestUrl(params.url)) {
+          return this.fail(client, message, WEB_ONLY);
+        }
         if (!this.pageSessionId) {
           this.attachPage(client);
         }

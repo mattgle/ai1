@@ -165,6 +165,29 @@ test("a tab of a deleted profile moves to Default", async () => {
   await expect(select).toHaveValue("default");
 });
 
+test("a tab does not load a local file, also when the navigation does not come from the page", async () => {
+  await openTab(`${fixture.url}welcome`);
+  const currentUrl = () =>
+    app.page.evaluate(() =>
+      (
+        document.querySelector(".ai1-browser:not(.lm-mod-hidden) webview") as unknown as { getURL(): string }
+      ).getURL(),
+    );
+  await expect.poll(currentUrl).toBe(`${fixture.url}welcome`);
+  // `loadURL` starts the navigation in the browser, so `will-navigate` does
+  // not see it.
+  await app.page.evaluate(() =>
+    (
+      document.querySelector(".ai1-browser:not(.lm-mod-hidden) webview") as unknown as {
+        loadURL(url: string): Promise<void>;
+      }
+    )
+      .loadURL("file:///etc/hosts")
+      .catch(() => undefined),
+  );
+  await expect.poll(currentUrl).toBe("about:blank");
+});
+
 test("a ⌘-click on a terminal link asks one time, then opens the AI1 tab", async () => {
   await app.quickCommandPalette.trigger("Terminal: Create New Terminal");
   const screen = app.page.locator(".terminal-container:not(.lm-mod-hidden) .xterm-screen").last();
@@ -280,6 +303,10 @@ test("Playwright controls the agent tab through the agent address, and sees only
     expect(shot.length).toBeGreaterThan(1000);
     await page.goto(`${fixture.url}form`);
     await expect(page).toHaveTitle("Welcome");
+    // The agent cannot open a local file.
+    await expect(page.goto("file:///etc/hosts")).rejects.toThrow(/only http and https/);
+    await expect(page).toHaveTitle("Welcome");
+    await expect(agentTab).toHaveText(/Welcome/);
     // A new connection replaces the old one and gets the same page.
     const second = await chromium.connectOverCDP(`http://127.0.0.1:${agentPort}/${secret}/`);
     try {

@@ -7,6 +7,14 @@ export function shouldAttachGuest(src: string, partition: string | undefined): b
   return isAllowedGuestUrl(src) && partition !== undefined && profileIdFromPartition(partition) !== undefined;
 }
 
+// A navigation that the browser starts (a CDP `Page.navigate`, or
+// `loadURL`) does not send `will-navigate`, so `did-start-navigation` checks
+// it. Only a new document in the main frame is checked: Chromium does not
+// load a local file into a frame of a web page.
+export function shouldStopNavigation(url: string, isMainFrame: boolean, isSameDocument: boolean): boolean {
+  return isMainFrame && !isSameDocument && !isAllowedGuestUrl(url);
+}
+
 // The page security of Orca's `will-attach-webview` handler: no preload, no
 // Node, and a sandboxed, isolated page.
 export function forceGuestPreferences(preferences: Record<string, unknown>): void {
