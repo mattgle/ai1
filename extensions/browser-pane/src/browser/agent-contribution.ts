@@ -1,7 +1,11 @@
 import { FrontendApplicationContribution } from "@theia/core/lib/browser";
 import { ClipboardService } from "@theia/core/lib/browser/clipboard-service";
 import { Command, CommandContribution, CommandRegistry, MessageService } from "@theia/core/lib/common";
-import { PreferenceService } from "@theia/core/lib/common/preferences";
+import {
+  PreferenceProviderProvider,
+  PreferenceScope,
+  PreferenceService,
+} from "@theia/core/lib/common/preferences";
 import { inject, injectable } from "@theia/core/shared/inversify";
 import { buildMcpConfig } from "../common/mcp-config";
 import { AGENT_PROFILE_ID } from "../common/profiles";
@@ -21,6 +25,9 @@ export const AgentCommands = {
 export class AgentContribution implements FrontendApplicationContribution, CommandContribution {
   @inject(PreferenceService)
   protected readonly preferences!: PreferenceService;
+
+  @inject(PreferenceProviderProvider)
+  protected readonly preferenceProviders!: PreferenceProviderProvider;
 
   @inject(BrowserTabs)
   protected readonly tabs!: BrowserTabs;
@@ -44,8 +51,12 @@ export class AgentContribution implements FrontendApplicationContribution, Comma
     });
     await this.preferences.ready;
     await this.applyPreferences();
-    this.preferences.onPreferenceChanged((change) => {
-      if (change.preferenceName === AGENT_ADDRESS_ENABLED || change.preferenceName === AGENT_ADDRESS_PORT) {
+    // Listen to the user settings themselves. `onPreferenceChanged` does not
+    // fire for a user change when a workspace or folder value of the same
+    // key exists (Theia 1.75 `reconcilePreferences`). Then a change of the
+    // owner, for example "off", has no effect until a reload.
+    this.preferenceProviders(PreferenceScope.User)?.onDidPreferencesChanged((changes) => {
+      if (AGENT_ADDRESS_ENABLED in changes || AGENT_ADDRESS_PORT in changes) {
         void this.applyPreferences();
       }
     });

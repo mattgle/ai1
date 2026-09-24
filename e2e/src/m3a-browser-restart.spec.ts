@@ -50,7 +50,9 @@ let workspacePath: string;
 let fixture: BrowserFixtureServer;
 
 test.beforeAll(async () => {
-  configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-m3a-restart-config-"));
+  // The real path: the file watcher of the user settings reports real paths,
+  // and the temporary folder of macOS is under a symbolic link.
+  configDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-m3a-restart-config-")));
   process.env.THEIA_CONFIG_DIR = configDir;
   userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-m3a-restart-userdata-"));
   const workspace = new TheiaWorkspace();
@@ -135,6 +137,40 @@ test("the settings of a repository do not turn on the agent address", async () =
       await start.electronApp.close();
     }
   } finally {
+    await removeTempDir(ownUserDataDir);
+  }
+});
+
+test("the owner turns the agent address off in the user settings, also when a repository turns it on", async () => {
+  const workspace = new TheiaWorkspace();
+  workspace.initialize();
+  const repositoryPath = fs.realpathSync(workspace.path);
+  const port = await freePort();
+  const settings = { "ai1.browser.agentAddress.enabled": true, "ai1.browser.agentAddress.port": port };
+  fs.mkdirSync(path.join(repositoryPath, ".theia"), { recursive: true });
+  fs.writeFileSync(path.join(repositoryPath, ".theia", "settings.json"), JSON.stringify(settings));
+  const userSettingsPath = path.join(configDir, "settings.json");
+  fs.writeFileSync(userSettingsPath, JSON.stringify(settings));
+  const ownUserDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-m3a-scope-userdata-"));
+  // Compare in the page, so that a failure does not print the address with
+  // its secret.
+  const isOn = (page: TheiaApp["page"]) =>
+    page.evaluate("window.electronAi1Browser.agentAddress().then((a) => a !== undefined)");
+  try {
+    const start = await launchApp(repositoryPath, ownUserDataDir);
+    try {
+      await expect.poll(() => isOn(start.app.page)).toBe(true);
+      fs.writeFileSync(
+        userSettingsPath,
+        JSON.stringify({ ...settings, "ai1.browser.agentAddress.enabled": false }),
+      );
+      await expect.poll(() => isOn(start.app.page), { timeout: 15_000 }).toBe(false);
+      await expect(fetch(`http://127.0.0.1:${port}/`)).rejects.toThrow();
+    } finally {
+      await start.electronApp.close();
+    }
+  } finally {
+    fs.rmSync(userSettingsPath, { force: true });
     await removeTempDir(ownUserDataDir);
   }
 });
