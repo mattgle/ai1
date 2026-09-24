@@ -131,3 +131,65 @@ test("a tab of a deleted profile moves to Default", async () => {
   await app.page.evaluate(`${api}.deleteProfile("${created.id}")`);
   await expect(select).toHaveValue("default");
 });
+
+test("a ⌘-click on a terminal link asks one time, then opens the AI1 tab", async () => {
+  await app.quickCommandPalette.trigger("Terminal: Create New Terminal");
+  const screen = app.page.locator(".terminal-container:not(.lm-mod-hidden) .xterm-screen").last();
+  await expect(screen).toBeVisible();
+  // xterm keeps the real input focus on a hidden textarea, not the screen.
+  // Monaco clears the `inQuickInput` context in a timer after the command
+  // palette loses the focus. Until then, Theia gives Enter to the palette,
+  // and typing right after the command races that binding. Wait for that
+  // textarea to have the focus, then one page timer turn, as `openTab` does.
+  const input = app.page.locator(".terminal-container:not(.lm-mod-hidden) .xterm-helper-textarea").last();
+  await expect(input).toBeFocused();
+  await app.page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
+  await app.page.keyboard.type(`clear; printf '%s\\n' ${fixture.url}button`);
+  await app.page.keyboard.press("Enter");
+
+  // The terminal draws with WebGL, so there is no DOM text to read. Find the
+  // real size of one character cell from xterm's own hidden measuring
+  // element, and use it to aim the mouse at a point inside the address
+  // (a few columns in, well clear of column 0), on the first row (the
+  // address is the only text there once `clear` has run).
+  const cellBox = (await app.page
+    .locator(".terminal-container:not(.lm-mod-hidden) .xterm-char-measure-element")
+    .last()
+    .boundingBox())!;
+  const cellWidth = cellBox.width / 32;
+  const cellHeight = cellBox.height;
+
+  // xterm only finds a link on hover, and that lookup is asynchronous, so
+  // retry the hover until xterm shows the link cursor before clicking. This
+  // also absorbs the time the shell needs to run `clear` and print the
+  // address. Each retry moves away first: Playwright drops a `mouse.move`
+  // to the same point it already reports the mouse at, and a dropped move
+  // never asks xterm again.
+  let point = { x: 0, y: 0 };
+  let hovered = false;
+  for (let attempt = 0; attempt < 20 && !hovered; attempt++) {
+    const box = (await screen.boundingBox())!;
+    point = { x: box.x + cellWidth * 3.5, y: box.y + cellHeight / 2 };
+    await app.page.mouse.move(box.x, box.y + box.height - 1);
+    await app.page.mouse.move(point.x, point.y);
+    await app.page.waitForTimeout(250);
+    hovered = await app.page.evaluate(
+      () =>
+        document
+          .querySelector(".terminal-container:not(.lm-mod-hidden) .xterm-screen")
+          ?.classList.contains("xterm-cursor-pointer") ?? false,
+    );
+  }
+  expect(hovered, "xterm did not show the link cursor for the address on the first row").toBe(true);
+
+  await app.page.keyboard.down("Meta");
+  await app.page.mouse.click(point.x, point.y);
+  await app.page.keyboard.up("Meta");
+  await app.page.getByRole("button", { name: "AI1 Browser" }).click();
+  // `BrowserTabs.open` adds the new tab next to the widget that had the
+  // focus, which is the terminal here, so the tab can land in the bottom
+  // panel instead of the main one. Any tab bar is a valid place to find it.
+  await expect(app.page.locator(".lm-TabBar-tab", { hasText: "Button" })).toBeVisible();
+  const settings = fs.readFileSync(path.join(configDir, "settings.json"), "utf8");
+  expect(JSON.parse(settings)["ai1.browser.openLinksIn"]).toBe("ai1");
+});

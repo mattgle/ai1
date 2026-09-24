@@ -1,9 +1,13 @@
-import { FrontendApplicationContribution, WidgetFactory } from "@theia/core/lib/browser";
+import { FrontendApplicationContribution, OpenHandler, WidgetFactory } from "@theia/core/lib/browser";
 import { CommandContribution } from "@theia/core/lib/common";
+import { PreferenceContribution } from "@theia/core/lib/common/preferences/preference-schema";
 import { ContainerModule } from "@theia/core/shared/inversify";
 import { BrowserContribution } from "./browser-contribution";
+import { BrowserOpenHandler } from "./browser-open-handler";
+import { BrowserPreferenceContribution } from "./browser-preferences";
 import { BrowserTabs } from "./browser-tabs";
 import { BrowserWidget, BrowserWidgetOptions } from "./browser-widget";
+import { ShiftTracker } from "./shift-tracker";
 import "../../src/browser/style/browser.css";
 
 export default new ContainerModule((bind) => {
@@ -22,4 +26,10 @@ export default new ContainerModule((bind) => {
   bind(BrowserContribution).toSelf().inSingletonScope();
   bind(CommandContribution).toService(BrowserContribution);
   bind(FrontendApplicationContribution).toService(BrowserContribution);
+  bind(BrowserPreferenceContribution).toSelf().inSingletonScope();
+  bind(PreferenceContribution).toService(BrowserPreferenceContribution);
+  bind(ShiftTracker).toSelf().inSingletonScope();
+  bind(FrontendApplicationContribution).toService(ShiftTracker);
+  bind(BrowserOpenHandler).toSelf().inSingletonScope();
+  bind(OpenHandler).toService(BrowserOpenHandler);
 });
