@@ -97,6 +97,11 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     if (typeof state.profileId === "string") {
       this.profile = state.profileId;
     }
+    // Theia calls this after the widget got the profile list, so check the
+    // restored profile again: it can be gone.
+    if (this.profileList.length > 0) {
+      this.setProfiles(this.profileList);
+    }
   }
 
   protected override onAfterAttach(msg: Parameters<BaseWidget["onAfterAttach"]>[0]): void {
@@ -168,6 +173,7 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
       this.webview.remove();
       this.webview = undefined;
       this.registeredGuestId = undefined;
+      this.hideError();
       this.createWebview(this.url);
     }
   }
@@ -238,8 +244,10 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
       this.title.label = event.title || this.url;
     });
     webview.addEventListener("did-fail-load", (event) => {
-      // -3 is ERR_ABORTED: a new navigation replaced this one.
-      if (event.isMainFrame && event.errorCode !== -3) {
+      // -3 is ERR_ABORTED: a new navigation replaced this one. -200 to -299
+      // are certificate errors: `onCertificateError` shows those.
+      const certificateError = event.errorCode <= -200 && event.errorCode >= -299;
+      if (event.isMainFrame && event.errorCode !== -3 && !certificateError) {
         this.showError(
           `AI1 Browser cannot open ${event.validatedURL}: ${event.errorDescription}.`,
           "Retry",
@@ -289,19 +297,39 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
   }
 
   protected onCertificateError(event: CertificateErrorEvent): void {
-    if (event.webContentsId !== this.registeredGuestId) {
+    // The event can come before `dom-ready` (for example for the `src` of a
+    // restored tab), so compare with the id of the current guest page.
+    if (event.webContentsId !== this.currentGuestId()) {
       return;
     }
     if (isLocalCertificateHost(event.host)) {
       this.showError(
         `The certificate of ${event.host} is not trusted (${event.error}).`,
         "Continue anyway",
-        () => browserApi().acceptCertificate(event.webContentsId, event.host),
+        () => this.continueWithCertificate(event),
       );
     } else {
       this.showError(
         `The certificate of ${event.host} is not trusted (${event.error}). AI1 Browser does not open this page.`,
       );
+    }
+  }
+
+  // The main process reloads the page after it accepts the certificate. A
+  // load that did not commit yet has nothing to reload, so load the address
+  // again here. A new load replaces the reload.
+  protected async continueWithCertificate(event: CertificateErrorEvent): Promise<void> {
+    await browserApi().acceptCertificate(event.webContentsId, event.host);
+    this.navigate(event.url);
+  }
+
+  // The id of the page of the `<webview>`, or `undefined` before Electron
+  // attached the page.
+  protected currentGuestId(): number | undefined {
+    try {
+      return this.webview?.getWebContentsId();
+    } catch {
+      return undefined;
     }
   }
 

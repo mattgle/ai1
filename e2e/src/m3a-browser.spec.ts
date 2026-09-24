@@ -3,8 +3,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { TheiaApp, TheiaAppLoader, TheiaWorkspace } from "@theia/playwright";
-import { BrowserFixtureServer } from "./browser-fixture-server";
+import { BrowserFixtureServer, makeLocalCertificate } from "./browser-fixture-server";
 import { createMetaRepoFixture } from "./meta-repo-fixture";
+import { openBrowserTab } from "./open-browser-tab";
 import { removeTempDir } from "./remove-temp-dir";
 
 const electronAppPath = path.resolve(__dirname, "..", "..", "applications", "electron");
@@ -14,29 +15,14 @@ let app: TheiaApp;
 let configDir: string;
 let userDataDir: string;
 let fixture: BrowserFixtureServer;
+let secureFixture: BrowserFixtureServer;
 
 function mainTab(text: string) {
   return app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: text });
 }
 
 async function openTab(url: string, profileName?: string): Promise<void> {
-  const tabs = app.page.locator(".ai1-browser");
-  const count = await tabs.count();
-  if (profileName) {
-    await app.quickCommandPalette.trigger("Browser: New Tab in Profile…", profileName);
-  } else {
-    await app.quickCommandPalette.trigger("Browser: New Tab");
-  }
-  // `trigger` returns before the command is done. The command is done when
-  // the address of the new tab has the focus.
-  const address = tabs.nth(count).locator(".ai1-browser-address");
-  await expect(address).toBeFocused();
-  // Monaco clears the `inQuickInput` context in a timer after the command
-  // palette loses the focus. Until then, Theia gives Enter to the palette.
-  // Chromium sends input before timers, so wait for one timer turn.
-  await app.page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
-  await address.fill(url);
-  await address.press("Enter");
+  await openBrowserTab(app, url, profileName);
 }
 
 test.beforeAll(async ({ playwright, browser }) => {
@@ -48,6 +34,8 @@ test.beforeAll(async ({ playwright, browser }) => {
   createMetaRepoFixture(workspace.path);
   fixture = new BrowserFixtureServer();
   await fixture.start();
+  secureFixture = new BrowserFixtureServer(makeLocalCertificate(configDir));
+  await secureFixture.start();
   app = await TheiaAppLoader.load(
     {
       playwright,
@@ -74,6 +62,7 @@ test.afterAll(async () => {
     await app.page.close();
   } finally {
     await fixture.stop();
+    await secureFixture.stop();
     fs.rmSync(configDir, { recursive: true, force: true });
     await removeTempDir(userDataDir);
   }
@@ -120,6 +109,19 @@ test("a login popup opens and can talk to its opener", async () => {
 test("a page that does not load shows the error and a Retry button", async () => {
   await openTab("http://127.0.0.1:9/");
   await expect(app.page.locator(".ai1-browser:not(.lm-mod-hidden) .ai1-browser-retry")).toBeVisible();
+});
+
+test("a local page with an untrusted certificate offers Continue, also after a profile change", async () => {
+  await openTab(`${secureFixture.url}secure`);
+  const tab = app.page.locator(".ai1-browser:not(.lm-mod-hidden)");
+  await expect(tab.locator(".ai1-browser-continue")).toBeVisible();
+  await expect(tab.locator(".ai1-browser-retry")).toHaveCount(0);
+  // A new profile makes a new `<webview>` that loads the page from its `src`.
+  await tab.locator(".ai1-browser-profile").selectOption("agent");
+  await expect(tab.locator(".ai1-browser-continue")).toBeVisible();
+  await expect(tab.locator(".ai1-browser-retry")).toHaveCount(0);
+  await tab.locator(".ai1-browser-continue").click();
+  await expect(mainTab("Secure page")).toBeVisible();
 });
 
 test("a tab of a deleted profile moves to Default", async () => {
@@ -186,10 +188,7 @@ test("a ⌘-click on a terminal link asks one time, then opens the AI1 tab", asy
   await app.page.mouse.click(point.x, point.y);
   await app.page.keyboard.up("Meta");
   await app.page.getByRole("button", { name: "AI1 Browser" }).click();
-  // `BrowserTabs.open` adds the new tab next to the widget that had the
-  // focus, which is the terminal here, so the tab can land in the bottom
-  // panel instead of the main one. Any tab bar is a valid place to find it.
-  await expect(app.page.locator(".lm-TabBar-tab", { hasText: "Button" })).toBeVisible();
+  await expect(mainTab("Button")).toBeVisible();
   const settings = fs.readFileSync(path.join(configDir, "settings.json"), "utf8");
   expect(JSON.parse(settings)["ai1.browser.openLinksIn"]).toBe("ai1");
 });
