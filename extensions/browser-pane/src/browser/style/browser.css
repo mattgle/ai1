@@ -1,0 +1,73 @@
+.ai1-browser {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.ai1-browser-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.ai1-browser-button {
+  background: none;
+  border: none;
+  color: var(--theia-foreground);
+  cursor: pointer;
+  padding: 3px;
+}
+
+.ai1-browser-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.ai1-browser-address {
+  flex: 1;
+  min-width: 0;
+}
+
+.ai1-browser-message {
+  padding: 4px 8px;
+  color: var(--theia-inputValidation-warningForeground);
+  background: var(--theia-inputValidation-warningBackground);
+}
+
+.ai1-browser-viewport {
+  position: relative;
+  flex: 1;
+}
+
+.ai1-browser-webview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.ai1-browser-error {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  padding: 24px;
+  background: var(--theia-editor-background);
+}
+
+.ai1-browser-error[hidden],
+.ai1-browser-message[hidden] {
+  display: none;
+}
+
+.lm-TabBar-tab.ai1-browser-agent-tab .lm-TabBar-tabLabel::after {
+  content: " · Agent";
+  opacity: 0.7;
+}
+
+.lm-TabBar-tab.ai1-browser-agent-connected .lm-TabBar-tabLabel::after {
+  content: " · Agent ●";
+  color: var(--theia-charts-green);
+  opacity: 1;
+}
