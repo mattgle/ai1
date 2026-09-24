@@ -26,6 +26,7 @@
 - Commits have no `Co-Authored-By` line and no other attribution line.
 - No local user name, home folder path, or private project name in code, comments, commits, documents, or reports. Before each commit, the privacy check: `git diff --cached | grep -nE '/Users/|<local user name>|@gmail'` gives no match (the controller gives the exact user name in each dispatch).
 - Gates before each commit: `npm run lint && npm run typecheck && npm test && npm run format:check`.
+- In the commands of this plan, `AI1_ROOT` is the repository root and `ORCA_DIR` is a local Orca checkout.
 - Machine: `export PATH="$HOME/.nvm/versions/node/v24.15.0/bin:$PATH"` before each npm, npx, or node command; `export CC=/usr/bin/cc CXX=/usr/bin/c++` before a build. Before each build, start, or e2e run: `pgrep -fl "personal/ai1/applications/electron"` must be empty.
 - **The e2e windows must never appear on the owner's screen.** Run e2e only with `npm run test:e2e` inside `e2e/` (it sets `AI1_E2E_BACKGROUND=1` and `THEIA_ELECTRON_NO_EARLY_WINDOW=1`). Never start AI1 or Electron in any other way. A spike or a probe that starts Electron creates its windows with `show: false` and never calls `show()`.
 - Every app start uses isolated user data (`--user-data-dir` and `--electronUserData` in a temporary folder, and a temporary `THEIA_CONFIG_DIR`). Never write into the real AI1 folder under the application support folder.
@@ -57,8 +58,8 @@ The five inputs that no spec test pins, most likely first. Each has its test in 
 - **`QuickInputService.input(options)`**, `QuickPickService.show(items, options)`, `ClipboardService.writeText(text)`, `MessageService.info(message, ...actions): Promise<action | undefined>`, `PreferenceService.set(name, value, PreferenceScope.User)`.
 - **Terminal rendering:** Theia's terminal always loads `WebglAddon` (`terminal-widget-impl.ts:280`). The page has no text rows for the terminal, so an e2e test clicks a terminal link by its position.
 - **Dock panel:** in a Lumino `DockPanel`, the nodes of all widgets are children of the dock panel's own node, and a move to another split changes only the geometry. So a `<webview>` does not change its parent element when its tab moves to another split in the main area. A move to a side panel does change the parent, and the page then loads again.
-- **Orca's one-tab CDP proxy** (`~/code/orca/src/main/browser/`, MIT, Copyright (c) 2026 Lovecast Inc.) needs exactly these 11 files: `cdp-ws-proxy.ts` (237 lines), `cdp-client-response-writer.ts` (58), `cdp-synthetic-session-registry.ts` (69), `cdp-target-discovery.ts` (117), `cdp-debugger-channel.ts` (119), `electron-debugger-lease.ts` (57), `cdp-page-navigation-commands.ts` (105), `cdp-dom-focus-replay.ts` (116), `cdp-page-capture-commands.ts` (82), `cdp-screenshot.ts` (298), `cdp-print-to-pdf.ts` (177). Their only imports are each other, `ws`, `node:http`, `node:crypto`, and `electron` types. `CdpTargetDiscovery` answers `/json/version`, `/json/list`, `Target.getTargets`, `Target.getTargetInfo`, `Target.setDiscoverTargets`, `Target.detachFromTarget`, `Target.attachToBrowserTarget`, `Target.attachToTarget`, and `Browser.getVersion` locally, with the target id `orca-proxy-target`. It does not answer `Target.createTarget`. Orca's tests use vitest; AI1 uses mocha, so the tests in this plan are new.
-- **Orca's page security** (`~/code/orca/src/main/window/main-window-webview-security.ts:66-110`): in `will-attach-webview` it deletes `webPreferences.preload`, `preloadURL`, and `additionalArguments`, and forces `nodeIntegration: false`, `nodeIntegrationInSubFrames: false`, `contextIsolation: true`, `sandbox: true`, `webSecurity: true`, `allowRunningInsecureContent: false`. It calls `event.preventDefault()` unless the address and the partition pass.
+- **Orca's one-tab CDP proxy** (`src/main/browser/` in a local Orca checkout, MIT, Copyright (c) 2026 Lovecast Inc.) needs exactly these 11 files: `cdp-ws-proxy.ts` (237 lines), `cdp-client-response-writer.ts` (58), `cdp-synthetic-session-registry.ts` (69), `cdp-target-discovery.ts` (117), `cdp-debugger-channel.ts` (119), `electron-debugger-lease.ts` (57), `cdp-page-navigation-commands.ts` (105), `cdp-dom-focus-replay.ts` (116), `cdp-page-capture-commands.ts` (82), `cdp-screenshot.ts` (298), `cdp-print-to-pdf.ts` (177). Their only imports are each other, `ws`, `node:http`, `node:crypto`, and `electron` types. `CdpTargetDiscovery` answers `/json/version`, `/json/list`, `Target.getTargets`, `Target.getTargetInfo`, `Target.setDiscoverTargets`, `Target.detachFromTarget`, `Target.attachToBrowserTarget`, `Target.attachToTarget`, and `Browser.getVersion` locally, with the target id `orca-proxy-target`. It does not answer `Target.createTarget`. Orca's tests use vitest; AI1 uses mocha, so the tests in this plan are new.
+- **Orca's page security** (`src/main/window/main-window-webview-security.ts:66-110` in a local Orca checkout): in `will-attach-webview` it deletes `webPreferences.preload`, `preloadURL`, and `additionalArguments`, and forces `nodeIntegration: false`, `nodeIntegrationInSubFrames: false`, `contextIsolation: true`, `sandbox: true`, `webSecurity: true`, `allowRunningInsecureContent: false`. It calls `event.preventDefault()` unless the address and the partition pass.
 - **Orca's auto-granted permissions** (`browser-session-permission-policy.ts`): `fullscreen`, `clipboard-read`, `clipboard-sanitized-write`, `notifications`, `persistent-storage`, `pointerLock`, `storage-access`. `media` goes to the macOS prompt. All other permissions are refused.
 - **Orca's port scan:** `lsof -nP -iTCP -sTCP:LISTEN -F pcn` with a 4 s timeout (`src/main/ports/local-workspace-platform-port-scanner.ts:119`).
 
@@ -88,8 +89,8 @@ set -euo pipefail
 export PATH="$HOME/.nvm/versions/node/v24.15.0/bin:$PATH"
 SPIKE="$(mktemp -d)"
 echo "$SPIKE"
-cd ~/code/personal/ai1
-npx esbuild ~/code/orca/src/main/browser/cdp-ws-proxy.ts --bundle --platform=node --format=cjs \
+cd "$AI1_ROOT"
+npx esbuild "$ORCA_DIR/src/main/browser/cdp-ws-proxy.ts" --bundle --platform=node --format=cjs \
   --external:electron --outfile="$SPIKE/proxy.js"
 ```
 
@@ -157,7 +158,7 @@ app.whenReady().then(() => {
 
 ```bash
 cd "$SPIKE"
-~/code/personal/ai1/node_modules/.bin/electron spike-main.js > spike.log 2>&1 &
+"$AI1_ROOT/node_modules/.bin/electron" spike-main.js > spike.log 2>&1 &
 echo $! > spike.pid
 sleep 5
 grep -E '^(PROXY|FIXTURE) ' spike.log
@@ -3838,12 +3839,12 @@ This task was changed after the two spikes (`docs/superpowers/plans/2026-09-23-a
 
 ```bash
 set -euo pipefail
-cd ~/code/personal/ai1
+cd "$AI1_ROOT"
 DEST=extensions/browser-pane/src/electron-main/cdp-screenshot.ts
 {
   printf '%s\n' "// Ported from Orca (https://github.com/stablyai/orca), MIT License," \
     "// Copyright (c) 2026 Lovecast Inc. See THIRD-PARTY-NOTICES.md."
-  cat ~/code/orca/src/main/browser/cdp-screenshot.ts
+  cat "$ORCA_DIR/src/main/browser/cdp-screenshot.ts"
 } > "$DEST"
 npx prettier --write "$DEST"
 grep -n "import" "$DEST"
@@ -3861,10 +3862,10 @@ Create `extensions/browser-pane/THIRD-PARTY-NOTICES.md`:
 `src/electron-main/one-page-proxy.ts` follows the design of Orca's CDP proxy.
 Orca has this license:
 
-<the full text of ~/code/orca/LICENSE, unchanged>
+<the full text of Orca's LICENSE file, unchanged>
 ```
 
-Copy the license text with `cat ~/code/orca/LICENSE` into the file. Do not change it.
+Copy the license text with `cat "$ORCA_DIR/LICENSE"` into the file. Do not change it.
 
 - [ ] **Step 2: Write the failing tests for `OnePageProxy`**
 
@@ -4624,7 +4625,7 @@ Before the dispatch, the controller applies the "Changes for Task 8" of the spik
 
 ```bash
 set -euo pipefail
-cd ~/code/personal/ai1
+cd "$AI1_ROOT"
 DEST=extensions/browser-pane/src/electron-main/cdp
 mkdir -p "$DEST"
 for name in cdp-client-response-writer cdp-synthetic-session-registry cdp-debugger-channel electron-debugger-lease \
@@ -4632,7 +4633,7 @@ for name in cdp-client-response-writer cdp-synthetic-session-registry cdp-debugg
   {
     printf '%s\n' "// Ported from Orca (https://github.com/stablyai/orca), MIT License," \
       "// Copyright (c) 2026 Lovecast Inc. See THIRD-PARTY-NOTICES.md."
-    cat ~/code/orca/src/main/browser/$name.ts
+    cat "$ORCA_DIR/src/main/browser/$name.ts"
   } > "$DEST/$name.ts"
 done
 npx prettier --write "$DEST"
@@ -4650,10 +4651,10 @@ Create `extensions/browser-pane/THIRD-PARTY-NOTICES.md`:
 The files in `src/electron-main/cdp/` are ported from Orca
 (https://github.com/stablyai/orca), with changes. Orca has this license:
 
-<the full text of ~/code/orca/LICENSE, unchanged>
+<the full text of Orca's LICENSE file, unchanged>
 ```
 
-Copy the license text with `cat ~/code/orca/LICENSE` into the block. Do not change it.
+Copy the license text with `cat "$ORCA_DIR/LICENSE"` into the block. Do not change it.
 
 - [ ] **Step 2: Write the failing test for the changed target discovery**
 

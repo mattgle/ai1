@@ -51,8 +51,8 @@ M3 has two parts. M3a is the browser core. M3b adds the other features (see
 
 ## Verified facts
 
-From a read of Theia 1.75.0, Electron 42.8.1, and Orca (the owner's fork at
-`~/code/orca`) on 2026-09-23.
+From a read of Theia 1.75.0, Electron 42.8.1, and Orca (the owner's fork, in a
+local Orca checkout) on 2026-09-23.
 
 - **The `<webview>` tag is off in the AI1 window.** `getDefaultOptions()` in
   `@theia/core/src/electron-main/electron-main-application.ts` does not set
@@ -126,12 +126,14 @@ A new extension, `extensions/browser-pane`, with four parts.
 - **Guest policies**, applied in `did-attach-webview`:
   - Background throttling off.
   - Popups: a popup that needs its opener (a login popup) opens as a small
-    AI1 window with the same profile. Other popups open as a new AI1 tab.
+    AI1 window with the same profile. Other popups (for example a `_blank`
+    link) open as a new AI1 tab in the profile of the page. Thus a page in
+    "Agent" does not get the logins of "Default".
   - Permissions: an allowlist (fullscreen, clipboard read and sanitized write,
     notifications, persistent storage, pointer lock, storage access). Camera
     and microphone go to the macOS permission prompt. All other requests are
     refused.
-  - Downloads go to `~/Downloads`, with a notification.
+  - Downloads go to the Downloads folder of the user, with a notification.
   - Certificate errors: refused. For `localhost` and `127.0.0.1` only, the tab
     can accept the certificate until AI1 closes.
 - **Profile registry.** A profile has an id, a name, and a partition
@@ -172,7 +174,8 @@ A new extension, `extensions/browser-pane`, with four parts.
 
 ## Profiles
 
-- New tabs use "Default". "Browser: New Tab in Profile…" and the profile menu
+- New tabs that the owner opens use "Default". A tab that a page opens uses
+  the profile of that page. "Browser: New Tab in Profile…" and the profile menu
   in the toolbar choose another one. A change of profile loads the tab again
   in the new partition.
 - A cookie, a login, or storage in one profile is not visible in another
@@ -248,7 +251,7 @@ A new extension, `extensions/browser-pane`, with four parts.
 | DevTools is open on the agent tab when an agent connects | The connection is refused, and a notification tells why. |
 | The agent disconnects | The "Agent" mark goes off. |
 | `lsof` fails or takes more than 4 s | The Ports view shows the error and a Retry button. |
-| A `will-attach-webview` check fails | The page does not load, and the tab shows why. |
+| A `will-attach-webview` check fails | The page does not load. The tab does not show a reason: AI1 normalizes each address before a tab uses it, so this does not occur in normal use. |
 
 ## Tests
 
