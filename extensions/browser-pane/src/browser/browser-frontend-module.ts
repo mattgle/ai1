@@ -10,6 +10,7 @@ import { CommandContribution } from "@theia/core/lib/common";
 import { PreferenceContribution } from "@theia/core/lib/common/preferences/preference-schema";
 import { ContainerModule } from "@theia/core/shared/inversify";
 import { PORTS_SERVICE_PATH, PortsService } from "../common/ports-protocol";
+import { AgentContribution } from "./agent-contribution";
 import { BrowserContribution } from "./browser-contribution";
 import { BrowserOpenHandler } from "./browser-open-handler";
 import { BrowserPreferenceContribution } from "./browser-preferences";
@@ -36,6 +37,9 @@ export default new ContainerModule((bind) => {
   bind(BrowserContribution).toSelf().inSingletonScope();
   bind(CommandContribution).toService(BrowserContribution);
   bind(FrontendApplicationContribution).toService(BrowserContribution);
+  bind(AgentContribution).toSelf().inSingletonScope();
+  bind(FrontendApplicationContribution).toService(AgentContribution);
+  bind(CommandContribution).toService(AgentContribution);
   bind(BrowserPreferenceContribution).toSelf().inSingletonScope();
   bind(PreferenceContribution).toService(BrowserPreferenceContribution);
   bind(ShiftTracker).toSelf().inSingletonScope();

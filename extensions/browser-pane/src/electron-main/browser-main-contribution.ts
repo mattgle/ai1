@@ -5,7 +5,8 @@ import {
 } from "@theia/core/lib/electron-main/electron-main-application";
 import { inject, injectable } from "@theia/core/shared/inversify";
 import * as path from "node:path";
-import { Channels } from "../common/browser-ipc";
+import { AgentAddressConfig, Channels } from "../common/browser-ipc";
+import { AgentAddress } from "./agent-address";
 import { GuestPolicies } from "./guest-policies";
 import { GuestRegistry } from "./guest-registry";
 import { ProfileStore } from "./profile-store";
@@ -17,6 +18,9 @@ export class BrowserMainContribution implements ElectronMainApplicationContribut
 
   @inject(GuestRegistry)
   protected readonly registry!: GuestRegistry;
+
+  @inject(AgentAddress)
+  protected readonly agentAddress!: AgentAddress;
 
   protected store!: ProfileStore;
 
@@ -48,10 +52,23 @@ export class BrowserMainContribution implements ElectronMainApplicationContribut
         throw new Error("This page is not a browser tab of this window.");
       }
       this.registry.register(guestId, tabId, event.sender.id);
+      this.agentAddress.tabs.guestRegistered(event.sender.id, tabId, guestId);
       guest.once("destroyed", () => this.registry.forget(guestId));
     });
     ipcMain.handle(Channels.acceptCertificate, (_event, guestId: number, host: string) =>
       this.guestPolicies.acceptCertificate(guestId, host),
+    );
+    this.agentAddress.trackFocus();
+    ipcMain.handle(Channels.configureAgentAddress, (_event, config: AgentAddressConfig) =>
+      this.agentAddress.configure(config),
+    );
+    ipcMain.handle(Channels.agentAddress, () => this.agentAddress.address());
+    ipcMain.handle(Channels.setAgentTab, (event, tabId: string | undefined) => {
+      this.agentAddress.tabs.setAgentTab(event.sender.id, tabId);
+      this.agentAddress.sendState(event.sender.id, false);
+    });
+    ipcMain.handle(Channels.agentTabCreated, (event, requestId: string, tabId: string) =>
+      this.agentAddress.tabs.tabCreated(event.sender.id, requestId, tabId),
     );
   }
 

@@ -39,12 +39,14 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
   // event. Until then, `navigate` keeps the address in `pendingUrl`.
   protected webviewReady = false;
   protected pendingUrl: string | undefined;
+  protected isAgentTab = false;
   protected readonly toolbar = document.createElement("div");
   protected readonly backButton = document.createElement("button");
   protected readonly forwardButton = document.createElement("button");
   protected readonly reloadButton = document.createElement("button");
   protected readonly addressInput = document.createElement("input");
   protected readonly profileSelect = document.createElement("select");
+  protected readonly agentButton = document.createElement("button");
   protected readonly devToolsButton = document.createElement("button");
   protected readonly message = document.createElement("div");
   protected readonly viewport = document.createElement("div");
@@ -152,6 +154,8 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
   }
 
   setAgentMark(isAgent: boolean, connected: boolean): void {
+    this.isAgentTab = isAgent;
+    this.agentButton.classList.toggle("ai1-browser-agent-active", isAgent);
     this.title.className = [
       isAgent ? "ai1-browser-agent-tab" : "",
       isAgent && connected ? "ai1-browser-agent-connected" : "",
@@ -161,6 +165,16 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     this.title.caption = isAgent
       ? `${this.url} (agent tab${connected ? ", agent connected" : ""})`
       : this.url;
+  }
+
+  override dispose(): void {
+    // Tell the main process that the agent tab is gone.
+    if (this.isAgentTab) {
+      void browserApi()
+        .setAgentTab(undefined)
+        .catch(() => undefined);
+    }
+    super.dispose();
   }
 
   protected switchProfile(profileId: string): void {
@@ -191,6 +205,10 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
       this.hideError();
       this.webview?.reload();
     });
+    button(this.agentButton, "codicon-hubot", "Give this tab to the agent", () => {
+      void browserApi().setAgentTab(this.tabId);
+    });
+    this.agentButton.classList.add("ai1-browser-give-to-agent");
     button(this.devToolsButton, "codicon-tools", "Open DevTools", () => this.webview?.openDevTools());
     this.backButton.disabled = true;
     this.forwardButton.disabled = true;
@@ -211,6 +229,7 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
       this.reloadButton,
       this.addressInput,
       this.profileSelect,
+      this.agentButton,
       this.devToolsButton,
     );
   }

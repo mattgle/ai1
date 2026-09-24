@@ -1,8 +1,10 @@
 import { ChildProcess, spawn } from "node:child_process";
 import * as fs from "node:fs";
+import * as http from "node:http";
+import { AddressInfo } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
-import { expect, test } from "@playwright/test";
+import { chromium, expect, test } from "@playwright/test";
 import { TheiaApp, TheiaAppLoader, TheiaWorkspace } from "@theia/playwright";
 import { BrowserFixtureServer, makeLocalCertificate } from "./browser-fixture-server";
 import { clickTab } from "./click-tab";
@@ -18,9 +20,18 @@ let configDir: string;
 let userDataDir: string;
 let fixture: BrowserFixtureServer;
 let secureFixture: BrowserFixtureServer;
+let agentPort: number;
 
 function mainTab(text: string) {
   return app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: text });
+}
+
+async function freePort(): Promise<number> {
+  const server = http.createServer();
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return port;
 }
 
 async function openTab(url: string, profileName?: string): Promise<void> {
@@ -30,6 +41,11 @@ async function openTab(url: string, profileName?: string): Promise<void> {
 test.beforeAll(async ({ playwright, browser }) => {
   configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-m3a-config-"));
   process.env.THEIA_CONFIG_DIR = configDir;
+  agentPort = await freePort();
+  fs.writeFileSync(
+    path.join(configDir, "settings.json"),
+    JSON.stringify({ "ai1.browser.agentAddress.enabled": true, "ai1.browser.agentAddress.port": agentPort }),
+  );
   userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-m3a-userdata-"));
   const workspace = new TheiaWorkspace();
   workspace.initialize();
@@ -222,4 +238,45 @@ test("the Ports view lists a server under its repository and opens it", async ()
   } finally {
     server.kill();
   }
+});
+
+test("the agent address refuses a wrong secret", async () => {
+  const response = await fetch(`http://127.0.0.1:${agentPort}/${"x".repeat(43)}/json/version`);
+  expect(response.status).toBe(404);
+});
+
+test("Playwright controls the agent tab through the agent address, and sees only that page", async () => {
+  // The secret of this run is in its own temporary user data folder.
+  const secret = fs.readFileSync(path.join(userDataDir, "ai1-browser-agent-secret"), "utf8").trim();
+  const agentTab = app.page.locator("#theia-main-content-panel .lm-TabBar-tab.ai1-browser-agent-tab");
+  const browser = await chromium.connectOverCDP(`http://127.0.0.1:${agentPort}/${secret}/`);
+  try {
+    const pages = browser.contexts().flatMap((context) => context.pages());
+    expect(pages).toHaveLength(1);
+    const page = pages[0];
+    await page.goto(`${fixture.url}button`);
+    await page.click("#go");
+    await expect(mainTab("Clicked")).toBeVisible();
+    await expect(mainTab("Clicked")).toHaveClass(/ai1-browser-agent-connected/);
+    const shot = await page.screenshot();
+    expect(shot.length).toBeGreaterThan(1000);
+    await page.goto(`${fixture.url}form`);
+    await expect(page).toHaveTitle("Welcome");
+    // A new connection replaces the old one and gets the same page.
+    const second = await chromium.connectOverCDP(`http://127.0.0.1:${agentPort}/${secret}/`);
+    try {
+      await expect.poll(() => browser.isConnected()).toBe(false);
+      const pagesAgain = second.contexts().flatMap((context) => context.pages());
+      expect(pagesAgain).toHaveLength(1);
+      await expect(pagesAgain[0]).toHaveTitle("Welcome");
+      await expect(agentTab).toHaveClass(/ai1-browser-agent-connected/);
+    } finally {
+      await second.close();
+    }
+  } finally {
+    await browser.close();
+  }
+  // The agent tab stays open and keeps its mark, without the connected mark.
+  await expect(agentTab).toHaveText(/Welcome/);
+  await expect(agentTab).not.toHaveClass(/ai1-browser-agent-connected/);
 });

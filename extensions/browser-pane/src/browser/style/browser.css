@@ -61,6 +61,10 @@
   display: none;
 }
 
+.ai1-browser-give-to-agent.ai1-browser-agent-active {
+  color: var(--theia-charts-green);
+}
+
 .lm-TabBar-tab.ai1-browser-agent-tab .lm-TabBar-tabLabel::after {
   content: " · Agent";
   opacity: 0.7;
