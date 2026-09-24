@@ -21,6 +21,7 @@ let userDataDir: string;
 let fixture: BrowserFixtureServer;
 let secureFixture: BrowserFixtureServer;
 let agentPort: number;
+let portsBadgeServer: ChildProcess;
 
 function mainTab(text: string) {
   return app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: text });
@@ -50,6 +51,17 @@ test.beforeAll(async ({ playwright, browser }) => {
   const workspace = new TheiaWorkspace();
   workspace.initialize();
   createMetaRepoFixture(workspace.path);
+  // Listens in `dirty-repo` before the app starts, so the Ports view's one
+  // scan at start-up (before anyone opens the Ports tab) already finds it.
+  portsBadgeServer = spawn(
+    process.execPath,
+    [
+      "-e",
+      "require('http').createServer((q, s) => s.end('ok')).listen(0, '127.0.0.1', () => process.stdout.write('ready'))",
+    ],
+    { cwd: path.join(workspace.path, "dirty-repo"), stdio: ["ignore", "pipe", "inherit"] },
+  );
+  await new Promise<void>((resolve) => portsBadgeServer.stdout!.once("data", () => resolve()));
   fixture = new BrowserFixtureServer();
   await fixture.start();
   secureFixture = new BrowserFixtureServer(makeLocalCertificate(configDir));
@@ -79,6 +91,7 @@ test.afterAll(async () => {
   try {
     await app.page.close();
   } finally {
+    portsBadgeServer.kill();
     await fixture.stop();
     await secureFixture.stop();
     fs.rmSync(configDir, { recursive: true, force: true });
@@ -209,6 +222,11 @@ test("a ⌘-click on a terminal link asks one time, then opens the AI1 tab", asy
   await expect(mainTab("Button")).toBeVisible();
   const settings = fs.readFileSync(path.join(configDir, "settings.json"), "utf8");
   expect(JSON.parse(settings)["ai1.browser.openLinksIn"]).toBe("ai1");
+});
+
+test("the Ports tab shows a badge at start, before anyone opens it", async () => {
+  const badge = app.page.locator("#shell-tab-ai1-ports .theia-badge-decorator-sidebar");
+  await expect(badge).toHaveText("1", { timeout: 15_000 });
 });
 
 test("the Ports view lists a server under its repository and opens it", async () => {

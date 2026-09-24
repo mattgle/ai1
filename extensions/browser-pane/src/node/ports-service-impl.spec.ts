@@ -40,6 +40,31 @@ describe("PortsServiceImpl", () => {
     assert.deepStrictEqual(calls[1], ["-a", "-p", "42", "-d", "cwd", "-Fn"]);
   });
 
+  it("groups a port under the real repository path when the given root is a symlink", async () => {
+    // `lsof` always reports the real path of a process's working folder. A
+    // workspace root can be a symlink (for example through `/tmp`, which is
+    // `/private/tmp` on macOS); the scan must resolve it to the same real
+    // path before it looks for repositories under it, or the repository
+    // path would never match what `lsof` reports.
+    const symlinkedRoot = path.join(root, "link-to-root");
+    fs.symlinkSync(root, symlinkedRoot);
+    const service = new PortsServiceImpl(async (_program, args) =>
+      args.includes("cwd") ? `p42\nfcwd\nn${path.join(root, "web")}\n` : "p42\ncvite\nf20\nn*:5173\n",
+    );
+    const scan = await service.scan([symlinkedRoot]);
+    assert.deepStrictEqual(scan, {
+      ok: true,
+      groups: [
+        {
+          name: "web",
+          path: path.join(root, "web"),
+          rows: [{ pid: 42, program: "vite", port: 5173, cwd: path.join(root, "web") }],
+        },
+      ],
+      other: [],
+    });
+  });
+
   it("does not run the second lsof when nothing listens", async () => {
     let count = 0;
     const service = new PortsServiceImpl(async () => {

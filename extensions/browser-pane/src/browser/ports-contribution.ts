@@ -48,9 +48,23 @@ export class PortsContribution
     await this.openView({ reveal: false });
   }
 
+  // The Ports view opens hidden, behind the Changes and Agents views (see
+  // `initializeLayout`), and its own 5-second scan only runs while it is
+  // visible (`PortsWidget.onAfterShow`/`onAfterHide`). Without a scan here,
+  // the tab badge would stay unset until the owner clicks the Ports tab once.
+  // One scan here, right after the badge subscription, sets it correctly at
+  // start, and does not start the 5-second interval (that stays tied to
+  // visibility, in the widget itself).
   async onDidInitializeLayout(): Promise<void> {
     const widget = await this.widget;
     widget.onDidScan((scan) => this.updateBadge(widget, scan));
+    try {
+      await widget.refresh();
+    } catch (error) {
+      console.error(
+        `ai1-ports: the first scan failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   protected updateBadge(widget: PortsWidget, scan: PortsScan): void {
