@@ -27,3 +27,11 @@ The design is in `docs/superpowers/specs/`. The plans are in `docs/superpowers/p
 Native modules must build with the system compiler:
 
     export CC=/usr/bin/cc CXX=/usr/bin/c++
+
+## AI1 Browser
+
+- **New tab:** run "Browser: New Tab" from the command palette. Type an address, for example `localhost:3000` or `example.com`.
+- **Profiles:** each profile keeps its own logins, cookies, and storage. "Default" is yours. "Agent" starts with no logins. Change the profile of a tab in its toolbar. Add, rename, or delete profiles with "Browser: Manage Profiles".
+- **Links:** the first ⌘-click on a web link asks where to open web links, and AI1 remembers the answer. Change it in the setting `ai1.browser.openLinksIn`. Hold Shift with the click to use the other browser one time.
+- **Ports:** the Ports view in the right panel lists the servers that listen on your Mac, grouped by repository. Click a row to open it in a tab.
+- **Agents:** set `ai1.browser.agentAddress.enabled` to `true`. Run "Browser: Copy Playwright MCP Config" and paste the result into the `mcp` section of your OpenCode config. The agent controls one tab, the agent tab (its tab label shows "Agent"). Use the toolbar button "Give this tab to the agent" to choose another tab. The copied config contains a secret: keep it private.

@@ -294,6 +294,26 @@ The same method as M2: a failing test first, then the code. Pure logic is in
 - All gates pass: format, lint, typecheck, unit tests, build, and e2e in the
   hidden mode.
 
+## Changes during the implementation
+
+- **The agent proxy is a new one-page proxy.** It follows the second spike,
+  not Orca's `cdp-ws-proxy.ts`. Only Orca's screenshot helper is ported.
+  Orca's proxy does not work with Playwright's flatten auto-attach.
+- **The page session refuses most `Target.*` commands.** It allows only
+  `Target.setAutoAttach`, `Target.detachFromTarget` for a known child page,
+  and `Target.getTargetInfo` without an id. It refuses all `Browser.*`
+  commands and `Page.setDownloadBehavior`.
+- **The agent cannot navigate to a non-web address.** The proxy checks the
+  address, and the main process checks it again as a guard.
+- **"Give to agent" closes the old connection.** It closes the agent's
+  connection to the old tab.
+- **The Ports view scans once at start, then on a timer only while visible.**
+  It scans one time at start, for the badge. After that, it scans every 5
+  seconds only while the view is visible.
+- **A link from a side or bottom panel opens in the main area.** When the
+  focus is in a side panel or a bottom panel at the time of the link click,
+  the new tab still opens in the main area, not in that panel.
+
 ## Not in M3a
 
 These go to M3b: the cookie import from Chrome, Arc, and Brave; Design Mode;
