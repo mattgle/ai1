@@ -1,4 +1,5 @@
 import { BaseWidget, StatefulWidget } from "@theia/core/lib/browser";
+import { ContextKeyService } from "@theia/core/lib/browser/context-key-service";
 import { inject, injectable, postConstruct } from "@theia/core/shared/inversify";
 import type { WebviewTag } from "electron";
 import { normalizeAddress } from "../common/address";
@@ -8,6 +9,17 @@ import { DEFAULT_PROFILE_ID, partitionFor, Profile } from "../common/profiles";
 import { BrowserShortcut } from "../common/shortcuts";
 import { browserApi } from "./browser-api";
 import { FindBar } from "./find-bar";
+
+// The context keys of a browser tab. They are local keys: a scoped context
+// on the node of the tab (and on its find bar) holds them. Theia gives a
+// keybinding whose `when` uses a local key of the focused element priority
+// over other keybindings with the same keys
+// (`KeybindingRegistry.selectBindingByLocalContext`). Thus the browser
+// keybindings win over, for example, the Source Control toggle (⇧⌘G) and
+// the core Find (⌘F) while a browser tab has the focus, and they do not run
+// anywhere else.
+export const BROWSER_FOCUS_CONTEXT = "ai1BrowserFocus";
+export const BROWSER_FIND_FOCUS_CONTEXT = "ai1BrowserFindFocus";
 
 export const BrowserWidgetOptions = Symbol("BrowserWidgetOptions");
 export interface BrowserWidgetOptions {
@@ -31,6 +43,9 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
 
   @inject(BrowserWidgetOptions)
   protected readonly options!: BrowserWidgetOptions;
+
+  @inject(ContextKeyService)
+  protected readonly contextKeys!: ContextKeyService;
 
   protected url = "about:blank";
   protected profile = DEFAULT_PROFILE_ID;
@@ -110,6 +125,16 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     this.errorPanel.hidden = true;
     this.viewport.appendChild(this.errorPanel);
     this.node.append(this.toolbar, this.findBar.node, this.message, this.viewport);
+    const tabContext = this.contextKeys.createScoped(this.node);
+    tabContext.createKey(BROWSER_FOCUS_CONTEXT, true);
+    // The find bar has its own scope, so the Esc keybinding works only in
+    // the find bar. Only the nearest scope gives local keys, so this scope
+    // also holds the key of the tab.
+    const findContext = tabContext.createScoped(this.findBar.node);
+    findContext.createKey(BROWSER_FOCUS_CONTEXT, true);
+    findContext.createKey(BROWSER_FIND_FOCUS_CONTEXT, true);
+    this.toDispose.push(findContext);
+    this.toDispose.push(tabContext);
     this.toDispose.push({
       dispose: browserApi().onCertificateError((event) => this.onCertificateError(event)),
     });
@@ -168,9 +193,16 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
       case "findPrevious":
         this.findBar.previous();
         return;
-      case "closeFind":
+      case "closeFind": {
+        // From the Esc keybinding the focus is in the find bar, which
+        // becomes hidden: give the focus to the page.
+        const focusInBar = this.findBar.node.contains(document.activeElement);
         this.findBar.close();
+        if (focusInBar) {
+          this.webview?.focus();
+        }
         return;
+      }
       case "focusAddress":
         this.focusAddress();
         return;

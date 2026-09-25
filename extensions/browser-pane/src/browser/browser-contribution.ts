@@ -5,7 +5,6 @@ import {
   KeybindingRegistry,
   QuickInputService,
 } from "@theia/core/lib/browser";
-import { ContextKeyService } from "@theia/core/lib/browser/context-key-service";
 import { Command, CommandContribution, CommandRegistry, MessageService } from "@theia/core/lib/common";
 import { QuickPickService } from "@theia/core/lib/common/quick-pick-service";
 import { inject, injectable } from "@theia/core/shared/inversify";
@@ -13,7 +12,7 @@ import { DEFAULT_PROFILE_ID, Profile } from "../common/profiles";
 import { BrowserShortcut } from "../common/shortcuts";
 import { browserApi } from "./browser-api";
 import { BrowserTabs } from "./browser-tabs";
-import { BrowserWidget } from "./browser-widget";
+import { BROWSER_FIND_FOCUS_CONTEXT, BROWSER_FOCUS_CONTEXT, BrowserWidget } from "./browser-widget";
 
 export const BrowserCommands = {
   NEW_TAB: { id: "ai1.browser.newTab", label: "Browser: New Tab" },
@@ -23,20 +22,43 @@ export const BrowserCommands = {
   FIND_NEXT: { id: "ai1.browser.findNext" },
   FIND_PREVIOUS: { id: "ai1.browser.findPrevious" },
   FOCUS_ADDRESS: { id: "ai1.browser.focusAddress" },
+  CLOSE_FIND: { id: "ai1.browser.closeFind" },
 } satisfies Record<string, Command>;
-
-// The context key that is true while a browser tab has the focus.
-export const BROWSER_FOCUS_CONTEXT = "ai1BrowserFocus";
 
 // The shortcuts that are also Theia keybindings. They work when the focus
 // is on the toolbar or the find bar of a browser tab. When the page has the
-// focus, the main process catches the keys (see `GuestPolicies`).
-const SHORTCUT_COMMANDS: { command: Command; shortcut: BrowserShortcut; keybinding: string }[] = [
-  { command: BrowserCommands.FIND, shortcut: "find", keybinding: "ctrlcmd+f" },
-  { command: BrowserCommands.FIND_NEXT, shortcut: "findNext", keybinding: "ctrlcmd+g" },
-  { command: BrowserCommands.FIND_PREVIOUS, shortcut: "findPrevious", keybinding: "ctrlcmd+shift+g" },
-  { command: BrowserCommands.FOCUS_ADDRESS, shortcut: "focusAddress", keybinding: "ctrlcmd+l" },
-];
+// focus, the main process catches the keys (see `GuestPolicies`). The
+// `when` context keys are local keys of the tab, which give these
+// keybindings priority (see `BROWSER_FOCUS_CONTEXT`). Later tasks add their
+// shortcuts to this list.
+const SHORTCUT_COMMANDS: { command: Command; shortcut: BrowserShortcut; keybinding: string; when: string }[] =
+  [
+    { command: BrowserCommands.FIND, shortcut: "find", keybinding: "ctrlcmd+f", when: BROWSER_FOCUS_CONTEXT },
+    {
+      command: BrowserCommands.FIND_NEXT,
+      shortcut: "findNext",
+      keybinding: "ctrlcmd+g",
+      when: BROWSER_FOCUS_CONTEXT,
+    },
+    {
+      command: BrowserCommands.FIND_PREVIOUS,
+      shortcut: "findPrevious",
+      keybinding: "ctrlcmd+shift+g",
+      when: BROWSER_FOCUS_CONTEXT,
+    },
+    {
+      command: BrowserCommands.FOCUS_ADDRESS,
+      shortcut: "focusAddress",
+      keybinding: "ctrlcmd+l",
+      when: BROWSER_FOCUS_CONTEXT,
+    },
+    {
+      command: BrowserCommands.CLOSE_FIND,
+      shortcut: "closeFind",
+      keybinding: "esc",
+      when: BROWSER_FIND_FOCUS_CONTEXT,
+    },
+  ];
 
 // Removes the prefix that Electron adds to an error from `ipcMain.handle`.
 function errorText(error: unknown): string {
@@ -56,9 +78,6 @@ export class BrowserContribution
   @inject(ApplicationShell)
   protected readonly shell!: ApplicationShell;
 
-  @inject(ContextKeyService)
-  protected readonly contextKeys!: ContextKeyService;
-
   @inject(QuickPickService)
   protected readonly quickPick!: QuickPickService;
 
@@ -74,10 +93,6 @@ export class BrowserContribution
     api.onOpenTab((request) => void this.tabs.open(request.url, request.profileId));
     api.onNotice((text) => void this.messages.info(text));
     api.onShortcut((event) => this.tabs.byTabId(event.tabId)?.runShortcut(event.shortcut));
-    const browserFocus = this.contextKeys.createKey<boolean>(BROWSER_FOCUS_CONTEXT, false);
-    const updateFocus = (): void => browserFocus.set(this.shell.activeWidget instanceof BrowserWidget);
-    this.shell.onDidChangeActiveWidget(updateFocus);
-    updateFocus();
     await this.tabs.refreshProfiles();
   }
 
@@ -103,8 +118,8 @@ export class BrowserContribution
   }
 
   registerKeybindings(keybindings: KeybindingRegistry): void {
-    for (const { command, keybinding } of SHORTCUT_COMMANDS) {
-      keybindings.registerKeybinding({ command: command.id, keybinding, when: BROWSER_FOCUS_CONTEXT });
+    for (const { command, keybinding, when } of SHORTCUT_COMMANDS) {
+      keybindings.registerKeybinding({ command: command.id, keybinding, when });
     }
   }
 

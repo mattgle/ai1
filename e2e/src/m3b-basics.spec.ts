@@ -195,3 +195,41 @@ test("Find in Page shows the match count, Enter goes to the next match, and Esca
   await findInput.press("Escape");
   await expect(findBar).toBeHidden();
 });
+
+test("the browser keybindings win while a browser tab has the focus, and do not run in other views", async () => {
+  // Escape in the previous test gave the focus to the page. Keys on a
+  // focused page do not go to the command palette.
+  await app.page.locator("#theia-left-side-panel #files").click();
+  await openBrowserTab(app, `${fixture.url}apples`);
+  await expect(mainTab("Apples").and(app.page.locator(".lm-mod-current"))).toBeVisible();
+  const browser = app.page.locator(".ai1-browser:not(.lm-mod-hidden)");
+  const address = browser.locator(".ai1-browser-address");
+  const findBar = browser.locator(".ai1-browser-find");
+  const findInput = findBar.locator(".ai1-browser-find-input");
+  const count = findBar.locator(".ai1-browser-find-count");
+  const sourceControl = app.page.locator("#scm-view-container");
+  await expect(sourceControl).toHaveCount(0);
+  // The browser keybindings get their priority from context keys that are
+  // local to the tab and to its find bar, not from the order of
+  // registration.
+  await expect(browser).toHaveAttribute("data-keybinding-context", /^\d+$/);
+  await expect(findBar).toHaveAttribute("data-keybinding-context", /^\d+$/);
+
+  await address.focus();
+  await app.page.keyboard.press("Meta+KeyF");
+  await expect(findInput).toBeFocused();
+  await findInput.fill("apple");
+  await expect(count).toHaveText("1 of 3");
+  await app.page.keyboard.press("Meta+KeyG");
+  await expect(count).toHaveText("2 of 3");
+  await app.page.keyboard.press("Meta+Shift+KeyG");
+  await expect(count).toHaveText("1 of 3");
+  await expect(sourceControl).toHaveCount(0);
+  await app.page.keyboard.press("Escape");
+  await expect(findBar).toBeHidden();
+
+  await app.page.locator("#theia-left-side-panel #files").click();
+  await app.page.keyboard.press("Meta+Shift+KeyG");
+  await expect(sourceControl).toBeVisible();
+  await expect(findBar).toBeHidden();
+});

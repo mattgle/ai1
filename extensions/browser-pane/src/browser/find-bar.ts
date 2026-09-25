@@ -7,7 +7,8 @@ export interface FindBarHost {
   stop(): void;
   // The bar opened or closed.
   openChanged(open: boolean): void;
-  // The owner closed the bar from the bar: give the focus back to the page.
+  // The owner closed the bar with its Close button: give the focus back to
+  // the page.
   returnFocus(): void;
 }
 
@@ -120,6 +121,7 @@ export class FindBar {
     this.lastRequestId = this.host.find(text, { forward, findNext: false });
   }
 
+  // Esc is a Theia keybinding (see `BrowserContribution`).
   protected onKeyDown(event: KeyboardEvent): void {
     if (event.key === "Enter") {
       event.preventDefault();
@@ -128,10 +130,6 @@ export class FindBar {
       } else {
         this.next();
       }
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      this.close();
-      this.host.returnFocus();
     }
   }
 }
