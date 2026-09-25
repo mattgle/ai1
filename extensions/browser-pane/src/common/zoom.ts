@@ -14,8 +14,9 @@ export function nextZoom(percent: number, direction: 1 | -1): number {
   return [...ZOOM_STEPS].reverse().find((step) => step < percent) ?? MIN_ZOOM;
 }
 
-// The key of the saved zoom level of a page: the profile and the host with
-// its port, for example "default localhost:3000". A page with no http or
+// The key of the saved zoom level of a page: the profile and the host name
+// with no port, for example "default localhost". Chrome and the zoom map of
+// Chromium also keep one level for each host name. A page with no http or
 // https host (`about:blank`, `data:`) has no key, so it has no saved level.
 export function zoomKey(profileId: string, url: string): string | undefined {
   let parsed: URL;
@@ -24,10 +25,10 @@ export function zoomKey(profileId: string, url: string): string | undefined {
   } catch {
     return undefined;
   }
-  if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || parsed.host === "") {
+  if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || parsed.hostname === "") {
     return undefined;
   }
-  return `${profileId} ${parsed.host}`;
+  return `${profileId} ${parsed.hostname}`;
 }
 
 // True for a level that the zoom store can keep.

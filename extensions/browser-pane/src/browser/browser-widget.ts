@@ -180,15 +180,6 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     }
   }
 
-  // Chromium keeps a zoom level for each host name in a session, with no
-  // port. Thus a tab on another port of the same host name can change the
-  // zoom of this page while this tab is hidden. Apply the level of this tab
-  // again when it becomes visible.
-  protected override onAfterShow(msg: Parameters<BaseWidget["onAfterShow"]>[0]): void {
-    super.onAfterShow(msg);
-    this.applyZoom();
-  }
-
   protected override onActivateRequest(msg: Parameters<BaseWidget["onActivateRequest"]>[0]): void {
     super.onActivateRequest(msg);
     if (this.url === "about:blank") {

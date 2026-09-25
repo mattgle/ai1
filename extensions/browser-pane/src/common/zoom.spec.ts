@@ -32,9 +32,16 @@ describe("nextZoom", () => {
 });
 
 describe("zoomKey", () => {
-  it("gives the profile and the host with its port", () => {
-    assert.strictEqual(zoomKey("default", "http://localhost:3000/a"), "default localhost:3000");
+  it("gives the profile and the host name", () => {
+    assert.strictEqual(zoomKey("default", "http://localhost:3000/a"), "default localhost");
     assert.strictEqual(zoomKey("agent", "https://example.com/path?q=1#x"), "agent example.com");
+  });
+
+  it("gives the same key for two ports of the same host, the same as Chrome", () => {
+    assert.strictEqual(
+      zoomKey("default", "http://localhost:3000/"),
+      zoomKey("default", "http://localhost:5173/"),
+    );
   });
 
   it("gives undefined for a page with no http or https host", () => {

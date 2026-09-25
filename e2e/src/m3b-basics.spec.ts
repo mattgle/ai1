@@ -291,7 +291,7 @@ test("Zoom In zooms the page and keeps the level after a reload, and Reset Zoom 
   await app.quickCommandPalette.trigger("Browser: Zoom In");
   await expect(zoomButton).toHaveText("125%");
   await expect.poll(() => pageRatio(index)).toBeCloseTo(before * 1.25, 5);
-  const key = `default ${new URL(fixture.url).host}`;
+  const key = `default ${new URL(fixture.url).hostname}`;
   expect(zoomFile()).toEqual({ levels: { [key]: 125 } });
 
   await runInTab(index, "window.ai1BeforeReload = true");
@@ -306,7 +306,7 @@ test("Zoom In zooms the page and keeps the level after a reload, and Reset Zoom 
   expect(zoomFile()).toEqual({ levels: {} });
 });
 
-test("a zoom change applies to all tabs of the same profile and host, and not to another profile or port", async () => {
+test("a zoom change applies to all tabs of the same profile and host name, also on another port, and not to another profile", async () => {
   const other = new BrowserFixtureServer();
   await other.start();
   try {
@@ -336,13 +336,11 @@ test("a zoom change applies to all tabs of the same profile and host, and not to
     await expect(activeBrowser().locator(".ai1-browser-zoom")).toHaveText("90%");
     await expect.poll(() => pageRatio(zoomedIndex)).toBeCloseTo(base * 0.9, 5);
     await expect.poll(() => pageRatio(sameHostIndex)).toBeCloseTo(base * 0.9, 5);
+    await expect.poll(() => pageRatio(otherPortIndex)).toBeCloseTo(base * 0.9, 5);
     expect(await pageRatio(agentIndex)).toBeCloseTo(base, 5);
 
-    // Chromium can give the zoom of a host name to a hidden tab on another
-    // port. The tab sets its own level again when it becomes visible.
     await clickTab(app.page.locator(`[id="${otherPortTabId}"]`));
-    await expect(activeBrowser().locator(".ai1-browser-zoom")).toBeHidden();
-    await expect.poll(() => pageRatio(otherPortIndex)).toBeCloseTo(base, 5);
+    await expect(activeBrowser().locator(".ai1-browser-zoom")).toHaveText("90%");
 
     await clickTab(app.page.locator(`[id="${sameHostTabId}"]`));
     const sameHostButton = activeBrowser().locator(".ai1-browser-zoom");
@@ -352,6 +350,7 @@ test("a zoom change applies to all tabs of the same profile and host, and not to
     await expect(sameHostButton).toBeHidden();
     await expect.poll(() => pageRatio(zoomedIndex)).toBeCloseTo(base, 5);
     await expect.poll(() => pageRatio(sameHostIndex)).toBeCloseTo(base, 5);
+    await expect.poll(() => pageRatio(otherPortIndex)).toBeCloseTo(base, 5);
   } finally {
     await other.stop();
   }
