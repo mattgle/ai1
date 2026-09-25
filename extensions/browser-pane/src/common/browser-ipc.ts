@@ -1,4 +1,5 @@
 import { Profile } from "./profiles";
+import { BrowserShortcut } from "./shortcuts";
 
 // The name of the preload API on `window`.
 export const AI1_BROWSER_API = "electronAi1Browser";
@@ -17,6 +18,7 @@ export const Channels = {
   configureAgentAddress: "ai1-browser:configure-agent-address",
   agentAddress: "ai1-browser:agent-address",
   agentTabCreated: "ai1-browser:agent-tab-created",
+  setFindOpen: "ai1-browser:set-find-open",
 
   profilesChanged: "ai1-browser:profiles-changed",
   openTab: "ai1-browser:open-tab",
@@ -24,7 +26,14 @@ export const Channels = {
   agentState: "ai1-browser:agent-state",
   certificateError: "ai1-browser:certificate-error",
   notice: "ai1-browser:notice",
+  shortcut: "ai1-browser:shortcut",
 } as const;
+
+// A shortcut that the main process caught on the page of a browser tab.
+export interface ShortcutEvent {
+  tabId: string;
+  shortcut: BrowserShortcut;
+}
 
 export interface OpenTabRequest {
   url: string;
@@ -73,10 +82,14 @@ export interface Ai1BrowserApi {
   // The full agent address with its secret, or `undefined` when it is off.
   agentAddress(): Promise<string | undefined>;
   agentTabCreated(requestId: string, tabId: string): Promise<void>;
+  // Tells the main process that the find bar of this guest is open or
+  // closed. While it is open, the main process catches Esc on the page.
+  setFindOpen(guestId: number, open: boolean): Promise<void>;
   onProfilesChanged(listener: (profiles: Profile[]) => void): () => void;
   onOpenTab(listener: (request: OpenTabRequest) => void): () => void;
   onCreateAgentTab(listener: (request: CreateAgentTabRequest) => void): () => void;
   onAgentState(listener: (states: AgentTabState[]) => void): () => void;
   onCertificateError(listener: (event: CertificateErrorEvent) => void): () => void;
   onNotice(listener: (text: string) => void): () => void;
+  onShortcut(listener: (event: ShortcutEvent) => void): () => void;
 }

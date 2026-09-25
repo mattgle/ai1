@@ -30,6 +30,25 @@
   min-width: 0;
 }
 
+.ai1-browser-find {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.ai1-browser-find-input {
+  width: 240px;
+  min-width: 0;
+}
+
+.ai1-browser-find-count {
+  min-width: 72px;
+  padding: 0 4px;
+  opacity: 0.8;
+}
+
 .ai1-browser-message {
   padding: 4px 8px;
   color: var(--theia-inputValidation-warningForeground);
@@ -57,6 +76,7 @@
 }
 
 .ai1-browser-error[hidden],
+.ai1-browser-find[hidden],
 .ai1-browser-message[hidden] {
   display: none;
 }

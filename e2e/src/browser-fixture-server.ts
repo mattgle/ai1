@@ -126,6 +126,9 @@ export class BrowserFixtureServer {
       case "/button":
         html(page("Button", `<button id="go" onclick="document.title='Clicked'">Go</button>`));
         return;
+      case "/apples":
+        html(page("Apples", "<p>apple</p><p>An apple a day</p><p>Green apple</p>"));
+        return;
       case "/counter":
         html(
           page(

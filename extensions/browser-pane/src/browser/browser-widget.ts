@@ -5,7 +5,9 @@ import { normalizeAddress } from "../common/address";
 import { AgentTabState, CertificateErrorEvent } from "../common/browser-ipc";
 import { isLocalCertificateHost } from "../common/guest-policy";
 import { DEFAULT_PROFILE_ID, partitionFor, Profile } from "../common/profiles";
+import { BrowserShortcut } from "../common/shortcuts";
 import { browserApi } from "./browser-api";
+import { FindBar } from "./find-bar";
 
 export const BrowserWidgetOptions = Symbol("BrowserWidgetOptions");
 export interface BrowserWidgetOptions {
@@ -54,6 +56,24 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
   protected readonly message = document.createElement("div");
   protected readonly viewport = document.createElement("div");
   protected readonly errorPanel = document.createElement("div");
+  protected readonly findBar = new FindBar({
+    find: (text, options) =>
+      this.webview && this.webviewReady ? this.webview.findInPage(text, options) : undefined,
+    stop: () => {
+      if (this.webview && this.webviewReady) {
+        this.webview.stopFindInPage("clearSelection");
+      }
+    },
+    openChanged: (open) => {
+      const guestId = this.currentGuestId();
+      if (guestId !== undefined) {
+        void browserApi()
+          .setFindOpen(guestId, open)
+          .catch(() => undefined);
+      }
+    },
+    returnFocus: () => this.webview?.focus(),
+  });
 
   get tabId(): string {
     return this.options.tabId;
@@ -89,7 +109,7 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     this.errorPanel.className = "ai1-browser-error";
     this.errorPanel.hidden = true;
     this.viewport.appendChild(this.errorPanel);
-    this.node.append(this.toolbar, this.message, this.viewport);
+    this.node.append(this.toolbar, this.findBar.node, this.message, this.viewport);
     this.toDispose.push({
       dispose: browserApi().onCertificateError((event) => this.onCertificateError(event)),
     });
@@ -133,6 +153,30 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
   focusAddress(): void {
     this.addressInput.focus();
     this.addressInput.select();
+  }
+
+  // The one entry point for the browser shortcuts: from a Theia keybinding,
+  // and from the main process when the page has the focus.
+  runShortcut(shortcut: BrowserShortcut): void {
+    switch (shortcut) {
+      case "find":
+        this.findBar.open();
+        return;
+      case "findNext":
+        this.findBar.next();
+        return;
+      case "findPrevious":
+        this.findBar.previous();
+        return;
+      case "closeFind":
+        this.findBar.close();
+        return;
+      case "focusAddress":
+        this.focusAddress();
+        return;
+      default:
+        return;
+    }
   }
 
   navigate(input: string): void {
@@ -221,6 +265,8 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     }
     this.profile = profileId;
     this.profileSelect.value = profileId;
+    // Close the find bar while the old page exists.
+    this.findBar.close();
     if (this.webview) {
       this.webview.remove();
       this.webview = undefined;
@@ -291,7 +337,12 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     webview.setAttribute("webpreferences", "disableHtmlFullscreenWindowResize=true,transparent=false");
     webview.className = "ai1-browser-webview";
     webview.addEventListener("dom-ready", () => this.onDomReady(webview));
-    webview.addEventListener("did-navigate", (event) => this.onNavigated(event.url));
+    // `did-navigate` is only for the main frame.
+    webview.addEventListener("did-navigate", (event) => {
+      this.findBar.close();
+      this.onNavigated(event.url);
+    });
+    webview.addEventListener("found-in-page", (event) => this.findBar.showResult(event.result));
     webview.addEventListener("did-navigate-in-page", (event) => {
       if (event.isMainFrame) {
         this.onNavigated(event.url);

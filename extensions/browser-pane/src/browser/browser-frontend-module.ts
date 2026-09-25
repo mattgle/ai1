@@ -1,6 +1,7 @@
 import {
   bindViewContribution,
   FrontendApplicationContribution,
+  KeybindingContribution,
   OpenHandler,
   WidgetFactory,
 } from "@theia/core/lib/browser";
@@ -37,6 +38,7 @@ export default new ContainerModule((bind) => {
   bind(BrowserContribution).toSelf().inSingletonScope();
   bind(CommandContribution).toService(BrowserContribution);
   bind(FrontendApplicationContribution).toService(BrowserContribution);
+  bind(KeybindingContribution).toService(BrowserContribution);
   bind(AgentContribution).toSelf().inSingletonScope();
   bind(FrontendApplicationContribution).toService(AgentContribution);
   bind(CommandContribution).toService(AgentContribution);

@@ -167,3 +167,31 @@ test("Give to agent marks a tab as waiting, and the next agent takes that tab", 
   await expect(givenTab).not.toHaveText(/Agent/);
   await expect(giveButton).toBeEnabled();
 });
+
+test("Find in Page shows the match count, Enter goes to the next match, and Escape closes the bar", async () => {
+  await openBrowserTab(app, `${fixture.url}apples`);
+  await expect(mainTab("Apples")).toBeVisible();
+  const findBar = app.page.locator(".ai1-browser:not(.lm-mod-hidden) .ai1-browser-find");
+  const findInput = findBar.locator(".ai1-browser-find-input");
+  const count = findBar.locator(".ai1-browser-find-count");
+  await expect(findBar).toBeHidden();
+
+  await app.quickCommandPalette.trigger("Browser: Find in Page");
+  await expect(findInput).toBeFocused();
+  // Monaco clears the `inQuickInput` context in a timer after the command
+  // palette loses the focus. Until then, Theia gives Enter to the palette.
+  await app.page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
+  await findInput.fill("apple");
+  await expect(count).toHaveText("1 of 3");
+  await findInput.press("Enter");
+  await expect(count).toHaveText("2 of 3");
+  await findInput.press("Shift+Enter");
+  await expect(count).toHaveText("1 of 3");
+  await findInput.fill("pear");
+  await expect(count).toHaveText("No results");
+  await findInput.fill("");
+  await expect(count).toHaveText("");
+
+  await findInput.press("Escape");
+  await expect(findBar).toBeHidden();
+});

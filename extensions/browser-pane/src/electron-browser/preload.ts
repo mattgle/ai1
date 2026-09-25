@@ -8,6 +8,7 @@ import {
   Channels,
   CreateAgentTabRequest,
   OpenTabRequest,
+  ShortcutEvent,
 } from "../common/browser-ipc";
 import { Profile } from "../common/profiles";
 
@@ -32,12 +33,14 @@ const api: Ai1BrowserApi = {
     ipcRenderer.invoke(Channels.configureAgentAddress, config),
   agentAddress: () => ipcRenderer.invoke(Channels.agentAddress),
   agentTabCreated: (requestId, tabId) => ipcRenderer.invoke(Channels.agentTabCreated, requestId, tabId),
+  setFindOpen: (guestId, open) => ipcRenderer.invoke(Channels.setFindOpen, guestId, open),
   onProfilesChanged: listen<Profile[]>(Channels.profilesChanged),
   onOpenTab: listen<OpenTabRequest>(Channels.openTab),
   onCreateAgentTab: listen<CreateAgentTabRequest>(Channels.createAgentTab),
   onAgentState: listen<AgentTabState[]>(Channels.agentState),
   onCertificateError: listen<CertificateErrorEvent>(Channels.certificateError),
   onNotice: listen<string>(Channels.notice),
+  onShortcut: listen<ShortcutEvent>(Channels.shortcut),
 };
 
 export function preload(): void {

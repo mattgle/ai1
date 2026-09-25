@@ -36,6 +36,8 @@ export class AgentAddress {
 
   @postConstruct()
   protected init(): void {
+    // The page of a connected agent gets all keys: no shortcut is caught.
+    this.guestPolicies.setAgentConnectedCheck((guestId) => this.proxies.isConnected(guestId));
     this.tabs = new AgentTabs(this.registry, {
       lastFocusedWindow: () => this.focusedTheiaWindow(),
       requestAgentTab: (windowId, requestId) => {

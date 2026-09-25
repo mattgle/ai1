@@ -69,6 +69,14 @@ export class BrowserMainContribution implements ElectronMainApplicationContribut
       }
       this.agentAddress.tabs.giveTab(event.sender.id, tabId);
     });
+    ipcMain.handle(Channels.setFindOpen, (event, guestId: number, open: boolean) => {
+      if (this.guestPolicies.isAi1BrowserContents(event.sender)) {
+        throw new Error("Only an AI1 window can open a find bar.");
+      }
+      if (this.registry.entry(guestId)?.windowId === event.sender.id) {
+        this.guestPolicies.setFindOpen(guestId, open === true);
+      }
+    });
     ipcMain.handle(Channels.agentTabCreated, (event, requestId: string, tabId: string) =>
       this.agentAddress.tabs.tabCreated(event.sender.id, requestId, tabId),
     );

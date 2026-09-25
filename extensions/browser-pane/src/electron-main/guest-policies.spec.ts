@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import type { WebContents } from "@theia/core/electron-shared/electron";
 import { Channels } from "../common/browser-ipc";
 import { GuestPolicies } from "./guest-policies";
+import { GuestRegistry } from "./guest-registry";
 
 type Listener = (...args: unknown[]) => void;
 
@@ -66,6 +67,11 @@ class FakeContents {
 class TestGuestPolicies extends GuestPolicies {
   readonly contents = new Map<number, FakeContents>();
   time = 0;
+
+  constructor(registry = new GuestRegistry()) {
+    super();
+    this.registry = registry;
+  }
 
   get acceptedHosts(): Set<string> {
     return this.acceptedCertificateHosts;
@@ -200,5 +206,88 @@ describe("GuestPolicies.acceptCertificate", () => {
     policies.acceptCertificate(5, "example.com");
     assert.strictEqual(policies.acceptedHosts.size, 0);
     assert.strictEqual(guest.reloads, 0);
+  });
+});
+
+describe("GuestPolicies shortcuts", () => {
+  const WINDOW_ID = 7;
+
+  function setup() {
+    const registry = new GuestRegistry();
+    const policies = new TestGuestPolicies(registry);
+    const window = new FakeContents(WINDOW_ID, null, "window");
+    const windowSent: Sent[] = [];
+    (window as unknown as { send(channel: string, payload: unknown): void }).send = (channel, payload) =>
+      windowSent.push({ channel, payload });
+    policies.contents.set(WINDOW_ID, window);
+    const guest = new FakeContents(3, AI1_PATH);
+    registry.register(3, "tab-1", WINDOW_ID);
+    policies.attach(asContents(guest));
+    const press = (input: Partial<{ type: string; key: string; meta: boolean; shift: boolean }>) => {
+      let prevented = false;
+      guest.emit(
+        "before-input-event",
+        { preventDefault: () => (prevented = true) },
+        { type: "keyDown", key: "", meta: false, control: false, shift: false, alt: false, ...input },
+      );
+      return prevented;
+    };
+    const shortcuts = () => windowSent.filter((sent) => sent.channel === Channels.shortcut);
+    return { policies, registry, guest, press, shortcuts };
+  }
+
+  it("stops a shortcut and sends it with the tab id to the window of the tab", () => {
+    const { press, shortcuts } = setup();
+    assert.strictEqual(press({ key: "f", meta: true }), true);
+    assert.deepStrictEqual(
+      shortcuts().map((sent) => sent.payload),
+      [{ tabId: "tab-1", shortcut: "find" }],
+    );
+  });
+
+  it("does not stop other keys or a keyUp", () => {
+    const { press, shortcuts } = setup();
+    assert.strictEqual(press({ key: "a", meta: true }), false);
+    assert.strictEqual(press({ type: "keyUp", key: "f", meta: true }), false);
+    assert.strictEqual(shortcuts().length, 0);
+  });
+
+  it("stops Escape only while the find bar of the guest is open", () => {
+    const { policies, press, shortcuts } = setup();
+    assert.strictEqual(press({ key: "Escape" }), false);
+    policies.setFindOpen(3, true);
+    assert.strictEqual(press({ key: "Escape" }), true);
+    policies.setFindOpen(3, false);
+    assert.strictEqual(press({ key: "Escape" }), false);
+    assert.deepStrictEqual(
+      shortcuts().map((sent) => sent.payload),
+      [{ tabId: "tab-1", shortcut: "closeFind" }],
+    );
+  });
+
+  it("catches no key on a guest with a connected agent", () => {
+    const { policies, press, shortcuts } = setup();
+    const connected = new Set<number>([3]);
+    policies.setAgentConnectedCheck((guestId) => connected.has(guestId));
+    policies.setFindOpen(3, true);
+    assert.strictEqual(press({ key: "f", meta: true }), false);
+    assert.strictEqual(press({ key: "Escape" }), false);
+    assert.strictEqual(shortcuts().length, 0);
+    connected.delete(3);
+    assert.strictEqual(press({ key: "f", meta: true }), true);
+  });
+
+  it("catches no key on a page that is not a browser tab, for example a popup window", () => {
+    const { registry, press, shortcuts } = setup();
+    registry.forget(3);
+    assert.strictEqual(press({ key: "f", meta: true }), false);
+    assert.strictEqual(shortcuts().length, 0);
+  });
+
+  it("forgets the find bar state when the guest is destroyed", () => {
+    const { policies, guest, press } = setup();
+    policies.setFindOpen(3, true);
+    guest.emit("destroyed");
+    assert.strictEqual(press({ key: "Escape" }), false);
   });
 });

@@ -1,9 +1,9 @@
 import { app, BrowserWindow, session, WebContents, webContents } from "@theia/core/electron-shared/electron";
-import { injectable } from "@theia/core/shared/inversify";
+import { inject, injectable } from "@theia/core/shared/inversify";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { isAllowedGuestUrl } from "../common/address";
-import { CertificateErrorEvent, Channels, OpenTabRequest } from "../common/browser-ipc";
+import { CertificateErrorEvent, Channels, OpenTabRequest, ShortcutEvent } from "../common/browser-ipc";
 import {
   decidePopup,
   forceGuestPreferences,
@@ -17,6 +17,8 @@ import {
   uniqueDownloadName,
 } from "../common/guest-policy";
 import { DEFAULT_PROFILE_ID, partitionFor, profileIdFromPartition } from "../common/profiles";
+import { shortcutFor, ShortcutInput } from "../common/shortcuts";
+import { GuestRegistry } from "./guest-registry";
 
 const POPUP_NOTICE = "A page tried to open too many popups. AI1 blocked the rest.";
 
@@ -28,6 +30,27 @@ export class GuestPolicies {
   // Hosts whose certificate error the owner accepted. Only local hosts can
   // get here. The set lives until AI1 closes.
   protected readonly acceptedCertificateHosts = new Set<string>();
+
+  // The guests whose find bar is open.
+  protected readonly findOpenGuests = new Set<number>();
+  // True for a guest with a connected agent. `AgentAddress` sets it: it
+  // injects this class, so this class cannot inject it.
+  protected agentConnected: (guestId: number) => boolean = () => false;
+
+  @inject(GuestRegistry)
+  protected registry!: GuestRegistry;
+
+  setAgentConnectedCheck(check: (guestId: number) => boolean): void {
+    this.agentConnected = check;
+  }
+
+  setFindOpen(guestId: number, open: boolean): void {
+    if (open) {
+      this.findOpenGuests.add(guestId);
+    } else {
+      this.findOpenGuests.delete(guestId);
+    }
+  }
 
   install(): void {
     app.on("certificate-error", (event, contents, url, error, _certificate, callback) => {
@@ -67,6 +90,11 @@ export class GuestPolicies {
 
   attach(contents: WebContents): void {
     contents.setBackgroundThrottling(false);
+    // A focused page gets the key events before the Theia window, so the
+    // Theia keybindings do not see them. Catch the browser shortcuts here
+    // and send them to the window of the tab.
+    contents.on("before-input-event", (event, input) => this.onInput(contents, event, input));
+    contents.on("destroyed", () => this.findOpenGuests.delete(contents.id));
     // A page cannot hold a nested `<webview>` page. `webviewTag` is off, and
     // this refuses the attach if a page gets one all the same.
     contents.on("will-attach-webview", (event) => event.preventDefault());
@@ -132,6 +160,26 @@ export class GuestPolicies {
       }
       return { action: "deny" };
     });
+  }
+
+  protected onInput(contents: WebContents, event: { preventDefault(): void }, input: ShortcutInput): void {
+    // The page of a connected agent gets all keys unchanged.
+    if (input.type !== "keyDown" || this.agentConnected(contents.id)) {
+      return;
+    }
+    const shortcut = shortcutFor(input, this.findOpenGuests.has(contents.id));
+    // A page that is not a browser tab (for example a popup window) keeps
+    // its keys.
+    const entry = this.registry.entry(contents.id);
+    if (shortcut === undefined || entry === undefined) {
+      return;
+    }
+    event.preventDefault();
+    const payload: ShortcutEvent = { tabId: entry.tabId, shortcut };
+    const window = this.contentsFromId(entry.windowId);
+    if (window && !window.isDestroyed()) {
+      window.send(Channels.shortcut, payload);
+    }
   }
 
   ensureSession(partition: string): void {
