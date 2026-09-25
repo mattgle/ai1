@@ -188,6 +188,60 @@ test("a tab does not load a local file, also when the navigation does not come f
   await expect.poll(currentUrl).toBe("about:blank");
 });
 
+test("a page script cannot read a local file with fetch", async () => {
+  await openTab(`${fixture.url}fetch-file`);
+  await expect(mainTab("fetch: failed")).toBeVisible();
+});
+
+test("a tab never shows a local file that loadURL asks for", async () => {
+  await openTab(`${fixture.url}welcome`);
+  const currentUrl = () =>
+    app.page.evaluate(() =>
+      (
+        document.querySelector(".ai1-browser:not(.lm-mod-hidden) webview") as unknown as { getURL(): string }
+      ).getURL(),
+    );
+  await expect.poll(currentUrl).toBe(`${fixture.url}welcome`);
+  // Record each committed address and each title of the page, and each tab
+  // label, so a short display of the file also fails the test.
+  await app.page.evaluate(() => {
+    const seen: string[] = [];
+    (window as unknown as { ai1Seen: string[] }).ai1Seen = seen;
+    const webview = document.querySelector(".ai1-browser:not(.lm-mod-hidden) webview")!;
+    for (const name of ["did-navigate", "page-title-updated"]) {
+      webview.addEventListener(name, (event) => {
+        const detail = event as Event & { url?: string; title?: string };
+        seen.push(`${name} ${detail.url ?? detail.title}`);
+      });
+    }
+    const panel = document.querySelector("#theia-main-content-panel")!;
+    const labels = () =>
+      Array.from(panel.querySelectorAll(".lm-TabBar-tabLabel"))
+        .map((label) => label.textContent)
+        .join(" | ");
+    new MutationObserver(() => seen.push(`label ${labels()}`)).observe(panel, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+    });
+  });
+  await app.page.evaluate(() =>
+    (
+      document.querySelector(".ai1-browser:not(.lm-mod-hidden) webview") as unknown as {
+        loadURL(url: string): Promise<void>;
+      }
+    )
+      .loadURL("file:///etc/hosts")
+      .catch(() => undefined),
+  );
+  await app.page.waitForTimeout(1000);
+  const seen = await app.page.evaluate(() => (window as unknown as { ai1Seen: string[] }).ai1Seen);
+  expect(seen.filter((entry) => /hosts|file:/.test(entry))).toEqual([]);
+  // The navigation check is the second layer: it replaces the page with an
+  // empty page.
+  await expect.poll(currentUrl).toBe("about:blank");
+});
+
 test("a ⌘-click on a terminal link asks one time, then opens the AI1 tab", async () => {
   await app.quickCommandPalette.trigger("Terminal: Create New Terminal");
   const screen = app.page.locator(".terminal-container:not(.lm-mod-hidden) .xterm-screen").last();
@@ -316,6 +370,38 @@ test("the Ports view works again after a close and a reopen, and its badge still
   }
 });
 
+test('"Stop Server…" stops a workspace server and its row goes away', async () => {
+  const server: ChildProcess = spawn(
+    process.execPath,
+    [
+      "-e",
+      "require('http').createServer((q, s) => s.end('ok')).listen(0, '127.0.0.1', function () { process.stdout.write(String(this.address().port)) })",
+    ],
+    { cwd: path.join(app.workspace.path, "dirty-repo"), stdio: ["ignore", "pipe", "inherit"] },
+  );
+  try {
+    const port = await new Promise<string>((resolve) =>
+      server.stdout!.once("data", (data) => resolve(String(data).trim())),
+    );
+    const exited = new Promise<void>((resolve) => server.once("exit", () => resolve()));
+    const row = app.page
+      .locator("#ai1-ports .ai1-ports-group", { hasText: "dirty-repo" })
+      .locator(".ai1-ports-row", { hasText: `:${port}` });
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    await row.click({ button: "right" });
+    await app.page.locator(".lm-Menu-item", { hasText: "Stop Server" }).click();
+    // The confirmation is a notification, not a dialog: click its "Stop
+    // Server" action to confirm. Product code never answers this itself.
+    await app.page
+      .locator(".theia-notification-toasts.open .theia-button", { hasText: "Stop Server" })
+      .click();
+    await exited;
+    await expect(row).toHaveCount(0, { timeout: 15_000 });
+  } finally {
+    server.kill();
+  }
+});
+
 test("the agent address refuses a wrong secret", async () => {
   const response = await fetch(`http://127.0.0.1:${agentPort}/${"x".repeat(43)}/json/version`);
   expect(response.status).toBe(404);
@@ -384,4 +470,115 @@ test("a new agent connection opens the agent tab and does not take the keyboard 
   } finally {
     await browser.close();
   }
+});
+
+test("the agent cannot read a local file with a navigation or a fetch", async () => {
+  const secret = fs.readFileSync(path.join(userDataDir, "ai1-browser-agent-secret"), "utf8").trim();
+  const browser = await chromium.connectOverCDP(`http://127.0.0.1:${agentPort}/${secret}/`);
+  try {
+    const page = browser.contexts().flatMap((context) => context.pages())[0];
+    await page.goto(`${fixture.url}fetch-file`);
+    await expect(page).toHaveTitle("fetch: failed");
+    await expect(page.goto("file:///etc/hosts")).rejects.toThrow(/only http and https/);
+    await expect(page).toHaveTitle("fetch: failed");
+  } finally {
+    await browser.close();
+  }
+});
+
+test("a page opens at most five popups in ten seconds, and the owner gets a notice", async () => {
+  await openTab(`${fixture.url}popup-flood`);
+  const floodTabs = app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "Flood tab" });
+  await expect.poll(() => floodTabs.count()).toBeGreaterThanOrEqual(5);
+  // Give late popups time to appear before the count.
+  await app.page.waitForTimeout(1500);
+  await expect(floodTabs).toHaveCount(5);
+  const notice = app.page.locator(".theia-notification-toasts.open .theia-notification-list-item", {
+    hasText: "A page tried to open too many popups. AI1 blocked the rest.",
+  });
+  await expect(notice).toHaveCount(1);
+});
+
+test("a browser tab keeps its page when it moves into a split of the main area", async () => {
+  // The previous test can leave a popup's `<webview>` with the keyboard
+  // focus. A key goes to a focused `<webview>`'s own page, not to Theia, so
+  // "Browser: New Tab" below would never open the command palette. A click
+  // on the status bar moves the focus back to Theia first, without
+  // activating a browser tab (that would give its `<webview>` the focus
+  // again).
+  await app.page.locator("#theia-statusBar").click();
+  // A split needs another tab to split against: with only one tab in the
+  // main area, moving it to "a split" is a no-op (nothing to divide the
+  // area with), so this opens one first.
+  await openTab(`${fixture.url}welcome`);
+  await openTab(`${fixture.url}counter`);
+  // The widget id stays the same across the split, so it finds the counter
+  // tab's own toolbar even when another visible tab exists in the new
+  // split.
+  const widgetId = await app.page.evaluate(
+    () => document.querySelector(".ai1-browser:not(.lm-mod-hidden)")!.id,
+  );
+  // The counter tab counts up by itself and shows the count in its title,
+  // so the tab label shows it. A reload restarts the count at 0.
+  const tab = app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: /count \d+/ });
+  const countOf = async (): Promise<number> => {
+    const label = (await tab.textContent()) ?? "";
+    const match = label.match(/count (\d+)/);
+    return match ? Number(match[1]) : -1;
+  };
+  await expect.poll(countOf, { timeout: 10_000 }).toBeGreaterThanOrEqual(10);
+  const recordedCount = await countOf();
+
+  // Move the tab into a split to the right of the main area. Theia's split
+  // commands ("Split Right" and the others in `@theia/editor`) only apply
+  // to an editor widget: only `TextEditorSplitContribution` implements
+  // `SplitEditorContribution`, and a browser tab is not an `EditorWidget`.
+  // So this drags the tab instead, the way a person does: a press on the
+  // tab, a move past the tab bar's own border (Lumino's drag and detach
+  // thresholds), then a move into the main area's right edge zone, then a
+  // release. Lumino handles a tab drag with pointer events, not a native
+  // HTML drag, so real mouse moves drive it.
+  const tabBarCountBefore = await app.page.locator("#theia-main-content-panel .lm-TabBar").count();
+  await app.page.mouse.move(-1, -1);
+  await expect(app.page.locator(".theia-hover")).toHaveCount(0);
+  // The main tab bar scrolls horizontally (a `PerfectScrollbar` on its
+  // content container) once there are more tabs than fit. With many prior
+  // tabs open, the counter tab's own position can be scrolled out of view,
+  // so its box is off host ground until this scrolls it back in.
+  await tab.scrollIntoViewIfNeeded();
+  const tabBox = (await tab.boundingBox())!;
+  const mainBox = (await app.page.locator("#theia-main-content-panel").boundingBox())!;
+  // The drop point must stay off the tab's own `<webview>`: a mouse move
+  // over a `<webview>` goes to the guest page, not to the host page, so it
+  // never reaches Theia's drag tracking (the same reason the tests cannot
+  // click inside a `<webview>`). The tab's toolbar sits above the
+  // `<webview>` and spans the full width of the tab, so a point on the
+  // toolbar, close to the tab's right edge, keeps the whole drag on host
+  // ground.
+  const toolbarBox = (await app.page.locator(`[id="${widgetId}"] .ai1-browser-toolbar`).boundingBox())!;
+  const pressX = tabBox.x + tabBox.width / 2;
+  const pressY = tabBox.y + tabBox.height / 2;
+  await app.page.mouse.move(pressX, pressY);
+  await app.page.mouse.down();
+  // A point near the toolbar's own bottom edge is far enough past the tab
+  // bar's bottom edge to exceed Lumino's detach threshold (20 px), and
+  // still above the `<webview>` that starts right below the toolbar. A few
+  // steps let Theia's drag tracking see the move happen, instead of one
+  // jump the tab bar and the dock panel never see in between.
+  const targetX = mainBox.x + mainBox.width - 10;
+  const targetY = toolbarBox.y + toolbarBox.height - 3;
+  const legs = 10;
+  for (let i = 1; i <= legs; i++) {
+    await app.page.mouse.move(
+      pressX + ((targetX - pressX) * i) / legs,
+      pressY + ((targetY - pressY) * i) / legs,
+    );
+  }
+  await app.page.mouse.up();
+  await app.page.mouse.move(-1, -1);
+
+  // A new tab bar next to the old one shows the split happened.
+  await expect(app.page.locator("#theia-main-content-panel .lm-TabBar")).toHaveCount(tabBarCountBefore + 1);
+  const countAfterSplit = await countOf();
+  expect(countAfterSplit).toBeGreaterThanOrEqual(recordedCount);
 });

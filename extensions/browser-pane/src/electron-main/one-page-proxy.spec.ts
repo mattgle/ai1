@@ -7,6 +7,7 @@ class FakeDebugger {
   attached = false;
   attachCount = 0;
   detachCount = 0;
+  throwOnAttach = false;
   sent: { method: string; params: unknown; sessionId?: string }[] = [];
   private readonly listeners = new Map<string, Listener[]>();
   answers: Record<string, unknown> = {};
@@ -15,6 +16,9 @@ class FakeDebugger {
     return this.attached;
   }
   attach(): void {
+    if (this.throwOnAttach) {
+      throw new Error("The debugger did not attach.");
+    }
     this.attached = true;
     this.attachCount++;
   }
@@ -90,8 +94,9 @@ class LateCloseClient extends FakeClient {
   }
 }
 
-function setup() {
+function setup(options: { throwOnAttach?: boolean } = {}) {
   const debuggerFake = new FakeDebugger();
+  debuggerFake.throwOnAttach = options.throwOnAttach ?? false;
   const guest: ProxyGuest = {
     debugger: debuggerFake as unknown as ProxyGuest["debugger"],
     isDestroyed: () => false,
@@ -419,6 +424,22 @@ describe("OnePageProxy", () => {
     assert.strictEqual(debuggerFake.attached, false);
     client.emit("close");
     assert.deepStrictEqual(changes, [true, false]);
+  });
+
+  it("closes the client and reports no client one time when the debugger attach fails", async () => {
+    const { proxy, debuggerFake, changes } = setup({ throwOnAttach: true });
+    const client = new FakeClient();
+    proxy.acceptClient(client);
+    for (let tries = 0; tries < 100 && !client.closed; tries++) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    assert.strictEqual(client.closed, true);
+    assert.strictEqual(proxy.connected, false);
+    assert.strictEqual(debuggerFake.attached, false);
+    assert.deepStrictEqual(changes, [true, false]);
+    // A late message does not wait for ever: nothing answers it, and nothing throws.
+    client.emit("message", Buffer.from(JSON.stringify({ id: 99, method: "Runtime.evaluate" })));
+    await new Promise((resolve) => setImmediate(resolve));
   });
 
   it("sends Target.detachedFromTarget and closes the client when the debugger detaches", async () => {

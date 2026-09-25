@@ -9,7 +9,7 @@ import {
   TabBarToolbarRegistry,
 } from "@theia/core/lib/browser/shell/tab-bar-toolbar";
 import { WindowService } from "@theia/core/lib/browser/window/window-service";
-import { Command, CommandRegistry, MenuModelRegistry } from "@theia/core/lib/common";
+import { Command, CommandRegistry, MenuModelRegistry, MessageService } from "@theia/core/lib/common";
 import { inject, injectable } from "@theia/core/shared/inversify";
 import { PortRow } from "../common/ports";
 import { PortsScan } from "../common/ports-protocol";
@@ -19,6 +19,7 @@ export const PortsCommands = {
   REFRESH: { id: "ai1.ports.refresh", label: "Ports: Refresh", iconClass: "codicon codicon-refresh" },
   OPEN_IN_SYSTEM_BROWSER: { id: "ai1.ports.openInSystemBrowser", label: "Open in System Browser" },
   COPY_ADDRESS: { id: "ai1.ports.copyAddress", label: "Copy Address" },
+  STOP_SERVER: { id: "ai1.ports.stopServer", label: "Stop Server…" },
 } satisfies Record<string, Command>;
 
 @injectable()
@@ -34,6 +35,9 @@ export class PortsContribution
 
   @inject(ClipboardService)
   protected readonly clipboard!: ClipboardService;
+
+  @inject(MessageService)
+  protected readonly messages!: MessageService;
 
   protected readonly wiredWidgets = new WeakSet<PortsWidget>();
 
@@ -110,6 +114,22 @@ export class PortsContribution
     registry.registerCommand(PortsCommands.COPY_ADDRESS, {
       execute: (row: PortRow) => this.clipboard.writeText(portAddress(row)),
     });
+    registry.registerCommand(PortsCommands.STOP_SERVER, {
+      isVisible: (_row: PortRow, inWorkspaceGroup?: boolean) => inWorkspaceGroup === true,
+      execute: async (row: PortRow) => {
+        const answer = await this.messages.warn(
+          `Stop ${row.program} on port ${row.port} (process ${row.pid})?`,
+          "Stop Server",
+        );
+        if (answer !== "Stop Server") {
+          return;
+        }
+        const result = await (await this.widget).stopServer(row);
+        if (!result.ok) {
+          await this.messages.error(result.error);
+        }
+      },
+    });
   }
 
   override registerMenus(menus: MenuModelRegistry): void {
@@ -119,6 +139,7 @@ export class PortsContribution
       order: "1",
     });
     menus.registerMenuAction(PORTS_ROW_MENU, { commandId: PortsCommands.COPY_ADDRESS.id, order: "2" });
+    menus.registerMenuAction(PORTS_ROW_MENU, { commandId: PortsCommands.STOP_SERVER.id, order: "3" });
   }
 
   registerToolbarItems(toolbar: TabBarToolbarRegistry): void {

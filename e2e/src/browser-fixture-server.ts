@@ -111,11 +111,32 @@ export class BrowserFixtureServer {
       case "/secure":
         html(page("Secure page"));
         return;
+      case "/fetch-file":
+        html(
+          page(
+            "Fetching",
+            "",
+            "fetch('file:///etc/hosts').then((r) => r.text()).then((t) => { document.title = 'fetch: read ' + t.length; }, () => { document.title = 'fetch: failed'; });",
+          ),
+        );
+        return;
+      case "/popup-flood":
+        html(page("Flood", "", "for (let i = 0; i < 8; i++) { window.open('/flood-tab?' + i); }"));
+        return;
       case "/button":
         html(page("Button", `<button id="go" onclick="document.title='Clicked'">Go</button>`));
         return;
+      case "/counter":
+        html(
+          page(
+            "count 0",
+            "",
+            "var ai1Count = 0; setInterval(function () { ai1Count += 1; document.title = 'count ' + ai1Count; }, 200);",
+          ),
+        );
+        return;
       default:
-        html(page("Start"));
+        html(page(request.url?.startsWith("/flood-tab") ? "Flood tab" : "Start"));
     }
   }
 }
