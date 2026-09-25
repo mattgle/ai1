@@ -5,11 +5,13 @@ import {
 } from "@theia/core/lib/electron-main/electron-main-application";
 import { inject, injectable } from "@theia/core/shared/inversify";
 import * as path from "node:path";
-import { AgentAddressConfig, Channels } from "../common/browser-ipc";
+import { AgentAddressConfig, Channels, ZoomChangedEvent } from "../common/browser-ipc";
+import { zoomKey } from "../common/zoom";
 import { AgentAddress } from "./agent-address";
 import { GuestPolicies } from "./guest-policies";
 import { GuestRegistry } from "./guest-registry";
 import { ProfileStore } from "./profile-store";
+import { ZoomStore } from "./zoom-store";
 
 @injectable()
 export class BrowserMainContribution implements ElectronMainApplicationContribution {
@@ -23,6 +25,7 @@ export class BrowserMainContribution implements ElectronMainApplicationContribut
   protected readonly agentAddress!: AgentAddress;
 
   protected store!: ProfileStore;
+  protected zoomStore!: ZoomStore;
 
   onStart(_application: ElectronMainApplication): void {
     this.guestPolicies.install();
@@ -76,6 +79,32 @@ export class BrowserMainContribution implements ElectronMainApplicationContribut
       if (this.registry.entry(guestId)?.windowId === event.sender.id) {
         this.guestPolicies.setFindOpen(guestId, open === true);
       }
+    });
+    this.zoomStore = new ZoomStore(path.join(app.getPath("userData"), "ai1-browser-zoom.json"));
+    this.zoomStore.load();
+    ipcMain.handle(Channels.getZoom, (event, profileId: string, url: string) => {
+      if (this.guestPolicies.isAi1BrowserContents(event.sender)) {
+        throw new Error("Only an AI1 window can read a zoom level.");
+      }
+      const key =
+        typeof profileId === "string" && typeof url === "string" ? zoomKey(profileId, url) : undefined;
+      return key === undefined ? 100 : this.zoomStore.get(key);
+    });
+    ipcMain.handle(Channels.setZoom, (event, profileId: string, url: string, percent: number) => {
+      if (this.guestPolicies.isAi1BrowserContents(event.sender)) {
+        throw new Error("Only an AI1 window can change a zoom level.");
+      }
+      if (typeof profileId !== "string" || typeof url !== "string" || !this.store.has(profileId)) {
+        throw new Error("There is no such profile.");
+      }
+      // A page with no host (for example `about:blank`) has no zoom entry.
+      const key = zoomKey(profileId, url);
+      if (key === undefined) {
+        return;
+      }
+      this.zoomStore.set(key, percent);
+      const payload: ZoomChangedEvent = { key, percent };
+      this.broadcast(Channels.zoomChanged, payload);
     });
     ipcMain.handle(Channels.agentTabCreated, (event, requestId: string, tabId: string) =>
       this.agentAddress.tabs.tabCreated(event.sender.id, requestId, tabId),

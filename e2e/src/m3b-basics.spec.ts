@@ -4,7 +4,7 @@ import { AddressInfo } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Browser, chromium, expect, Locator, test } from "@playwright/test";
-import { TheiaApp, TheiaAppLoader, TheiaWorkspace } from "@theia/playwright";
+import { TheiaApp, TheiaAppLoader, TheiaExplorerView, TheiaWorkspace } from "@theia/playwright";
 import { BrowserFixtureServer } from "./browser-fixture-server";
 import { clickTab } from "./click-tab";
 import { openBrowserTab } from "./open-browser-tab";
@@ -44,6 +44,50 @@ function mainTab(text: string): Locator {
 async function agentNumber(tab: Locator): Promise<number> {
   const match = ((await tab.textContent()) ?? "").match(/Agent (\d+) · /);
   return match ? Number(match[1]) : -1;
+}
+
+function activeBrowser(): Locator {
+  return app.page.locator(".ai1-browser:not(.lm-mod-hidden)");
+}
+
+function browserCount(): Promise<number> {
+  return app.page.locator(".ai1-browser").count();
+}
+
+// Runs `script` in the page of the browser tab at `index` (in the order of
+// the `.ai1-browser` nodes) and gives its result.
+function runInTab<T>(index: number, script: string): Promise<T> {
+  return app.page.evaluate(
+    ([tabIndex, code]) => {
+      const webview = document
+        .querySelectorAll(".ai1-browser")
+        [tabIndex]?.querySelector("webview") as unknown as
+        { executeJavaScript(source: string): Promise<unknown> } | undefined;
+      if (!webview) {
+        throw new Error(`There is no browser tab ${tabIndex}.`);
+      }
+      return webview.executeJavaScript(code);
+    },
+    [index, script] as const,
+  ) as Promise<T>;
+}
+
+function pageRatio(index: number): Promise<number> {
+  return runInTab<number>(index, "window.devicePixelRatio");
+}
+
+// The zoom of the IDE window: the Theia zoom level and the pixel ratio of
+// the IDE page.
+function ideZoom(): Promise<{ level: number; ratio: number }> {
+  return app.page.evaluate(async () => {
+    const core = (window as unknown as { electronTheiaCore: { getZoomLevel(): Promise<number> } })
+      .electronTheiaCore;
+    return { level: await core.getZoomLevel(), ratio: window.devicePixelRatio };
+  });
+}
+
+function zoomFile(): unknown {
+  return JSON.parse(fs.readFileSync(path.join(userDataDir, "ai1-browser-zoom.json"), "utf8"));
 }
 
 async function closeTab(tab: Locator): Promise<void> {
@@ -232,4 +276,117 @@ test("the browser keybindings win while a browser tab has the focus, and do not 
   await app.page.keyboard.press("Meta+Shift+KeyG");
   await expect(sourceControl).toBeVisible();
   await expect(findBar).toBeHidden();
+});
+
+test("Zoom In zooms the page and keeps the level after a reload, and Reset Zoom removes the button", async () => {
+  const index = await browserCount();
+  await openBrowserTab(app, `${fixture.url}welcome`);
+  await expect(mainTab("Welcome").and(app.page.locator(".lm-mod-current"))).toBeVisible();
+  const zoomButton = activeBrowser().locator(".ai1-browser-zoom");
+  await expect(zoomButton).toBeHidden();
+  const before = await pageRatio(index);
+
+  await app.quickCommandPalette.trigger("Browser: Zoom In");
+  await expect(zoomButton).toHaveText("110%");
+  await app.quickCommandPalette.trigger("Browser: Zoom In");
+  await expect(zoomButton).toHaveText("125%");
+  await expect.poll(() => pageRatio(index)).toBeCloseTo(before * 1.25, 5);
+  const key = `default ${new URL(fixture.url).host}`;
+  expect(zoomFile()).toEqual({ levels: { [key]: 125 } });
+
+  await runInTab(index, "window.ai1BeforeReload = true");
+  await activeBrowser().locator(".codicon-refresh").click();
+  await expect.poll(() => runInTab(index, "window.ai1BeforeReload === undefined")).toBe(true);
+  await expect.poll(() => pageRatio(index)).toBeCloseTo(before * 1.25, 5);
+  await expect(zoomButton).toHaveText("125%");
+
+  await app.quickCommandPalette.trigger("Browser: Reset Zoom");
+  await expect(zoomButton).toBeHidden();
+  await expect.poll(() => pageRatio(index)).toBeCloseTo(before, 5);
+  expect(zoomFile()).toEqual({ levels: {} });
+});
+
+test("a zoom change applies to all tabs of the same profile and host, and not to another profile or port", async () => {
+  const other = new BrowserFixtureServer();
+  await other.start();
+  try {
+    const current = app.page.locator(".lm-mod-current");
+    const agentIndex = await browserCount();
+    await openBrowserTab(app, `${fixture.url}welcome`, "Agent");
+    await expect(mainTab("Welcome").and(current)).toBeVisible();
+    const otherPortIndex = agentIndex + 1;
+    await openBrowserTab(app, `${other.url}apples`);
+    const otherPortTab = mainTab("Apples").and(current);
+    await expect(otherPortTab).toBeVisible();
+    const otherPortTabId = await otherPortTab.getAttribute("id");
+    const sameHostIndex = agentIndex + 2;
+    await openBrowserTab(app, `${fixture.url}button`);
+    const sameHostTab = mainTab("Button").and(current);
+    await expect(sameHostTab).toBeVisible();
+    const sameHostTabId = await sameHostTab.getAttribute("id");
+    const zoomedIndex = agentIndex + 3;
+    await openBrowserTab(app, `${fixture.url}welcome`);
+    await expect(mainTab("Welcome").and(current)).toBeVisible();
+    const base = await pageRatio(zoomedIndex);
+    expect(await pageRatio(agentIndex)).toBeCloseTo(base, 5);
+    expect(await pageRatio(otherPortIndex)).toBeCloseTo(base, 5);
+    expect(await pageRatio(sameHostIndex)).toBeCloseTo(base, 5);
+
+    await app.quickCommandPalette.trigger("Browser: Zoom Out");
+    await expect(activeBrowser().locator(".ai1-browser-zoom")).toHaveText("90%");
+    await expect.poll(() => pageRatio(zoomedIndex)).toBeCloseTo(base * 0.9, 5);
+    await expect.poll(() => pageRatio(sameHostIndex)).toBeCloseTo(base * 0.9, 5);
+    expect(await pageRatio(agentIndex)).toBeCloseTo(base, 5);
+
+    // Chromium can give the zoom of a host name to a hidden tab on another
+    // port. The tab sets its own level again when it becomes visible.
+    await clickTab(app.page.locator(`[id="${otherPortTabId}"]`));
+    await expect(activeBrowser().locator(".ai1-browser-zoom")).toBeHidden();
+    await expect.poll(() => pageRatio(otherPortIndex)).toBeCloseTo(base, 5);
+
+    await clickTab(app.page.locator(`[id="${sameHostTabId}"]`));
+    const sameHostButton = activeBrowser().locator(".ai1-browser-zoom");
+    await expect(sameHostButton).toHaveText("90%");
+    await expect.poll(() => pageRatio(sameHostIndex)).toBeCloseTo(base * 0.9, 5);
+    await sameHostButton.click();
+    await expect(sameHostButton).toBeHidden();
+    await expect.poll(() => pageRatio(zoomedIndex)).toBeCloseTo(base, 5);
+    await expect.poll(() => pageRatio(sameHostIndex)).toBeCloseTo(base, 5);
+  } finally {
+    await other.stop();
+  }
+});
+
+test("the zoom keys zoom the browser tab and not the IDE while a browser tab has the focus, and zoom the IDE elsewhere", async () => {
+  await openBrowserTab(app, `${fixture.url}start`);
+  await expect(mainTab("Start").and(app.page.locator(".lm-mod-current"))).toBeVisible();
+  const address = activeBrowser().locator(".ai1-browser-address");
+  const zoomButton = activeBrowser().locator(".ai1-browser-zoom");
+  const ide = await ideZoom();
+
+  await address.focus();
+  await app.page.keyboard.press("Meta+Equal");
+  await expect(zoomButton).toHaveText("110%");
+  await app.page.keyboard.press("Meta+Shift+Equal");
+  await expect(zoomButton).toHaveText("125%");
+  await app.page.keyboard.press("Meta+Minus");
+  await expect(zoomButton).toHaveText("110%");
+  await app.page.keyboard.press("Meta+Digit0");
+  await expect(zoomButton).toBeHidden();
+
+  await activeBrowser().locator("webview").focus();
+  await app.page.keyboard.press("Meta+Equal");
+  await expect(zoomButton).toHaveText("110%");
+  await app.page.keyboard.press("Meta+Digit0");
+  await expect(zoomButton).toBeHidden();
+  expect(await ideZoom()).toEqual(ide);
+
+  const explorer = await app.openView(TheiaExplorerView);
+  await explorer.focus();
+  await expect(app.page.locator(".ai1-browser :focus")).toHaveCount(0);
+  await app.page.keyboard.press("Meta+Equal");
+  await expect.poll(async () => (await ideZoom()).level).toBeGreaterThan(ide.level);
+  await expect(zoomButton).toBeHidden();
+  await app.page.keyboard.press("Meta+Digit0");
+  await expect.poll(async () => (await ideZoom()).level).toBe(ide.level);
 });

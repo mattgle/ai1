@@ -30,6 +30,12 @@
   min-width: 0;
 }
 
+.ai1-browser-zoom {
+  min-width: 0;
+  margin: 0;
+  padding: 2px 8px;
+}
+
 .ai1-browser-find {
   display: flex;
   align-items: center;
@@ -77,6 +83,7 @@
 
 .ai1-browser-error[hidden],
 .ai1-browser-find[hidden],
+.ai1-browser-zoom[hidden],
 .ai1-browser-message[hidden] {
   display: none;
 }

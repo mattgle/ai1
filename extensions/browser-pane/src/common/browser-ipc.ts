@@ -19,6 +19,8 @@ export const Channels = {
   agentAddress: "ai1-browser:agent-address",
   agentTabCreated: "ai1-browser:agent-tab-created",
   setFindOpen: "ai1-browser:set-find-open",
+  getZoom: "ai1-browser:get-zoom",
+  setZoom: "ai1-browser:set-zoom",
 
   profilesChanged: "ai1-browser:profiles-changed",
   openTab: "ai1-browser:open-tab",
@@ -27,7 +29,14 @@ export const Channels = {
   certificateError: "ai1-browser:certificate-error",
   notice: "ai1-browser:notice",
   shortcut: "ai1-browser:shortcut",
+  zoomChanged: "ai1-browser:zoom-changed",
 } as const;
+
+// A new zoom level for all tabs whose `zoomKey` is `key`.
+export interface ZoomChangedEvent {
+  key: string;
+  percent: number;
+}
 
 // A shortcut that the main process caught on the page of a browser tab.
 export interface ShortcutEvent {
@@ -85,6 +94,11 @@ export interface Ai1BrowserApi {
   // Tells the main process that the find bar of this guest is open or
   // closed. While it is open, the main process catches Esc on the page.
   setFindOpen(guestId: number, open: boolean): Promise<void>;
+  // The saved zoom level in percent of the profile and host of `url`.
+  getZoom(profileId: string, url: string): Promise<number>;
+  // Saves the zoom level of the profile and host of `url` and sends
+  // `zoomChanged` to all windows. It does nothing for a page with no host.
+  setZoom(profileId: string, url: string, percent: number): Promise<void>;
   onProfilesChanged(listener: (profiles: Profile[]) => void): () => void;
   onOpenTab(listener: (request: OpenTabRequest) => void): () => void;
   onCreateAgentTab(listener: (request: CreateAgentTabRequest) => void): () => void;
@@ -92,4 +106,5 @@ export interface Ai1BrowserApi {
   onCertificateError(listener: (event: CertificateErrorEvent) => void): () => void;
   onNotice(listener: (text: string) => void): () => void;
   onShortcut(listener: (event: ShortcutEvent) => void): () => void;
+  onZoomChanged(listener: (event: ZoomChangedEvent) => void): () => void;
 }

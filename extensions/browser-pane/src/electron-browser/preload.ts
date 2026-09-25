@@ -9,6 +9,7 @@ import {
   CreateAgentTabRequest,
   OpenTabRequest,
   ShortcutEvent,
+  ZoomChangedEvent,
 } from "../common/browser-ipc";
 import { Profile } from "../common/profiles";
 
@@ -34,6 +35,8 @@ const api: Ai1BrowserApi = {
   agentAddress: () => ipcRenderer.invoke(Channels.agentAddress),
   agentTabCreated: (requestId, tabId) => ipcRenderer.invoke(Channels.agentTabCreated, requestId, tabId),
   setFindOpen: (guestId, open) => ipcRenderer.invoke(Channels.setFindOpen, guestId, open),
+  getZoom: (profileId, url) => ipcRenderer.invoke(Channels.getZoom, profileId, url),
+  setZoom: (profileId, url, percent) => ipcRenderer.invoke(Channels.setZoom, profileId, url, percent),
   onProfilesChanged: listen<Profile[]>(Channels.profilesChanged),
   onOpenTab: listen<OpenTabRequest>(Channels.openTab),
   onCreateAgentTab: listen<CreateAgentTabRequest>(Channels.createAgentTab),
@@ -41,6 +44,7 @@ const api: Ai1BrowserApi = {
   onCertificateError: listen<CertificateErrorEvent>(Channels.certificateError),
   onNotice: listen<string>(Channels.notice),
   onShortcut: listen<ShortcutEvent>(Channels.shortcut),
+  onZoomChanged: listen<ZoomChangedEvent>(Channels.zoomChanged),
 };
 
 export function preload(): void {

@@ -7,6 +7,7 @@ import { AgentTabState, CertificateErrorEvent } from "../common/browser-ipc";
 import { isLocalCertificateHost } from "../common/guest-policy";
 import { DEFAULT_PROFILE_ID, partitionFor, Profile } from "../common/profiles";
 import { BrowserShortcut } from "../common/shortcuts";
+import { nextZoom, zoomKey } from "../common/zoom";
 import { browserApi } from "./browser-api";
 import { FindBar } from "./find-bar";
 
@@ -60,11 +61,17 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
   // The title of the page (or of the error). The tab label adds the agent
   // number to it while an agent is connected.
   protected pageTitle = "New Tab";
+  // The zoom of the current page: the address of the last main-frame
+  // navigation, its `zoomKey`, and its level in percent.
+  protected zoomUrl: string | undefined;
+  protected pageZoomKey: string | undefined;
+  protected zoomPercent = 100;
   protected readonly toolbar = document.createElement("div");
   protected readonly backButton = document.createElement("button");
   protected readonly forwardButton = document.createElement("button");
   protected readonly reloadButton = document.createElement("button");
   protected readonly addressInput = document.createElement("input");
+  protected readonly zoomButton = document.createElement("button");
   protected readonly profileSelect = document.createElement("select");
   protected readonly agentButton = document.createElement("button");
   protected readonly devToolsButton = document.createElement("button");
@@ -138,6 +145,13 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     this.toDispose.push({
       dispose: browserApi().onCertificateError((event) => this.onCertificateError(event)),
     });
+    this.toDispose.push({
+      dispose: browserApi().onZoomChanged((event) => {
+        if (event.key === this.pageZoomKey) {
+          this.setZoomLevel(event.percent);
+        }
+      }),
+    });
   }
 
   storeState(): BrowserTabState {
@@ -164,6 +178,15 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     if (!this.webview) {
       this.createWebview(this.url);
     }
+  }
+
+  // Chromium keeps a zoom level for each host name in a session, with no
+  // port. Thus a tab on another port of the same host name can change the
+  // zoom of this page while this tab is hidden. Apply the level of this tab
+  // again when it becomes visible.
+  protected override onAfterShow(msg: Parameters<BaseWidget["onAfterShow"]>[0]): void {
+    super.onAfterShow(msg);
+    this.applyZoom();
   }
 
   protected override onActivateRequest(msg: Parameters<BaseWidget["onActivateRequest"]>[0]): void {
@@ -205,6 +228,15 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
       }
       case "focusAddress":
         this.focusAddress();
+        return;
+      case "zoomIn":
+        this.changeZoom(nextZoom(this.zoomPercent, 1));
+        return;
+      case "zoomOut":
+        this.changeZoom(nextZoom(this.zoomPercent, -1));
+        return;
+      case "zoomReset":
+        this.changeZoom(100);
         return;
       default:
         return;
@@ -336,6 +368,10 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
         this.navigate(this.addressInput.value);
       }
     });
+    this.zoomButton.className = "ai1-browser-zoom theia-button secondary";
+    this.zoomButton.title = "Reset the zoom to 100%";
+    this.zoomButton.hidden = true;
+    this.zoomButton.addEventListener("click", () => this.changeZoom(100));
     this.profileSelect.className = "ai1-browser-profile theia-select";
     this.profileSelect.title = "Profile of this tab";
     this.profileSelect.addEventListener("change", () => this.switchProfile(this.profileSelect.value));
@@ -344,6 +380,7 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
       this.forwardButton,
       this.reloadButton,
       this.addressInput,
+      this.zoomButton,
       this.profileSelect,
       this.agentButton,
       this.devToolsButton,
@@ -373,6 +410,7 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     webview.addEventListener("did-navigate", (event) => {
       this.findBar.close();
       this.onNavigated(event.url);
+      this.updateZoomForPage(event.url);
     });
     webview.addEventListener("found-in-page", (event) => this.findBar.showResult(event.result));
     webview.addEventListener("did-navigate-in-page", (event) => {
@@ -402,11 +440,19 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     this.webview = webview;
     this.webviewReady = false;
     this.pendingUrl = undefined;
+    this.zoomUrl = undefined;
+    this.pageZoomKey = undefined;
+    this.setZoomLevel(100);
     this.viewport.insertBefore(webview, this.errorPanel);
   }
 
   protected onDomReady(webview: WebviewTag): void {
+    const firstReady = !this.webviewReady;
     this.webviewReady = true;
+    // A navigation before the first `dom-ready` cannot set the zoom.
+    if (firstReady) {
+      this.applyZoom();
+    }
     if (this.pendingUrl !== undefined) {
       const url = this.pendingUrl;
       this.pendingUrl = undefined;
@@ -434,6 +480,58 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     this.backButton.disabled = !this.webview?.canGoBack();
     this.forwardButton.disabled = !this.webview?.canGoForward();
     this.hideError();
+  }
+
+  // Called after each main-frame navigation, not after an in-page
+  // navigation. A page with a new `zoomKey` gets its saved level. A page
+  // with the same key gets the current level again, because a new document
+  // can start at the default level.
+  protected updateZoomForPage(url: string): void {
+    const key = zoomKey(this.profile, url);
+    this.zoomUrl = url;
+    if (key === this.pageZoomKey) {
+      this.applyZoom();
+      return;
+    }
+    this.pageZoomKey = key;
+    if (key === undefined) {
+      this.setZoomLevel(100);
+      return;
+    }
+    browserApi()
+      .getZoom(this.profile, url)
+      .then((percent) => {
+        // Ignore a level that comes after the next navigation.
+        if (this.pageZoomKey === key) {
+          this.setZoomLevel(percent);
+        }
+      })
+      .catch(() => undefined);
+  }
+
+  // Saves the new level. The main process sends it back to all tabs with
+  // the same profile and host (`zoomChanged`). A page with no host has no
+  // zoom.
+  protected changeZoom(percent: number): void {
+    if (this.pageZoomKey === undefined || this.zoomUrl === undefined) {
+      return;
+    }
+    browserApi()
+      .setZoom(this.profile, this.zoomUrl, percent)
+      .catch((error) => this.showMessage(String(error)));
+  }
+
+  protected setZoomLevel(percent: number): void {
+    this.zoomPercent = percent;
+    this.zoomButton.textContent = `${percent}%`;
+    this.zoomButton.hidden = percent === 100;
+    this.applyZoom();
+  }
+
+  protected applyZoom(): void {
+    if (this.webview && this.webviewReady) {
+      this.webview.setZoomFactor(this.zoomPercent / 100);
+    }
   }
 
   protected onCertificateError(event: CertificateErrorEvent): void {

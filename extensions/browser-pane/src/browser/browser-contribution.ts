@@ -23,6 +23,9 @@ export const BrowserCommands = {
   FIND_PREVIOUS: { id: "ai1.browser.findPrevious" },
   FOCUS_ADDRESS: { id: "ai1.browser.focusAddress" },
   CLOSE_FIND: { id: "ai1.browser.closeFind" },
+  ZOOM_IN: { id: "ai1.browser.zoomIn", label: "Browser: Zoom In" },
+  ZOOM_OUT: { id: "ai1.browser.zoomOut", label: "Browser: Zoom Out" },
+  ZOOM_RESET: { id: "ai1.browser.zoomReset", label: "Browser: Reset Zoom" },
 } satisfies Record<string, Command>;
 
 // The shortcuts that are also Theia keybindings. They work when the focus
@@ -31,34 +34,66 @@ export const BrowserCommands = {
 // `when` context keys are local keys of the tab, which give these
 // keybindings priority (see `BROWSER_FOCUS_CONTEXT`). Later tasks add their
 // shortcuts to this list.
-const SHORTCUT_COMMANDS: { command: Command; shortcut: BrowserShortcut; keybinding: string; when: string }[] =
-  [
-    { command: BrowserCommands.FIND, shortcut: "find", keybinding: "ctrlcmd+f", when: BROWSER_FOCUS_CONTEXT },
-    {
-      command: BrowserCommands.FIND_NEXT,
-      shortcut: "findNext",
-      keybinding: "ctrlcmd+g",
-      when: BROWSER_FOCUS_CONTEXT,
-    },
-    {
-      command: BrowserCommands.FIND_PREVIOUS,
-      shortcut: "findPrevious",
-      keybinding: "ctrlcmd+shift+g",
-      when: BROWSER_FOCUS_CONTEXT,
-    },
-    {
-      command: BrowserCommands.FOCUS_ADDRESS,
-      shortcut: "focusAddress",
-      keybinding: "ctrlcmd+l",
-      when: BROWSER_FOCUS_CONTEXT,
-    },
-    {
-      command: BrowserCommands.CLOSE_FIND,
-      shortcut: "closeFind",
-      keybinding: "esc",
-      when: BROWSER_FIND_FOCUS_CONTEXT,
-    },
-  ];
+//
+// The zoom keybindings include all keys of the Theia window zoom
+// (`view.zoomIn`, `view.zoomOut`, and `view.resetZoom`), so the Theia
+// window zoom does not run while a browser tab has the focus. "+" needs
+// Shift on many keyboards, so ⇧⌘= also zooms in.
+const SHORTCUT_COMMANDS: {
+  command: Command;
+  shortcut: BrowserShortcut;
+  keybindings: string[];
+  when: string;
+}[] = [
+  {
+    command: BrowserCommands.FIND,
+    shortcut: "find",
+    keybindings: ["ctrlcmd+f"],
+    when: BROWSER_FOCUS_CONTEXT,
+  },
+  {
+    command: BrowserCommands.FIND_NEXT,
+    shortcut: "findNext",
+    keybindings: ["ctrlcmd+g"],
+    when: BROWSER_FOCUS_CONTEXT,
+  },
+  {
+    command: BrowserCommands.FIND_PREVIOUS,
+    shortcut: "findPrevious",
+    keybindings: ["ctrlcmd+shift+g"],
+    when: BROWSER_FOCUS_CONTEXT,
+  },
+  {
+    command: BrowserCommands.FOCUS_ADDRESS,
+    shortcut: "focusAddress",
+    keybindings: ["ctrlcmd+l"],
+    when: BROWSER_FOCUS_CONTEXT,
+  },
+  {
+    command: BrowserCommands.CLOSE_FIND,
+    shortcut: "closeFind",
+    keybindings: ["esc"],
+    when: BROWSER_FIND_FOCUS_CONTEXT,
+  },
+  {
+    command: BrowserCommands.ZOOM_IN,
+    shortcut: "zoomIn",
+    keybindings: ["ctrlcmd+=", "ctrlcmd+shift+=", "ctrlcmd+add"],
+    when: BROWSER_FOCUS_CONTEXT,
+  },
+  {
+    command: BrowserCommands.ZOOM_OUT,
+    shortcut: "zoomOut",
+    keybindings: ["ctrlcmd+-", "ctrlcmd+subtract"],
+    when: BROWSER_FOCUS_CONTEXT,
+  },
+  {
+    command: BrowserCommands.ZOOM_RESET,
+    shortcut: "zoomReset",
+    keybindings: ["ctrlcmd+0"],
+    when: BROWSER_FOCUS_CONTEXT,
+  },
+];
 
 // Removes the prefix that Electron adds to an error from `ipcMain.handle`.
 function errorText(error: unknown): string {
@@ -118,8 +153,10 @@ export class BrowserContribution
   }
 
   registerKeybindings(keybindings: KeybindingRegistry): void {
-    for (const { command, keybinding, when } of SHORTCUT_COMMANDS) {
-      keybindings.registerKeybinding({ command: command.id, keybinding, when });
+    for (const { command, keybindings: keys, when } of SHORTCUT_COMMANDS) {
+      for (const keybinding of keys) {
+        keybindings.registerKeybinding({ command: command.id, keybinding, when });
+      }
     }
   }
 
