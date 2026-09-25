@@ -3,6 +3,18 @@ import { ViewportSettings } from "../common/viewport";
 import { SerialQueue } from "./serial-queue";
 
 export const DEVTOOLS_OPEN_ERROR = "Close DevTools to use viewport sizes.";
+export const PAGE_NOT_ANSWERING_ERROR = "The page does not answer. Try again when the page works.";
+const RELEASED_ERROR = "The viewport size was cleared for an agent.";
+// The time that the agent handover waits for the page. After it, AI1
+// detaches its debugger at once.
+export const RELEASE_TIMEOUT_MS = 2000;
+// The time that one Emulation command waits for the page.
+export const COMMAND_TIMEOUT_MS = 5000;
+
+export interface EmulationLimits {
+  releaseTimeoutMs: number;
+  commandTimeoutMs: number;
+}
 
 // The part of `webContents.debugger` that the emulation uses. Electron gives
 // one debugger client for each page: the agent proxy uses the same object.
@@ -25,10 +37,18 @@ export class ViewportEmulation {
   // `release` does nothing.
   protected generation = 0;
   protected currentUserAgent: string | undefined;
+  // Each command also waits on this promise. A forced detach rejects it, so
+  // a command that the page does not answer cannot block the queue. The
+  // code does not rely on Electron to reject a pending command on detach.
+  protected abort = ViewportEmulation.newAbort();
 
   constructor(
     protected readonly debug: EmulationDebugger,
     protected readonly defaultUserAgent: () => string,
+    protected readonly limits: EmulationLimits = {
+      releaseTimeoutMs: RELEASE_TIMEOUT_MS,
+      commandTimeoutMs: COMMAND_TIMEOUT_MS,
+    },
   ) {
     // Electron sends "detach" for each detach of the debugger: also when the
     // agent proxy detaches it before it attaches its own session. After
@@ -62,10 +82,63 @@ export class ViewportEmulation {
 
   // The agent handover: clears the overrides and detaches the debugger, if
   // this emulation attached it. It waits for a running `apply`, and an
-  // `apply` that waits in the queue does nothing.
-  release(): Promise<void> {
+  // `apply` that waits in the queue does nothing. A page that does not
+  // answer (for example, a busy script) cannot stop the agent: after
+  // `releaseTimeoutMs`, the emulation detaches at once and stops its
+  // running commands.
+  async release(): Promise<void> {
     this.generation++;
-    return this.queue.run(() => this.clearAndDetach());
+    const done = this.queue.run(() => this.clearAndDetach());
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const limit = new Promise<"timeout">((resolve) => {
+      timer = setTimeout(() => resolve("timeout"), this.limits.releaseTimeoutMs);
+    });
+    try {
+      if ((await Promise.race([done, limit])) === "timeout") {
+        this.forceDetach();
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  protected static newAbort(): { promise: Promise<never>; reject: (error: Error) => void } {
+    let reject!: (error: Error) => void;
+    const promise = new Promise<never>((_resolve, rejectPromise) => (reject = rejectPromise));
+    // Nothing waits on this promise while no command runs.
+    promise.catch(() => undefined);
+    return { promise, reject };
+  }
+
+  // Stops the running commands and detaches the debugger, if this
+  // emulation owns the session.
+  protected forceDetach(): void {
+    const abort = this.abort;
+    this.abort = ViewportEmulation.newAbort();
+    abort.reject(new Error(RELEASED_ERROR));
+    if (this.owned && this.debug.isAttached()) {
+      try {
+        this.debug.detach();
+      } catch {
+        // The page is gone.
+      }
+    }
+    this.owned = false;
+    this.currentUserAgent = undefined;
+  }
+
+  // Sends one command. It fails when the page does not answer in
+  // `commandTimeoutMs`, or when a forced detach stops it.
+  protected async send(method: string, params?: object): Promise<unknown> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const limit = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(PAGE_NOT_ANSWERING_ERROR)), this.limits.commandTimeoutMs);
+    });
+    try {
+      return await Promise.race([this.debug.sendCommand(method, params), limit, this.abort.promise]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   protected async set(settings: ViewportSettings): Promise<void> {
@@ -80,17 +153,17 @@ export class ViewportEmulation {
       this.owned = true;
     }
     const { width, height, deviceScaleFactor, mobile } = settings;
-    await this.debug.sendCommand("Emulation.setDeviceMetricsOverride", {
+    await this.send("Emulation.setDeviceMetricsOverride", {
       width,
       height,
       deviceScaleFactor,
       mobile,
     });
-    await this.debug.sendCommand("Emulation.setTouchEmulationEnabled", {
+    await this.send("Emulation.setTouchEmulationEnabled", {
       enabled: mobile,
       maxTouchPoints: mobile ? 5 : 1,
     });
-    await this.debug.sendCommand("Emulation.setUserAgentOverride", {
+    await this.send("Emulation.setUserAgentOverride", {
       userAgent: settings.userAgent ?? this.defaultUserAgent(),
     });
     this.currentUserAgent = settings.userAgent;
@@ -102,9 +175,9 @@ export class ViewportEmulation {
       return;
     }
     try {
-      await this.debug.sendCommand("Emulation.clearDeviceMetricsOverride");
-      await this.debug.sendCommand("Emulation.setTouchEmulationEnabled", { enabled: false });
-      await this.debug.sendCommand("Emulation.setUserAgentOverride", { userAgent: this.defaultUserAgent() });
+      await this.send("Emulation.clearDeviceMetricsOverride");
+      await this.send("Emulation.setTouchEmulationEnabled", { enabled: false });
+      await this.send("Emulation.setUserAgentOverride", { userAgent: this.defaultUserAgent() });
     } catch {
       // The page is gone or navigates. The detach below clears the
       // overrides of the session too.

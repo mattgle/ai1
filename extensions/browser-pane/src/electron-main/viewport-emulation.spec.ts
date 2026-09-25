@@ -1,5 +1,12 @@
 import * as assert from "node:assert";
-import { DEVTOOLS_OPEN_ERROR, ViewportEmulation, ViewportEmulations } from "./viewport-emulation";
+import {
+  COMMAND_TIMEOUT_MS,
+  DEVTOOLS_OPEN_ERROR,
+  PAGE_NOT_ANSWERING_ERROR,
+  RELEASE_TIMEOUT_MS,
+  ViewportEmulation,
+  ViewportEmulations,
+} from "./viewport-emulation";
 
 type Step = { kind: "attach"; version: string } | { kind: "detach" } | { kind: "command"; method: string };
 
@@ -10,6 +17,9 @@ class FakeDebugger {
   params: Record<string, unknown> = {};
   // When set, the next command waits until the test calls `releaseAll`.
   holdNext = false;
+  // The commands that never get an answer, as on a hung page. The fake
+  // `detach()` does not reject them.
+  hang = new Set<string>();
   private waiting: (() => void)[] = [];
   private detachListeners: (() => void)[] = [];
 
@@ -37,6 +47,9 @@ class FakeDebugger {
       throw new Error("The debugger is not attached.");
     }
     this.params[method] = params;
+    if (this.hang.has(method)) {
+      return new Promise(() => undefined);
+    }
     if (this.holdNext) {
       this.holdNext = false;
       await new Promise<void>((resolve) => this.waiting.push(resolve));
@@ -195,6 +208,91 @@ describe("ViewportEmulation", () => {
     await emulation.release();
     assert.deepStrictEqual(debug.steps, []);
     assert.strictEqual(debug.attached, true);
+  });
+});
+
+describe("ViewportEmulation on a page that does not answer", () => {
+  const LIMITS = { releaseTimeoutMs: 20, commandTimeoutMs: 40 };
+  let debug: FakeDebugger;
+  let emulation: ViewportEmulation;
+
+  beforeEach(() => {
+    debug = new FakeDebugger();
+    emulation = new ViewportEmulation(debug, () => "Default UA", LIMITS);
+  });
+
+  it("uses a release limit of 2 seconds and a command limit by default", () => {
+    assert.strictEqual(RELEASE_TIMEOUT_MS, 2000);
+    assert.ok(COMMAND_TIMEOUT_MS >= RELEASE_TIMEOUT_MS);
+  });
+
+  it("release detaches after its limit while an apply waits for a command that never answers", async () => {
+    debug.hang.add("Emulation.setDeviceMetricsOverride");
+    const pending = emulation.apply(PHONE);
+    const outcome = pending.then(
+      () => "resolved",
+      (error: Error) => error.message,
+    );
+    await flush();
+    const started = Date.now();
+    await emulation.release();
+    assert.ok(Date.now() - started < LIMITS.commandTimeoutMs, "release must not wait for the command limit");
+    assert.strictEqual(debug.attached, false);
+    assert.strictEqual(debug.names().at(-1), "detach");
+    assert.notStrictEqual(await outcome, "resolved");
+  });
+
+  it("release detaches after its limit when a clear command never answers", async () => {
+    await emulation.apply(PHONE);
+    debug.hang.add("Emulation.clearDeviceMetricsOverride");
+    await emulation.release();
+    assert.strictEqual(debug.attached, false);
+    assert.strictEqual(debug.names().at(-1), "detach");
+  });
+
+  it("runs a later apply and release after a forced detach", async () => {
+    debug.hang.add("Emulation.setDeviceMetricsOverride");
+    emulation.apply(PHONE).catch(() => undefined);
+    await flush();
+    await emulation.release();
+    debug.hang.clear();
+    debug.steps = [];
+    await emulation.apply(CUSTOM);
+    assert.deepStrictEqual(debug.names(), [
+      "attach",
+      "Emulation.setDeviceMetricsOverride",
+      "Emulation.setTouchEmulationEnabled",
+      "Emulation.setUserAgentOverride",
+    ]);
+    await emulation.release();
+    assert.strictEqual(debug.attached, false);
+  });
+
+  it("does not detach after the limit when it does not own the session", async () => {
+    await emulation.apply(PHONE);
+    debug.hang.add("Emulation.clearDeviceMetricsOverride");
+    const released = emulation.release();
+    await flush();
+    // The agent proxy detaches the debugger and attaches its own session.
+    debug.detach();
+    debug.attach("1.3");
+    debug.steps = [];
+    await released;
+    assert.deepStrictEqual(debug.steps, []);
+    assert.strictEqual(debug.attached, true);
+  });
+
+  it("gives an error for an apply whose command does not answer, and the queue goes on", async () => {
+    debug.hang.add("Emulation.setTouchEmulationEnabled");
+    await assert.rejects(emulation.apply(PHONE), { message: PAGE_NOT_ANSWERING_ERROR });
+    debug.hang.clear();
+    debug.steps = [];
+    await emulation.apply(CUSTOM);
+    assert.deepStrictEqual(debug.names(), [
+      "Emulation.setDeviceMetricsOverride",
+      "Emulation.setTouchEmulationEnabled",
+      "Emulation.setUserAgentOverride",
+    ]);
   });
 });
 

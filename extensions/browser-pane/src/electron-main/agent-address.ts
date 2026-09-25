@@ -54,8 +54,9 @@ export class AgentAddress {
       },
       // Electron allows one debugger client for each page. The viewport
       // emulation clears its overrides and detaches before the proxy
-      // attaches. The proxy has no client at this time, so it ignores the
-      // "detach" event of this detach.
+      // attaches. On a page that does not answer, it detaches after at most
+      // `RELEASE_TIMEOUT_MS`. The proxy has no client at this time, so it
+      // ignores the "detach" event of this detach.
       beforeAgentAttach: (guestId) => this.viewports.release(guestId),
       stateChanged: () => this.sendState(),
     });
