@@ -126,6 +126,15 @@ export class BrowserFixtureServer {
       case "/button":
         html(page("Button", `<button id="go" onclick="document.title='Clicked'">Go</button>`));
         return;
+      case "/counter":
+        html(
+          page(
+            "count 0",
+            "",
+            "var ai1Count = 0; setInterval(function () { ai1Count += 1; document.title = 'count ' + ai1Count; }, 200);",
+          ),
+        );
+        return;
       default:
         html(page(request.url?.startsWith("/flood-tab") ? "Flood tab" : "Start"));
     }
