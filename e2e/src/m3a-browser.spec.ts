@@ -370,6 +370,38 @@ test("the Ports view works again after a close and a reopen, and its badge still
   }
 });
 
+test('"Stop Server…" stops a workspace server and its row goes away', async () => {
+  const server: ChildProcess = spawn(
+    process.execPath,
+    [
+      "-e",
+      "require('http').createServer((q, s) => s.end('ok')).listen(0, '127.0.0.1', function () { process.stdout.write(String(this.address().port)) })",
+    ],
+    { cwd: path.join(app.workspace.path, "dirty-repo"), stdio: ["ignore", "pipe", "inherit"] },
+  );
+  try {
+    const port = await new Promise<string>((resolve) =>
+      server.stdout!.once("data", (data) => resolve(String(data).trim())),
+    );
+    const exited = new Promise<void>((resolve) => server.once("exit", () => resolve()));
+    const row = app.page
+      .locator("#ai1-ports .ai1-ports-group", { hasText: "dirty-repo" })
+      .locator(".ai1-ports-row", { hasText: `:${port}` });
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    await row.click({ button: "right" });
+    await app.page.locator(".lm-Menu-item", { hasText: "Stop Server" }).click();
+    // The confirmation is a notification, not a dialog: click its "Stop
+    // Server" action to confirm. Product code never answers this itself.
+    await app.page
+      .locator(".theia-notification-toasts.open .theia-button", { hasText: "Stop Server" })
+      .click();
+    await exited;
+    await expect(row).toHaveCount(0, { timeout: 15_000 });
+  } finally {
+    server.kill();
+  }
+});
+
 test("the agent address refuses a wrong secret", async () => {
   const response = await fetch(`http://127.0.0.1:${agentPort}/${"x".repeat(43)}/json/version`);
   expect(response.status).toBe(404);

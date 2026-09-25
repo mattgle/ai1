@@ -4,7 +4,7 @@ import { inject, injectable, postConstruct } from "@theia/core/shared/inversify"
 import * as React from "@theia/core/shared/react";
 import { WorkspaceService } from "@theia/workspace/lib/browser";
 import { PortRow } from "../common/ports";
-import { PortsScan, PortsService } from "../common/ports-protocol";
+import { PortsScan, PortsService, StopServerResult } from "../common/ports-protocol";
 import { DEFAULT_PROFILE_ID } from "../common/profiles";
 import { BrowserTabs } from "./browser-tabs";
 
@@ -54,14 +54,28 @@ export class PortsWidget extends ReactWidget {
   }
 
   async refresh(): Promise<void> {
-    const roots = (await this.workspace.roots).map((root) => root.resource.path.fsPath());
-    const scan = await this.ports.scan(roots);
+    const scan = await this.ports.scan(await this.rootPaths());
     if (this.isDisposed) {
       return;
     }
     this.scanResult = scan;
     this.scanEmitter.fire(scan);
     this.update();
+  }
+
+  // Stops the process of `row`. The back end checks again that it still
+  // listens on this port, in a workspace group, and owned by the current
+  // user, before it sends the signal. The view scans again after a stop.
+  async stopServer(row: PortRow): Promise<StopServerResult> {
+    const result = await this.ports.stopServer(await this.rootPaths(), row.pid, row.port);
+    if (result.ok) {
+      await this.refresh();
+    }
+    return result;
+  }
+
+  protected async rootPaths(): Promise<string[]> {
+    return (await this.workspace.roots).map((root) => root.resource.path.fsPath());
   }
 
   protected override onAfterShow(msg: Message): void {
@@ -106,7 +120,7 @@ export class PortsWidget extends ReactWidget {
             <div className="ai1-ports-group-name" title={group.path}>
               {group.name}
             </div>
-            {group.rows.map((row) => this.renderRow(row))}
+            {group.rows.map((row) => this.renderRow(row, true))}
           </div>
         ))}
         {scan.other.length > 0 && (
@@ -121,14 +135,14 @@ export class PortsWidget extends ReactWidget {
               <span className={`codicon codicon-chevron-${this.otherOpen ? "down" : "right"}`} /> Other (
               {scan.other.length})
             </div>
-            {this.otherOpen && scan.other.map((row) => this.renderRow(row))}
+            {this.otherOpen && scan.other.map((row) => this.renderRow(row, false))}
           </div>
         )}
       </div>
     );
   }
 
-  protected renderRow(row: PortRow): React.ReactNode {
+  protected renderRow(row: PortRow, inWorkspaceGroup: boolean): React.ReactNode {
     return (
       <div
         className="ai1-ports-row"
@@ -140,7 +154,7 @@ export class PortsWidget extends ReactWidget {
           this.contextMenu.render({
             menuPath: PORTS_ROW_MENU,
             anchor: event.nativeEvent,
-            args: [row],
+            args: [row, inWorkspaceGroup],
             context: event.currentTarget,
           });
         }}
