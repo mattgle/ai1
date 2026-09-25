@@ -1,5 +1,6 @@
 import { Profile } from "./profiles";
 import { BrowserShortcut } from "./shortcuts";
+import { ViewportChoice } from "./viewport";
 
 // The name of the preload API on `window`.
 export const AI1_BROWSER_API = "electronAi1Browser";
@@ -21,6 +22,7 @@ export const Channels = {
   setFindOpen: "ai1-browser:set-find-open",
   getZoom: "ai1-browser:get-zoom",
   setZoom: "ai1-browser:set-zoom",
+  setViewport: "ai1-browser:set-viewport",
 
   profilesChanged: "ai1-browser:profiles-changed",
   openTab: "ai1-browser:open-tab",
@@ -77,6 +79,8 @@ export interface AgentAddressConfig {
 
 export type AgentAddressResult = { ok: true } | { ok: false; error: string };
 
+export type SetViewportResult = { ok: true } | { ok: false; error: string };
+
 export interface Ai1BrowserApi {
   listProfiles(): Promise<Profile[]>;
   addProfile(name: string): Promise<Profile>;
@@ -99,6 +103,9 @@ export interface Ai1BrowserApi {
   // Saves the zoom level of the profile and host of `url` and sends
   // `zoomChanged` to all windows. It does nothing for a page with no host.
   setZoom(profileId: string, url: string, percent: number): Promise<void>;
+  // Sets the viewport size of this guest. The page loads again when its
+  // user agent changes.
+  setViewport(guestId: number, choice: ViewportChoice): Promise<SetViewportResult>;
   onProfilesChanged(listener: (profiles: Profile[]) => void): () => void;
   onOpenTab(listener: (request: OpenTabRequest) => void): () => void;
   onCreateAgentTab(listener: (request: CreateAgentTabRequest) => void): () => void;

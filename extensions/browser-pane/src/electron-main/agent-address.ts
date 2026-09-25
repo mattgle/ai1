@@ -16,6 +16,7 @@ import { GuestPolicies } from "./guest-policies";
 import { GuestRegistry } from "./guest-registry";
 import { OnePageProxy } from "./one-page-proxy";
 import { SerialQueue } from "./serial-queue";
+import { ViewportEmulations } from "./viewport-emulation";
 
 @injectable()
 export class AgentAddress {
@@ -24,6 +25,9 @@ export class AgentAddress {
 
   @inject(GuestPolicies)
   protected readonly guestPolicies!: GuestPolicies;
+
+  @inject(ViewportEmulations)
+  protected readonly viewports!: ViewportEmulations;
 
   tabs!: AgentTabs;
   protected server: AgentAddressServer | undefined;
@@ -48,8 +52,11 @@ export class AgentAddress {
         const guest = webContents.fromId(guestId);
         return guest !== undefined && !guest.isDestroyed();
       },
-      // Nothing to clear yet.
-      beforeAgentAttach: async () => undefined,
+      // Electron allows one debugger client for each page. The viewport
+      // emulation clears its overrides and detaches before the proxy
+      // attaches. The proxy has no client at this time, so it ignores the
+      // "detach" event of this detach.
+      beforeAgentAttach: (guestId) => this.viewports.release(guestId),
       stateChanged: () => this.sendState(),
     });
   }
@@ -61,6 +68,11 @@ export class AgentAddress {
         this.lastFocusedWindow = window.webContents.id;
       }
     });
+  }
+
+  // True while an agent is connected to this guest.
+  agentConnected(guestId: number): boolean {
+    return this.proxies.isConnected(guestId);
   }
 
   address(): string | undefined {

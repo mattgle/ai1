@@ -26,6 +26,7 @@ export const BrowserCommands = {
   ZOOM_IN: { id: "ai1.browser.zoomIn", label: "Browser: Zoom In" },
   ZOOM_OUT: { id: "ai1.browser.zoomOut", label: "Browser: Zoom Out" },
   ZOOM_RESET: { id: "ai1.browser.zoomReset", label: "Browser: Reset Zoom" },
+  SET_VIEWPORT: { id: "ai1.browser.setViewport", label: "Browser: Set Viewport…" },
 } satisfies Record<string, Command>;
 
 // The shortcuts that are also Theia keybindings. They work when the focus
@@ -144,6 +145,10 @@ export class BrowserContribution
       },
     });
     registry.registerCommand(BrowserCommands.MANAGE_PROFILES, { execute: () => this.manageProfiles() });
+    registry.registerCommand(BrowserCommands.SET_VIEWPORT, {
+      isEnabled: () => this.currentBrowser()?.agentConnected === false,
+      execute: () => this.setViewport(),
+    });
     for (const { command, shortcut } of SHORTCUT_COMMANDS) {
       registry.registerCommand(command, {
         isEnabled: () => this.currentBrowser() !== undefined,
@@ -170,6 +175,26 @@ export class BrowserContribution
     }
     const current = this.shell.currentWidget;
     return current instanceof BrowserWidget ? current : undefined;
+  }
+
+  // The same entries as the viewport menu of the tab, as a quick pick.
+  protected async setViewport(): Promise<void> {
+    const browser = this.currentBrowser();
+    if (!browser || browser.agentConnected) {
+      return;
+    }
+    const entries = browser.viewportEntries().filter((entry) => entry.enabled);
+    const picked = await this.quickPick.show(
+      entries.map((entry) => ({
+        id: entry.id,
+        label: entry.label,
+        description: entry.checked ? "Current" : undefined,
+      })),
+      { placeholder: "Choose the viewport size of this tab" },
+    );
+    if (picked) {
+      await browser.chooseViewportEntry(picked.id);
+    }
   }
 
   protected async pickProfile(placeholder: string, profiles: Profile[]): Promise<Profile | undefined> {

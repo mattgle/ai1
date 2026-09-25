@@ -5,6 +5,7 @@
 }
 
 .ai1-browser-toolbar {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -73,6 +74,74 @@
   height: 100%;
 }
 
+/* A viewport size: the page has a fixed CSS size in the center of the tab,
+   with the size above it. The tab scrolls when the page is larger. */
+.ai1-browser-viewport.ai1-browser-emulated {
+  display: flex;
+  flex-direction: column;
+  align-items: safe center;
+  justify-content: safe center;
+  gap: 6px;
+  padding: 12px;
+  overflow: auto;
+  background: var(--theia-editor-background);
+}
+
+.ai1-browser-emulated .ai1-browser-webview {
+  position: static;
+  flex: none;
+  box-sizing: content-box;
+  border: 1px solid var(--theia-panel-border);
+}
+
+.ai1-browser-viewport-label {
+  flex: none;
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+}
+
+.ai1-browser-viewport-button.ai1-browser-viewport-active {
+  color: var(--theia-focusBorder);
+}
+
+.ai1-browser-viewport-menu {
+  position: absolute;
+  top: 100%;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  padding: 4px 0;
+  color: var(--theia-menu-foreground);
+  background: var(--theia-menu-background);
+  border: 1px solid var(--theia-menu-border, var(--theia-panel-border));
+  box-shadow: 0 2px 8px var(--theia-widget-shadow);
+}
+
+.ai1-browser-viewport-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 12px 3px 6px;
+  text-align: left;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.ai1-browser-viewport-item:hover:not(:disabled),
+.ai1-browser-viewport-item:focus {
+  color: var(--theia-menu-selectionForeground);
+  background: var(--theia-menu-selectionBackground);
+  outline: none;
+}
+
+.ai1-browser-viewport-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .ai1-browser-error {
   position: absolute;
   inset: 0;
@@ -84,6 +153,8 @@
 .ai1-browser-error[hidden],
 .ai1-browser-find[hidden],
 .ai1-browser-zoom[hidden],
+.ai1-browser-viewport-label[hidden],
+.ai1-browser-viewport-menu[hidden],
 .ai1-browser-message[hidden] {
   display: none;
 }

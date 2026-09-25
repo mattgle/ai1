@@ -389,3 +389,43 @@ test("the zoom keys zoom the browser tab and not the IDE while a browser tab has
   await app.page.keyboard.press("Meta+Digit0");
   await expect.poll(async () => (await ideZoom()).level).toBe(ide.level);
 });
+
+test("Set Viewport gives the page the iPhone 15 size with touch, and an agent connection clears it", async () => {
+  const index = await browserCount();
+  await openBrowserTab(app, `${fixture.url}responsive`);
+  const tab = mainTab("Responsive").and(app.page.locator(".lm-mod-current"));
+  await expect(tab).toBeVisible();
+  const tabId = await tab.getAttribute("id");
+  const givenTab = app.page.locator(`[id="${tabId}"]`);
+  const browserNode = app.page.locator(".ai1-browser").nth(index);
+  const viewportButton = browserNode.locator(".ai1-browser-viewport-button");
+  const label = browserNode.locator(".ai1-browser-viewport-label");
+  await expect(label).toBeHidden();
+
+  await app.quickCommandPalette.trigger("Browser: Set Viewport…", "iPhone 15 (393 × 852)");
+  await expect(label).toHaveText("393 × 852");
+  await expect(viewportButton).toHaveAttribute("title", "Viewport: iPhone 15 (393 × 852)");
+  // The page loads again with the new user agent.
+  await expect.poll(() => runInTab<string>(index, "navigator.userAgent")).toContain("iPhone OS 17_0");
+  await expect.poll(() => runInTab<number>(index, "window.innerWidth")).toBe(393);
+  expect(await runInTab<number>(index, "navigator.maxTouchPoints")).toBeGreaterThan(0);
+
+  await browserNode.locator(".ai1-browser-give-to-agent").click();
+  await expect(givenTab).toHaveClass(/ai1-browser-agent-waiting/);
+  const browser = await connectAgent();
+  try {
+    expect(pagesOf(browser)).toHaveLength(1);
+    const page = pagesOf(browser)[0];
+    await expect(page).toHaveTitle("Responsive");
+    await expect(givenTab).toHaveClass(/ai1-browser-agent-connected/);
+    await expect.poll(() => page.evaluate(() => window.innerWidth)).not.toBe(393);
+    await expect(viewportButton).toBeDisabled();
+    await expect(viewportButton).toHaveAttribute("title", "Viewport: Responsive (off)");
+    await expect(label).toBeHidden();
+  } finally {
+    await browser.close();
+  }
+  await expect(givenTab).not.toHaveClass(/ai1-browser-agent/);
+  await expect(viewportButton).toBeEnabled();
+  await expect(viewportButton).toHaveAttribute("title", "Viewport: Responsive (off)");
+});

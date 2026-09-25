@@ -8,10 +8,12 @@ import { Ai1ElectronMainApplication } from "./ai1-electron-main-application";
 import { BrowserMainContribution } from "./browser-main-contribution";
 import { GuestPolicies } from "./guest-policies";
 import { GuestRegistry } from "./guest-registry";
+import { ViewportEmulations } from "./viewport-emulation";
 
 export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
   bind(GuestPolicies).toSelf().inSingletonScope();
   bind(GuestRegistry).toSelf().inSingletonScope();
+  bind(ViewportEmulations).toSelf().inSingletonScope();
   bind(AgentAddress).toSelf().inSingletonScope();
   bind(Ai1ElectronMainApplication).toSelf().inSingletonScope();
   rebind(ElectronMainApplication).toService(Ai1ElectronMainApplication);

@@ -37,6 +37,7 @@ const api: Ai1BrowserApi = {
   setFindOpen: (guestId, open) => ipcRenderer.invoke(Channels.setFindOpen, guestId, open),
   getZoom: (profileId, url) => ipcRenderer.invoke(Channels.getZoom, profileId, url),
   setZoom: (profileId, url, percent) => ipcRenderer.invoke(Channels.setZoom, profileId, url, percent),
+  setViewport: (guestId, choice) => ipcRenderer.invoke(Channels.setViewport, guestId, choice),
   onProfilesChanged: listen<Profile[]>(Channels.profilesChanged),
   onOpenTab: listen<OpenTabRequest>(Channels.openTab),
   onCreateAgentTab: listen<CreateAgentTabRequest>(Channels.createAgentTab),

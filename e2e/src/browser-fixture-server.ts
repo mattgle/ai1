@@ -126,6 +126,13 @@ export class BrowserFixtureServer {
       case "/button":
         html(page("Button", `<button id="go" onclick="document.title='Clicked'">Go</button>`));
         return;
+      case "/responsive":
+        // A mobile page without this tag has a layout width of 980 pixels.
+        html(
+          `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">` +
+            `<title>Responsive</title></head><body><p>Responsive</p></body></html>`,
+        );
+        return;
       case "/apples":
         html(page("Apples", "<p>apple</p><p>An apple a day</p><p>Green apple</p>"));
         return;

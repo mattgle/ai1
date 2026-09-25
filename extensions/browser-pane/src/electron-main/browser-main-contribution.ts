@@ -5,12 +5,14 @@ import {
 } from "@theia/core/lib/electron-main/electron-main-application";
 import { inject, injectable } from "@theia/core/shared/inversify";
 import * as path from "node:path";
-import { AgentAddressConfig, Channels, ZoomChangedEvent } from "../common/browser-ipc";
+import { AgentAddressConfig, Channels, SetViewportResult, ZoomChangedEvent } from "../common/browser-ipc";
+import { resolveViewport, ViewportChoice } from "../common/viewport";
 import { zoomKey } from "../common/zoom";
 import { AgentAddress } from "./agent-address";
 import { GuestPolicies } from "./guest-policies";
 import { GuestRegistry } from "./guest-registry";
 import { ProfileStore } from "./profile-store";
+import { ViewportEmulation, ViewportEmulations } from "./viewport-emulation";
 import { ZoomStore } from "./zoom-store";
 
 @injectable()
@@ -23,6 +25,9 @@ export class BrowserMainContribution implements ElectronMainApplicationContribut
 
   @inject(AgentAddress)
   protected readonly agentAddress!: AgentAddress;
+
+  @inject(ViewportEmulations)
+  protected readonly viewports!: ViewportEmulations;
 
   protected store!: ProfileStore;
   protected zoomStore!: ZoomStore;
@@ -106,9 +111,48 @@ export class BrowserMainContribution implements ElectronMainApplicationContribut
       const payload: ZoomChangedEvent = { key, percent };
       this.broadcast(Channels.zoomChanged, payload);
     });
+    ipcMain.handle(Channels.setViewport, (event, guestId: number, choice: ViewportChoice) => {
+      if (this.guestPolicies.isAi1BrowserContents(event.sender)) {
+        throw new Error("Only an AI1 window can set a viewport size.");
+      }
+      return this.setViewport(event.sender.id, guestId, choice);
+    });
     ipcMain.handle(Channels.agentTabCreated, (event, requestId: string, tabId: string) =>
       this.agentAddress.tabs.tabCreated(event.sender.id, requestId, tabId),
     );
+  }
+
+  protected async setViewport(
+    windowId: number,
+    guestId: number,
+    choice: ViewportChoice,
+  ): Promise<SetViewportResult> {
+    const guest = webContents.fromId(guestId);
+    if (!guest || guest.isDestroyed() || this.registry.entry(guestId)?.windowId !== windowId) {
+      return { ok: false, error: "This page is not a browser tab of this window." };
+    }
+    if (this.agentAddress.agentConnected(guestId)) {
+      return { ok: false, error: "An agent is connected to this tab." };
+    }
+    const settings = resolveViewport(choice);
+    if (settings === undefined && choice?.kind !== "off") {
+      return { ok: false, error: "This viewport size is not correct." };
+    }
+    const emulation = this.viewports.getOrCreate(guestId, () => {
+      guest.once("destroyed", () => this.viewports.remove(guestId));
+      return new ViewportEmulation(guest.debugger, () => guest.getUserAgent());
+    });
+    const before = emulation.userAgentOverride;
+    try {
+      await emulation.apply(settings);
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+    // The page sees a new user agent only in a new document.
+    if (emulation.userAgentOverride !== before && !guest.isDestroyed()) {
+      guest.reload();
+    }
+    return { ok: true };
   }
 
   broadcast(channel: string, payload: unknown): void {
