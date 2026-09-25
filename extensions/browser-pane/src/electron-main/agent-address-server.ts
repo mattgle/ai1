@@ -4,7 +4,6 @@ import { WebSocket, WebSocketServer } from "ws";
 import { stripSecret } from "./agent-secret";
 
 export interface AgentTarget {
-  handleHttpRequest(path: string, response: http.ServerResponse): void;
   acceptClient(client: WebSocket): void;
 }
 
@@ -12,12 +11,12 @@ export interface AgentTarget {
 const TARGET_PATH = "/devtools/browser";
 
 // The one local address that agents connect to. Only `127.0.0.1`, only with
-// the secret. The target keeps one client at a time: a new client replaces
-// the old one.
+// the secret. Each WebSocket client gets its own target (its own tab). An
+// HTTP request never asks for a target, so it cannot open a tab.
 export class AgentAddressServer {
   protected server: http.Server | undefined;
   protected readonly webSockets = new WebSocketServer({ noServer: true });
-  protected client: WebSocket | undefined;
+  protected readonly clients = new Set<WebSocket>();
   // Upgrade requests that wait for their target. `stop` ends them.
   protected readonly pendingSockets = new Set<Socket>();
   protected listeningPort = 0;
@@ -54,8 +53,10 @@ export class AgentAddressServer {
   }
 
   async stop(): Promise<void> {
-    this.client?.close();
-    this.client = undefined;
+    for (const client of this.clients) {
+      client.close();
+    }
+    this.clients.clear();
     for (const socket of this.pendingSockets) {
       socket.destroy();
     }
@@ -98,12 +99,18 @@ export class AgentAddressServer {
       );
       return;
     }
-    try {
-      (await this.resolveTarget()).handleHttpRequest(path, response);
-    } catch (error) {
-      response.writeHead(503, { "content-type": "text/plain" });
-      response.end(error instanceof Error ? error.message : String(error));
+    this.handleHttpRequest(path, response);
+  }
+
+  // Each connection to the browser endpoint gets its own new page, so no page
+  // exists before a client connects: the page list is empty.
+  protected handleHttpRequest(path: string, response: http.ServerResponse): void {
+    if (["/json/list", "/json/list/", "/json", "/json/"].includes(path)) {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end("[]");
+      return;
     }
+    response.writeHead(404).end();
   }
 
   protected async onUpgrade(request: http.IncomingMessage, socket: Socket, head: Buffer): Promise<void> {
@@ -144,14 +151,9 @@ export class AgentAddressServer {
       return;
     }
     this.webSockets.handleUpgrade(request, socket, head, (client) => {
-      // The target closes the old client. Keep the new one, so `stop` can
-      // close it.
-      this.client = client;
-      client.once("close", () => {
-        if (this.client === client) {
-          this.client = undefined;
-        }
-      });
+      // Keep each client, so `stop` can close all of them.
+      this.clients.add(client);
+      client.once("close", () => this.clients.delete(client));
       target.acceptClient(client);
     });
   }

@@ -2,7 +2,7 @@ import { BaseWidget, StatefulWidget } from "@theia/core/lib/browser";
 import { inject, injectable, postConstruct } from "@theia/core/shared/inversify";
 import type { WebviewTag } from "electron";
 import { normalizeAddress } from "../common/address";
-import { CertificateErrorEvent } from "../common/browser-ipc";
+import { AgentTabState, CertificateErrorEvent } from "../common/browser-ipc";
 import { isLocalCertificateHost } from "../common/guest-policy";
 import { DEFAULT_PROFILE_ID, partitionFor, Profile } from "../common/profiles";
 import { browserApi } from "./browser-api";
@@ -39,7 +39,10 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
   // event. Until then, `navigate` keeps the address in `pendingUrl`.
   protected webviewReady = false;
   protected pendingUrl: string | undefined;
-  protected isAgentTab = false;
+  protected agentState: AgentTabState | undefined;
+  // The title of the page (or of the error). The tab label adds the agent
+  // number to it while an agent is connected.
+  protected pageTitle = "New Tab";
   protected readonly toolbar = document.createElement("div");
   protected readonly backButton = document.createElement("button");
   protected readonly forwardButton = document.createElement("button");
@@ -64,13 +67,18 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     return this.url;
   }
 
+  // True while an agent is connected to this tab.
+  get agentConnected(): boolean {
+    return this.agentState?.state === "connected";
+  }
+
   @postConstruct()
   protected init(): void {
     this.id = `${BrowserWidget.FACTORY_ID}:${this.options.tabId}`;
     this.url = this.options.url;
     this.profile = this.options.profileId;
-    this.title.label = "New Tab";
-    this.title.caption = this.url;
+    this.updateLabel();
+    this.updateCaption();
     this.title.closable = true;
     this.title.iconClass = "codicon codicon-globe";
     this.addClass("ai1-browser");
@@ -153,28 +161,58 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     }
   }
 
-  setAgentMark(isAgent: boolean, connected: boolean): void {
-    this.isAgentTab = isAgent;
-    this.agentButton.classList.toggle("ai1-browser-agent-active", isAgent);
+  // `undefined` makes the tab a normal tab.
+  setAgentState(state: AgentTabState | undefined): void {
+    this.agentState = state;
+    const waiting = state?.state === "waiting";
+    const connected = state?.state === "connected";
+    this.agentButton.classList.toggle("ai1-browser-agent-active", waiting);
+    this.agentButton.disabled = connected;
+    this.agentButton.title = connected
+      ? "An agent is connected to this tab"
+      : waiting
+        ? "This tab waits for an agent"
+        : "Give this tab to the agent";
     this.title.className = [
-      isAgent ? "ai1-browser-agent-tab" : "",
-      isAgent && connected ? "ai1-browser-agent-connected" : "",
+      waiting ? "ai1-browser-agent-waiting" : "",
+      connected ? "ai1-browser-agent-tab ai1-browser-agent-connected" : "",
     ]
       .filter((name) => name !== "")
       .join(" ");
-    this.title.caption = isAgent
-      ? `${this.url} (agent tab${connected ? ", agent connected" : ""})`
-      : this.url;
+    this.updateLabel();
+    this.updateCaption();
   }
 
   override dispose(): void {
-    // Tell the main process that the agent tab is gone.
-    if (this.isAgentTab) {
+    // A closed tab cannot wait for an agent.
+    if (this.agentState?.state === "waiting") {
       void browserApi()
-        .setAgentTab(undefined)
+        .giveToAgent(undefined)
         .catch(() => undefined);
     }
     super.dispose();
+  }
+
+  protected setPageTitle(title: string): void {
+    this.pageTitle = title;
+    this.updateLabel();
+  }
+
+  protected updateLabel(): void {
+    this.title.label =
+      this.agentState?.state === "connected"
+        ? `Agent ${this.agentState.number} · ${this.pageTitle}`
+        : this.pageTitle;
+  }
+
+  protected updateCaption(): void {
+    const state = this.agentState?.state;
+    this.title.caption =
+      state === "waiting"
+        ? `${this.url} (waiting for agent)`
+        : state === "connected"
+          ? `${this.url} (agent connected)`
+          : this.url;
   }
 
   protected switchProfile(profileId: string): void {
@@ -206,7 +244,7 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
       this.webview?.reload();
     });
     button(this.agentButton, "codicon-hubot", "Give this tab to the agent", () => {
-      void browserApi().setAgentTab(this.tabId);
+      void browserApi().giveToAgent(this.tabId);
     });
     this.agentButton.classList.add("ai1-browser-give-to-agent");
     button(this.devToolsButton, "codicon-tools", "Open DevTools", () => this.webview?.openDevTools());
@@ -260,7 +298,7 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
       }
     });
     webview.addEventListener("page-title-updated", (event) => {
-      this.title.label = event.title || this.url;
+      this.setPageTitle(event.title || this.url);
     });
     webview.addEventListener("did-fail-load", (event) => {
       // -3 is ERR_ABORTED: a new navigation replaced this one. -200 to -299
@@ -309,7 +347,7 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     }
     this.url = url;
     this.addressInput.value = url === "about:blank" ? "" : url;
-    this.title.caption = url;
+    this.updateCaption();
     this.backButton.disabled = !this.webview?.canGoBack();
     this.forwardButton.disabled = !this.webview?.canGoForward();
     this.hideError();
@@ -358,7 +396,7 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
   }
 
   protected showError(text: string, actionLabel?: string, action?: () => unknown): void {
-    this.title.label = "Cannot open page";
+    this.setPageTitle("Cannot open page");
     const paragraph = document.createElement("p");
     paragraph.textContent = text;
     this.errorPanel.replaceChildren(paragraph);

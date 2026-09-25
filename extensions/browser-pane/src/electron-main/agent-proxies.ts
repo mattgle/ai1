@@ -7,9 +7,9 @@ export interface AgentProxy {
   stop(): void;
 }
 
-// The proxies of the agent tabs, one for each guest, in all windows. The
-// agent address keeps one client at a time: when a proxy gets a client, the
-// other proxies lose theirs.
+// The proxies of the agent tabs, one for each guest, in all windows. Each
+// proxy has at most one client, and the clients of different guests stay
+// connected together.
 export class AgentProxies<P extends AgentProxy> {
   protected readonly proxies = new Map<number, P>();
 
@@ -28,22 +28,12 @@ export class AgentProxies<P extends AgentProxy> {
   }
 
   accept(guestId: number, client: ProxyClient): void {
-    for (const [otherId, other] of this.proxies) {
-      if (otherId !== guestId && other.connected) {
-        other.stop();
-      }
-    }
     const proxy = this.proxies.get(guestId);
     if (proxy) {
       proxy.acceptClient(client);
     } else {
       client.close();
     }
-  }
-
-  // The tab of this guest is no longer the agent tab.
-  release(guestId: number): void {
-    this.proxies.get(guestId)?.stop();
   }
 
   // The agent address stops.

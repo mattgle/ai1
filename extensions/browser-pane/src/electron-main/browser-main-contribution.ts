@@ -63,9 +63,11 @@ export class BrowserMainContribution implements ElectronMainApplicationContribut
       this.agentAddress.configure(config),
     );
     ipcMain.handle(Channels.agentAddress, () => this.agentAddress.address());
-    ipcMain.handle(Channels.setAgentTab, (event, tabId: string | undefined) => {
-      this.agentAddress.tabs.setAgentTab(event.sender.id, tabId);
-      this.agentAddress.sendState(event.sender.id, this.agentAddress.agentConnected(event.sender.id));
+    ipcMain.handle(Channels.giveToAgent, (event, tabId: string | undefined) => {
+      if (this.guestPolicies.isAi1BrowserContents(event.sender)) {
+        throw new Error("Only an AI1 window can give a tab to an agent.");
+      }
+      this.agentAddress.tabs.giveTab(event.sender.id, tabId);
     });
     ipcMain.handle(Channels.agentTabCreated, (event, requestId: string, tabId: string) =>
       this.agentAddress.tabs.tabCreated(event.sender.id, requestId, tabId),

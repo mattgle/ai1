@@ -65,15 +65,14 @@
   color: var(--theia-charts-green);
 }
 
-.lm-TabBar-tab.ai1-browser-agent-tab .lm-TabBar-tabLabel::after {
-  content: " · Agent";
+.lm-TabBar-tab.ai1-browser-agent-waiting .lm-TabBar-tabLabel::after {
+  content: " · Waiting for agent";
   opacity: 0.7;
 }
 
 .lm-TabBar-tab.ai1-browser-agent-connected .lm-TabBar-tabLabel::after {
-  content: " · Agent ●";
+  content: " ●";
   color: var(--theia-charts-green);
-  opacity: 1;
 }
 
 .ai1-ports-list,

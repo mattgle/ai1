@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from "@theia/core/electron-shared/electron";
 import {
   AgentAddressConfig,
-  AgentState,
+  AgentTabState,
   AI1_BROWSER_API,
   Ai1BrowserApi,
   CertificateErrorEvent,
@@ -25,7 +25,7 @@ const api: Ai1BrowserApi = {
   renameProfile: (id, name) => ipcRenderer.invoke(Channels.renameProfile, id, name),
   deleteProfile: (id) => ipcRenderer.invoke(Channels.deleteProfile, id),
   registerGuest: (webContentsId, tabId) => ipcRenderer.invoke(Channels.registerGuest, webContentsId, tabId),
-  setAgentTab: (tabId) => ipcRenderer.invoke(Channels.setAgentTab, tabId),
+  giveToAgent: (tabId) => ipcRenderer.invoke(Channels.giveToAgent, tabId),
   acceptCertificate: (webContentsId, host) =>
     ipcRenderer.invoke(Channels.acceptCertificate, webContentsId, host),
   configureAgentAddress: (config: AgentAddressConfig) =>
@@ -35,7 +35,7 @@ const api: Ai1BrowserApi = {
   onProfilesChanged: listen<Profile[]>(Channels.profilesChanged),
   onOpenTab: listen<OpenTabRequest>(Channels.openTab),
   onCreateAgentTab: listen<CreateAgentTabRequest>(Channels.createAgentTab),
-  onAgentState: listen<AgentState>(Channels.agentState),
+  onAgentState: listen<AgentTabState[]>(Channels.agentState),
   onCertificateError: listen<CertificateErrorEvent>(Channels.certificateError),
   onNotice: listen<string>(Channels.notice),
 };
