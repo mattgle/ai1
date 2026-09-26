@@ -7,6 +7,7 @@ import {
   Channels,
   CreateAgentTabRequest,
 } from "../common/browser-ipc";
+import { prepareAgentAttach } from "./agent-attach";
 import { AgentAddressServer, AgentTarget } from "./agent-address-server";
 import { AgentProxies } from "./agent-proxies";
 import { readOrCreateSecret } from "./agent-secret";
@@ -52,12 +53,23 @@ export class AgentAddress {
         const guest = webContents.fromId(guestId);
         return guest !== undefined && !guest.isDestroyed();
       },
+      // A tab with open DevTools refuses the connection before any change.
       // Electron allows one debugger client for each page. The viewport
       // emulation clears its overrides and detaches before the proxy
       // attaches. On a page that does not answer, it detaches after at most
       // `RELEASE_TIMEOUT_MS`. The proxy has no client at this time, so it
       // ignores the "detach" event of this detach.
-      beforeAgentAttach: (guestId) => this.viewports.release(guestId),
+      beforeAgentAttach: (guestId) =>
+        prepareAgentAttach(guestId, {
+          entry: (id) => this.registry.entry(id),
+          devToolsOpened: (id) => {
+            const guest = webContents.fromId(id);
+            return guest !== undefined && !guest.isDestroyed() && guest.isDevToolsOpened();
+          },
+          restoreWaiting: (windowId, tabId) => this.tabs.restoreWaiting(windowId, tabId),
+          notify: (windowId, text) => webContents.fromId(windowId)?.send(Channels.notice, text),
+          release: (id) => this.viewports.release(id),
+        }),
       stateChanged: () => this.sendState(),
     });
   }
@@ -140,14 +152,6 @@ export class AgentAddress {
     const entry = this.registry.entry(guestId);
     if (!guest || guest.isDestroyed() || !entry) {
       throw new Error("The agent tab closed.");
-    }
-    if (guest.isDevToolsOpened()) {
-      // The mark stays: the tab waits again for the next connection.
-      this.tabs.restoreWaiting(entry.windowId, entry.tabId);
-      const text =
-        "An agent cannot connect while DevTools is open on the agent tab. Close DevTools, then connect again.";
-      webContents.fromId(entry.windowId)?.send(Channels.notice, text);
-      throw new Error(text);
     }
     if (!this.proxies.get(guestId)) {
       const created = new OnePageProxy(guest, {
