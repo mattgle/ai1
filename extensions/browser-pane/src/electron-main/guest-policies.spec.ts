@@ -15,6 +15,8 @@ interface Sent {
 class FakeContents {
   readonly listeners = new Map<string, Listener[]>();
   readonly sent: Sent[] = [];
+  // The messages sent to this web contents itself (a Theia window).
+  readonly ownSent: Sent[] = [];
   openHandler: ((details: { url: string; disposition: string }) => { action: string }) | undefined;
   reloads = 0;
   readonly hostWebContents: { isDestroyed(): boolean; send(channel: string, payload: unknown): void };
@@ -42,6 +44,10 @@ class FakeContents {
 
   reload(): void {
     this.reloads++;
+  }
+
+  send(channel: string, payload: unknown): void {
+    this.ownSent.push({ channel, payload });
   }
 
   setBackgroundThrottling(): void {
@@ -83,6 +89,13 @@ class TestGuestPolicies extends GuestPolicies {
 
   protected override now(): number {
     return this.time;
+  }
+
+  // The Theia window that gets a message when the page has no embedder.
+  fallbackWindow: FakeContents | undefined;
+
+  protected override theiaWindowContents(): WebContents | undefined {
+    return this.fallbackWindow as unknown as WebContents | undefined;
   }
 }
 
@@ -306,5 +319,31 @@ describe("GuestPolicies shortcuts", () => {
     policies.setFindOpen(3, true);
     guest.emit("destroyed");
     assert.strictEqual(press({ key: "Escape" }), false);
+  });
+});
+
+describe("GuestPolicies.sendToWindowOf", () => {
+  it("sends to the embedder of a live page", () => {
+    const policies = new TestGuestPolicies();
+    const guest = new FakeContents(1, AI1_PATH);
+    policies.sendToWindowOf(asContents(guest), Channels.downloadDone, "done");
+    assert.deepStrictEqual(guest.sent, [{ channel: Channels.downloadDone, payload: "done" }]);
+  });
+
+  it("sends to a Theia window, and does not throw, when the page is destroyed", () => {
+    const policies = new TestGuestPolicies();
+    const window = new FakeContents(2, null, "window");
+    policies.fallbackWindow = window;
+    const destroyed = {
+      id: 1,
+      isDestroyed: () => true,
+      get hostWebContents(): never {
+        throw new Error("Object has been destroyed");
+      },
+    };
+    assert.doesNotThrow(() =>
+      policies.sendToWindowOf(destroyed as unknown as WebContents, Channels.downloadDone, "done"),
+    );
+    assert.deepStrictEqual(window.ownSent, [{ channel: Channels.downloadDone, payload: "done" }]);
   });
 });

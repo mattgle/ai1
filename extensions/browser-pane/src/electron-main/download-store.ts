@@ -113,12 +113,17 @@ export class DownloadStore {
   }
 
   // Writes a temporary file and renames it, so a crash cannot leave half a
-  // file.
+  // file. The callers are native `DownloadItem` events, so a failed write
+  // must not throw. The entries stay in memory for the next write.
   protected save(): void {
     this.lastSave = this.now();
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    const temporary = `${this.filePath}.tmp`;
-    fs.writeFileSync(temporary, JSON.stringify({ downloads: this.entries }, undefined, 2));
-    fs.renameSync(temporary, this.filePath);
+    try {
+      fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
+      const temporary = `${this.filePath}.tmp`;
+      fs.writeFileSync(temporary, JSON.stringify({ downloads: this.entries }, undefined, 2));
+      fs.renameSync(temporary, this.filePath);
+    } catch (error) {
+      console.error("ai1-browser: AI1 cannot save the download list.", error);
+    }
   }
 }

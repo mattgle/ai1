@@ -255,9 +255,12 @@ export class GuestPolicies {
 
   // Sends to the Theia window that shows this page: the embedder of a
   // `<webview>`, or else the focused (or first) Theia window. A popup window
-  // of a page is never the target.
+  // of a page is never the target. A destroyed page (for example the closed
+  // tab of a download) throws when code reads `hostWebContents`, so it uses
+  // the Theia window.
   sendToWindowOf(contents: WebContents, channel: string, payload: unknown): void {
-    const embedder = contents.hostWebContents ?? this.theiaWindowContents();
+    const embedder =
+      (contents.isDestroyed() ? undefined : contents.hostWebContents) ?? this.theiaWindowContents();
     if (embedder && !embedder.isDestroyed()) {
       embedder.send(channel, payload);
     }

@@ -189,4 +189,27 @@ describe("DownloadStore", () => {
     subject.list()[0].state = "failed";
     assert.strictEqual(subject.list()[0].state, "completed");
   });
+
+  it("keeps the entries in memory and does not throw when the file cannot be written", () => {
+    const subject = store();
+    subject.add(entry("a"));
+    // A folder at the path of the temporary file makes `writeFileSync` throw.
+    fs.mkdirSync(`${file}.tmp`);
+    const errors: unknown[][] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => errors.push(args);
+    try {
+      assert.doesNotThrow(() => subject.add(entry("b")));
+      assert.doesNotThrow(() => subject.update("b", { state: "failed" }));
+      assert.doesNotThrow(() => subject.remove("a"));
+    } finally {
+      console.error = original;
+    }
+    assert.deepStrictEqual(
+      subject.list().map((listed) => [listed.id, listed.state]),
+      [["b", "failed"]],
+    );
+    assert.strictEqual(errors.length, 3);
+    assert.deepStrictEqual(savedIds(), ["a"]);
+  });
 });
