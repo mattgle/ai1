@@ -1,5 +1,6 @@
 import { ApplicationShell, Widget, WidgetManager } from "@theia/core/lib/browser";
 import { inject, injectable, postConstruct } from "@theia/core/shared/inversify";
+import { ClosedTab, ClosedTabs } from "../common/closed-tabs";
 import { INITIAL_PROFILES, Profile } from "../common/profiles";
 import { newTabId } from "../common/tab-id";
 import { browserApi } from "./browser-api";
@@ -15,16 +16,43 @@ export class BrowserTabs {
 
   protected profileList: Profile[] = INITIAL_PROFILES;
   protected counter = 0;
+  protected readonly closedTabs = new ClosedTabs();
 
   // Each new browser widget gets the profile list before it is attached: a
-  // tab from `open`, and also a tab that Theia restores from the saved layout.
+  // tab from `open`, and also a tab that Theia restores from the saved
+  // layout. It also gets the closed-tab list, so it can push itself when
+  // the owner closes it and can reopen the last closed tab for its
+  // shortcut.
   @postConstruct()
   protected init(): void {
     this.widgets.onDidCreateWidget(({ factoryId, widget }) => {
       if (factoryId === BrowserWidget.FACTORY_ID) {
-        (widget as BrowserWidget).setProfiles(this.profileList);
+        const browserWidget = widget as BrowserWidget;
+        browserWidget.setProfiles(this.profileList);
+        browserWidget.setClosedTabsHandle(this);
       }
     });
+  }
+
+  // Pushes a closed tab to the list. `BrowserWidget.onCloseRequest` calls
+  // this. It does not call this for a tab with a connected agent, or for a
+  // tab with no address (`about:blank`).
+  pushClosed(tab: ClosedTab): void {
+    this.closedTabs.push(tab);
+  }
+
+  // Reopens the last closed tab at its old place (next to the tab of its
+  // `previousTabId`, when that tab is still open), with its old profile and
+  // viewport. Does nothing when the list is empty.
+  async reopenClosed(): Promise<BrowserWidget | undefined> {
+    const closed = this.closedTabs.pop();
+    if (!closed) {
+      return undefined;
+    }
+    const ref = closed.previousTabId ? this.byTabId(closed.previousTabId) : undefined;
+    const widget = await this.open(closed.url, closed.profileId, { ref });
+    widget.applyViewportChoice(closed.viewport);
+    return widget;
   }
 
   // `activate: false` shows the tab but leaves the keyboard focus where it

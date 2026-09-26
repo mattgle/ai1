@@ -1,14 +1,17 @@
 import { contextBridge, ipcRenderer } from "@theia/core/electron-shared/electron";
 import {
   AgentAddressConfig,
-  AgentState,
+  AgentTabState,
   AI1_BROWSER_API,
   Ai1BrowserApi,
   CertificateErrorEvent,
   Channels,
   CreateAgentTabRequest,
   OpenTabRequest,
+  ShortcutEvent,
+  ZoomChangedEvent,
 } from "../common/browser-ipc";
+import { DownloadDone, DownloadEntry } from "../common/downloads";
 import { Profile } from "../common/profiles";
 
 function listen<T>(channel: string): (listener: (payload: T) => void) => () => void {
@@ -25,19 +28,35 @@ const api: Ai1BrowserApi = {
   renameProfile: (id, name) => ipcRenderer.invoke(Channels.renameProfile, id, name),
   deleteProfile: (id) => ipcRenderer.invoke(Channels.deleteProfile, id),
   registerGuest: (webContentsId, tabId) => ipcRenderer.invoke(Channels.registerGuest, webContentsId, tabId),
-  setAgentTab: (tabId) => ipcRenderer.invoke(Channels.setAgentTab, tabId),
+  giveToAgent: (tabId) => ipcRenderer.invoke(Channels.giveToAgent, tabId),
   acceptCertificate: (webContentsId, host) =>
     ipcRenderer.invoke(Channels.acceptCertificate, webContentsId, host),
   configureAgentAddress: (config: AgentAddressConfig) =>
     ipcRenderer.invoke(Channels.configureAgentAddress, config),
   agentAddress: () => ipcRenderer.invoke(Channels.agentAddress),
   agentTabCreated: (requestId, tabId) => ipcRenderer.invoke(Channels.agentTabCreated, requestId, tabId),
+  setFindOpen: (guestId, open) => ipcRenderer.invoke(Channels.setFindOpen, guestId, open),
+  getZoom: (profileId, url) => ipcRenderer.invoke(Channels.getZoom, profileId, url),
+  setZoom: (profileId, url, percent) => ipcRenderer.invoke(Channels.setZoom, profileId, url, percent),
+  setViewport: (guestId, choice) => ipcRenderer.invoke(Channels.setViewport, guestId, choice),
+  listDownloads: () => ipcRenderer.invoke(Channels.listDownloads),
+  cancelDownload: (id) => ipcRenderer.invoke(Channels.cancelDownload, id),
+  openDownload: (id) => ipcRenderer.invoke(Channels.openDownload, id),
+  showDownload: (id) => ipcRenderer.invoke(Channels.showDownload, id),
+  removeDownload: (id) => ipcRenderer.invoke(Channels.removeDownload, id),
+  clearDownloads: () => ipcRenderer.invoke(Channels.clearDownloads),
+  listHistory: (profileId) => ipcRenderer.invoke(Channels.listHistory, profileId),
+  clearHistory: (profileId) => ipcRenderer.invoke(Channels.clearHistory, profileId),
   onProfilesChanged: listen<Profile[]>(Channels.profilesChanged),
   onOpenTab: listen<OpenTabRequest>(Channels.openTab),
   onCreateAgentTab: listen<CreateAgentTabRequest>(Channels.createAgentTab),
-  onAgentState: listen<AgentState>(Channels.agentState),
+  onAgentState: listen<AgentTabState[]>(Channels.agentState),
   onCertificateError: listen<CertificateErrorEvent>(Channels.certificateError),
   onNotice: listen<string>(Channels.notice),
+  onShortcut: listen<ShortcutEvent>(Channels.shortcut),
+  onZoomChanged: listen<ZoomChangedEvent>(Channels.zoomChanged),
+  onDownloadsChanged: listen<DownloadEntry[]>(Channels.downloadsChanged),
+  onDownloadDone: listen<DownloadDone>(Channels.downloadDone),
 };
 
 export function preload(): void {

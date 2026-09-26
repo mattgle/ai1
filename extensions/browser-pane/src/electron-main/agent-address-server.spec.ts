@@ -14,12 +14,7 @@ async function freePort(): Promise<number> {
 
 class FakeTarget implements AgentTarget {
   clients: WebSocket[] = [];
-  handleHttpRequest(path: string, response: http.ServerResponse): void {
-    response.writeHead(200, { "content-type": "application/json" });
-    response.end(JSON.stringify({ path }));
-  }
   acceptClient(client: WebSocket): void {
-    this.clients.at(-1)?.close();
     this.clients.push(client);
   }
 }
@@ -28,10 +23,15 @@ describe("AgentAddressServer", () => {
   const secret = "s".repeat(43);
   let server: AgentAddressServer;
   let target: FakeTarget;
+  let resolveCount: number;
 
   beforeEach(() => {
     target = new FakeTarget();
-    server = new AgentAddressServer(secret, async () => target);
+    resolveCount = 0;
+    server = new AgentAddressServer(secret, async () => {
+      resolveCount++;
+      return target;
+    });
   });
 
   afterEach(async () => {
@@ -45,10 +45,21 @@ describe("AgentAddressServer", () => {
     assert.ok(server.webSocketUrl().startsWith(`ws://127.0.0.1:${server.port}/${secret}/`));
   });
 
-  it("gives /json/list to the target, without the secret in the path", async () => {
+  it("answers an empty /json/list and does not ask for a target", async () => {
     await server.start(await freePort());
-    const body = await (await fetch(`${server.address()}json/list`)).json();
-    assert.deepStrictEqual(body, { path: "/json/list" });
+    for (const listPath of ["json/list", "json/list/", "json", "json/"]) {
+      const response = await fetch(`${server.address()}${listPath}`);
+      assert.strictEqual(response.status, 200);
+      assert.deepStrictEqual(await response.json(), []);
+    }
+    assert.strictEqual(resolveCount, 0);
+  });
+
+  it("answers 404 for another HTTP path and does not ask for a target", async () => {
+    await server.start(await freePort());
+    assert.strictEqual((await fetch(`${server.address()}json/new`)).status, 404);
+    assert.strictEqual((await fetch(`${server.address()}favicon.ico`)).status, 404);
+    assert.strictEqual(resolveCount, 0);
   });
 
   it("answers 404 without the right secret, for HTTP and for a WebSocket", async () => {
@@ -62,33 +73,50 @@ describe("AgentAddressServer", () => {
     assert.strictEqual(status, 404);
   });
 
-  it("answers 503 with the reason when there is no target", async () => {
+  it("refuses an upgrade with 503 and the reason when there is no target", async () => {
+    await server.stop();
     server = new AgentAddressServer(secret, async () => {
       throw new Error("No AI1 window is open.");
     });
     await server.start(await freePort());
-    const response = await fetch(`${server.address()}json/list`);
-    assert.strictEqual(response.status, 503);
-    assert.match(await response.text(), /No AI1 window is open/);
+    const socket = new WebSocket(server.webSocketUrl());
+    socket.on("error", () => undefined);
+    const response = await new Promise<http.IncomingMessage>((resolve) =>
+      socket.on("unexpected-response", (_request, incoming) => resolve(incoming)),
+    );
+    assert.strictEqual(response.statusCode, 503);
+    const body = await new Promise<string>((resolve) => {
+      let text = "";
+      response.on("data", (chunk) => (text += String(chunk)));
+      response.on("end", () => resolve(text));
+    });
+    assert.match(body, /No AI1 window is open/);
   });
 
-  it("gives a WebSocket client to the target, and closes the old client when a new one connects", async () => {
+  it("asks for a target for each WebSocket client, and keeps all clients connected", async () => {
     await server.start(await freePort());
     const first = new WebSocket(server.webSocketUrl());
     await new Promise((resolve) => first.once("open", resolve));
-    const firstClosed = new Promise((resolve) => first.once("close", resolve));
     const second = new WebSocket(server.webSocketUrl());
     await new Promise((resolve) => second.once("open", resolve));
-    await firstClosed;
     assert.strictEqual(target.clients.length, 2);
+    assert.strictEqual(resolveCount, 2);
+    assert.strictEqual(first.readyState, WebSocket.OPEN);
+    assert.strictEqual(second.readyState, WebSocket.OPEN);
+    first.close();
     second.close();
   });
 
-  it("stops, closes the client, and can start again on another port", async () => {
+  it("stops, closes all clients, and can start again on another port", async () => {
     await server.start(await freePort());
-    const client = new WebSocket(server.webSocketUrl());
-    await new Promise((resolve) => client.once("open", resolve));
-    const closed = new Promise((resolve) => client.once("close", resolve));
+    const first = new WebSocket(server.webSocketUrl());
+    await new Promise((resolve) => first.once("open", resolve));
+    const second = new WebSocket(server.webSocketUrl());
+    await new Promise((resolve) => second.once("open", resolve));
+    const closed = Promise.all([
+      new Promise((resolve) => first.once("close", resolve)),
+      new Promise((resolve) => second.once("close", resolve)),
+    ]);
     await server.stop();
     await closed;
     const next = await freePort();

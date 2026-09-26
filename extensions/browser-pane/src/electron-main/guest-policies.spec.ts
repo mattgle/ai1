@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import type { WebContents } from "@theia/core/electron-shared/electron";
 import { Channels } from "../common/browser-ipc";
 import { GuestPolicies } from "./guest-policies";
+import { GuestRegistry } from "./guest-registry";
 
 type Listener = (...args: unknown[]) => void;
 
@@ -14,6 +15,8 @@ interface Sent {
 class FakeContents {
   readonly listeners = new Map<string, Listener[]>();
   readonly sent: Sent[] = [];
+  // The messages sent to this web contents itself (a Theia window).
+  readonly ownSent: Sent[] = [];
   openHandler: ((details: { url: string; disposition: string }) => { action: string }) | undefined;
   reloads = 0;
   readonly hostWebContents: { isDestroyed(): boolean; send(channel: string, payload: unknown): void };
@@ -43,6 +46,10 @@ class FakeContents {
     this.reloads++;
   }
 
+  send(channel: string, payload: unknown): void {
+    this.ownSent.push({ channel, payload });
+  }
+
   setBackgroundThrottling(): void {
     return undefined;
   }
@@ -67,6 +74,11 @@ class TestGuestPolicies extends GuestPolicies {
   readonly contents = new Map<number, FakeContents>();
   time = 0;
 
+  constructor(registry = new GuestRegistry()) {
+    super();
+    this.registry = registry;
+  }
+
   get acceptedHosts(): Set<string> {
     return this.acceptedCertificateHosts;
   }
@@ -77,6 +89,13 @@ class TestGuestPolicies extends GuestPolicies {
 
   protected override now(): number {
     return this.time;
+  }
+
+  // The Theia window that gets a message when the page has no embedder.
+  fallbackWindow: FakeContents | undefined;
+
+  protected override theiaWindowContents(): WebContents | undefined {
+    return this.fallbackWindow as unknown as WebContents | undefined;
   }
 }
 
@@ -118,6 +137,23 @@ describe("GuestPolicies.attach", () => {
       { src: "https://example.com/", partition: "persist:ai1-browser-default" },
     );
     assert.strictEqual(prevented, 1);
+  });
+
+  it("records the navigations of the page in the history, except while an agent is connected", () => {
+    const policies = new GuestPolicies();
+    const visits: string[] = [];
+    policies.setHistory({
+      visit: (profileId, url) => visits.push(`${profileId} ${url}`),
+      setTitle: () => undefined,
+    });
+    let connected = false;
+    policies.setAgentConnectedCheck((guestId) => connected && guestId === 1);
+    const guest = new FakeContents(1, AI1_PATH);
+    policies.attach(asContents(guest));
+    guest.emit("did-navigate", {}, "https://example.com/a", 200, "OK");
+    connected = true;
+    guest.emit("did-navigate", {}, "https://example.com/b", 200, "OK");
+    assert.deepStrictEqual(visits, ["default https://example.com/a"]);
   });
 
   it("opens at most five popups in ten seconds and gives one notice for each burst", () => {
@@ -200,5 +236,114 @@ describe("GuestPolicies.acceptCertificate", () => {
     policies.acceptCertificate(5, "example.com");
     assert.strictEqual(policies.acceptedHosts.size, 0);
     assert.strictEqual(guest.reloads, 0);
+  });
+});
+
+describe("GuestPolicies shortcuts", () => {
+  const WINDOW_ID = 7;
+
+  function setup() {
+    const registry = new GuestRegistry();
+    const policies = new TestGuestPolicies(registry);
+    const window = new FakeContents(WINDOW_ID, null, "window");
+    const windowSent: Sent[] = [];
+    (window as unknown as { send(channel: string, payload: unknown): void }).send = (channel, payload) =>
+      windowSent.push({ channel, payload });
+    policies.contents.set(WINDOW_ID, window);
+    const guest = new FakeContents(3, AI1_PATH);
+    registry.register(3, "tab-1", WINDOW_ID);
+    policies.attach(asContents(guest));
+    const press = (input: Partial<{ type: string; key: string; meta: boolean; shift: boolean }>) => {
+      let prevented = false;
+      guest.emit(
+        "before-input-event",
+        { preventDefault: () => (prevented = true) },
+        { type: "keyDown", key: "", meta: false, control: false, shift: false, alt: false, ...input },
+      );
+      return prevented;
+    };
+    const shortcuts = () => windowSent.filter((sent) => sent.channel === Channels.shortcut);
+    return { policies, registry, guest, press, shortcuts };
+  }
+
+  it("stops a shortcut and sends it with the tab id to the window of the tab", () => {
+    const { press, shortcuts } = setup();
+    assert.strictEqual(press({ key: "f", meta: true }), true);
+    assert.deepStrictEqual(
+      shortcuts().map((sent) => sent.payload),
+      [{ tabId: "tab-1", shortcut: "find" }],
+    );
+  });
+
+  it("does not stop other keys or a keyUp", () => {
+    const { press, shortcuts } = setup();
+    assert.strictEqual(press({ key: "a", meta: true }), false);
+    assert.strictEqual(press({ type: "keyUp", key: "f", meta: true }), false);
+    assert.strictEqual(shortcuts().length, 0);
+  });
+
+  it("stops Escape only while the find bar of the guest is open", () => {
+    const { policies, press, shortcuts } = setup();
+    assert.strictEqual(press({ key: "Escape" }), false);
+    policies.setFindOpen(3, true);
+    assert.strictEqual(press({ key: "Escape" }), true);
+    policies.setFindOpen(3, false);
+    assert.strictEqual(press({ key: "Escape" }), false);
+    assert.deepStrictEqual(
+      shortcuts().map((sent) => sent.payload),
+      [{ tabId: "tab-1", shortcut: "closeFind" }],
+    );
+  });
+
+  it("catches no key on a guest with a connected agent", () => {
+    const { policies, press, shortcuts } = setup();
+    const connected = new Set<number>([3]);
+    policies.setAgentConnectedCheck((guestId) => connected.has(guestId));
+    policies.setFindOpen(3, true);
+    assert.strictEqual(press({ key: "f", meta: true }), false);
+    assert.strictEqual(press({ key: "Escape" }), false);
+    assert.strictEqual(shortcuts().length, 0);
+    connected.delete(3);
+    assert.strictEqual(press({ key: "f", meta: true }), true);
+  });
+
+  it("catches no key on a page that is not a browser tab, for example a popup window", () => {
+    const { registry, press, shortcuts } = setup();
+    registry.forget(3);
+    assert.strictEqual(press({ key: "f", meta: true }), false);
+    assert.strictEqual(shortcuts().length, 0);
+  });
+
+  it("forgets the find bar state when the guest is destroyed", () => {
+    const { policies, guest, press } = setup();
+    policies.setFindOpen(3, true);
+    guest.emit("destroyed");
+    assert.strictEqual(press({ key: "Escape" }), false);
+  });
+});
+
+describe("GuestPolicies.sendToWindowOf", () => {
+  it("sends to the embedder of a live page", () => {
+    const policies = new TestGuestPolicies();
+    const guest = new FakeContents(1, AI1_PATH);
+    policies.sendToWindowOf(asContents(guest), Channels.downloadDone, "done");
+    assert.deepStrictEqual(guest.sent, [{ channel: Channels.downloadDone, payload: "done" }]);
+  });
+
+  it("sends to a Theia window, and does not throw, when the page is destroyed", () => {
+    const policies = new TestGuestPolicies();
+    const window = new FakeContents(2, null, "window");
+    policies.fallbackWindow = window;
+    const destroyed = {
+      id: 1,
+      isDestroyed: () => true,
+      get hostWebContents(): never {
+        throw new Error("Object has been destroyed");
+      },
+    };
+    assert.doesNotThrow(() =>
+      policies.sendToWindowOf(destroyed as unknown as WebContents, Channels.downloadDone, "done"),
+    );
+    assert.deepStrictEqual(window.ownSent, [{ channel: Channels.downloadDone, payload: "done" }]);
   });
 });

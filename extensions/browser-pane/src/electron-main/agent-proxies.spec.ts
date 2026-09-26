@@ -29,12 +29,13 @@ function setup() {
 }
 
 describe("AgentProxies", () => {
-  it("stops the other proxies when a proxy gets a client, so one client is connected at a time", () => {
+  it("keeps a client for each guest, so two agents stay connected together", () => {
     const { proxies, first, second } = setup();
     proxies.accept(1, client);
     proxies.accept(2, client);
-    assert.strictEqual(first.connected, false);
+    assert.strictEqual(first.connected, true);
     assert.strictEqual(second.connected, true);
+    assert.strictEqual(first.stops, 0);
     assert.strictEqual(second.stops, 0);
   });
 
@@ -47,23 +48,15 @@ describe("AgentProxies", () => {
     assert.strictEqual(second.connected, false);
   });
 
-  it("stops only the proxy of the released guest", () => {
+  it("stops and forgets only the proxy of a removed guest", () => {
     const { proxies, first, second } = setup();
-    proxies.accept(2, client);
-    proxies.release(1);
-    proxies.release(3);
-    assert.strictEqual(first.stops, 1);
-    assert.strictEqual(second.connected, true);
-    proxies.release(2);
-    assert.strictEqual(second.connected, false);
-  });
-
-  it("stops and forgets the proxy of a removed guest", () => {
-    const { proxies, first } = setup();
     proxies.accept(1, client);
+    proxies.accept(2, client);
     proxies.remove(1);
     assert.strictEqual(first.connected, false);
     assert.strictEqual(proxies.get(1), undefined);
+    assert.strictEqual(second.connected, true);
+    assert.strictEqual(second.stops, 0);
   });
 
   it("tells if the proxy of a guest has a client", () => {

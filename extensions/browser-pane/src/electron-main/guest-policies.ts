@@ -1,9 +1,10 @@
 import { app, BrowserWindow, session, WebContents, webContents } from "@theia/core/electron-shared/electron";
-import { injectable } from "@theia/core/shared/inversify";
+import { inject, injectable } from "@theia/core/shared/inversify";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { isAllowedGuestUrl } from "../common/address";
-import { CertificateErrorEvent, Channels, OpenTabRequest } from "../common/browser-ipc";
+import { CertificateErrorEvent, Channels, OpenTabRequest, ShortcutEvent } from "../common/browser-ipc";
+import { E2E_DOWNLOADS_DIR, e2eSetting } from "../common/downloads";
 import {
   decidePopup,
   forceGuestPreferences,
@@ -17,6 +18,10 @@ import {
   uniqueDownloadName,
 } from "../common/guest-policy";
 import { DEFAULT_PROFILE_ID, partitionFor, profileIdFromPartition } from "../common/profiles";
+import { shortcutFor, ShortcutInput } from "../common/shortcuts";
+import { DownloadTracker } from "./download-tracker";
+import { GuestRegistry } from "./guest-registry";
+import { HistoryRecorder, HistorySink } from "./history-recorder";
 
 const POPUP_NOTICE = "A page tried to open too many popups. AI1 blocked the rest.";
 
@@ -28,6 +33,45 @@ export class GuestPolicies {
   // Hosts whose certificate error the owner accepted. Only local hosts can
   // get here. The set lives until AI1 closes.
   protected readonly acceptedCertificateHosts = new Set<string>();
+
+  // The guests whose find bar is open.
+  protected readonly findOpenGuests = new Set<number>();
+  // True for a guest with a connected agent. `AgentAddress` sets it: it
+  // injects this class, so this class cannot inject it.
+  protected agentConnected: (guestId: number) => boolean = () => false;
+  // `BrowserMainContribution` makes it in `onStart`, before the first page.
+  protected downloads: DownloadTracker | undefined;
+  // `BrowserMainContribution` sets it in `onStart`, before the first page.
+  protected historyRecorder: HistoryRecorder | undefined;
+
+  @inject(GuestRegistry)
+  protected registry!: GuestRegistry;
+
+  setAgentConnectedCheck(check: (guestId: number) => boolean): void {
+    this.agentConnected = check;
+  }
+
+  setDownloadTracker(tracker: DownloadTracker): void {
+    this.downloads = tracker;
+  }
+
+  setHistory(history: HistorySink): void {
+    this.historyRecorder = new HistoryRecorder(history, (guestId) => this.agentConnected(guestId));
+  }
+
+  // The Downloads folder of the user. Only an e2e run can give another
+  // folder (see `e2eSetting`).
+  downloadsFolder(): string {
+    return e2eSetting(process.env, E2E_DOWNLOADS_DIR) ?? app.getPath("downloads");
+  }
+
+  setFindOpen(guestId: number, open: boolean): void {
+    if (open) {
+      this.findOpenGuests.add(guestId);
+    } else {
+      this.findOpenGuests.delete(guestId);
+    }
+  }
 
   install(): void {
     app.on("certificate-error", (event, contents, url, error, _certificate, callback) => {
@@ -67,6 +111,12 @@ export class GuestPolicies {
 
   attach(contents: WebContents): void {
     contents.setBackgroundThrottling(false);
+    // A focused page gets the key events before the Theia window, so the
+    // Theia keybindings do not see them. Catch the browser shortcuts here
+    // and send them to the window of the tab.
+    contents.on("before-input-event", (event, input) => this.onInput(contents, event, input));
+    contents.on("destroyed", () => this.findOpenGuests.delete(contents.id));
+    this.historyRecorder?.attach(contents);
     // A page cannot hold a nested `<webview>` page. `webviewTag` is off, and
     // this refuses the attach if a page gets one all the same.
     contents.on("will-attach-webview", (event) => event.preventDefault());
@@ -134,6 +184,26 @@ export class GuestPolicies {
     });
   }
 
+  protected onInput(contents: WebContents, event: { preventDefault(): void }, input: ShortcutInput): void {
+    // The page of a connected agent gets all keys unchanged.
+    if (input.type !== "keyDown" || this.agentConnected(contents.id)) {
+      return;
+    }
+    const shortcut = shortcutFor(input, this.findOpenGuests.has(contents.id));
+    // A page that is not a browser tab (for example a popup window) keeps
+    // its keys.
+    const entry = this.registry.entry(contents.id);
+    if (shortcut === undefined || entry === undefined) {
+      return;
+    }
+    event.preventDefault();
+    const payload: ShortcutEvent = { tabId: entry.tabId, shortcut };
+    const window = this.contentsFromId(entry.windowId);
+    if (window && !window.isDestroyed()) {
+      window.send(Channels.shortcut, payload);
+    }
+  }
+
   ensureSession(partition: string): void {
     if (this.preparedSessions.has(partition) || profileIdFromPartition(partition) === undefined) {
       return;
@@ -148,19 +218,20 @@ export class GuestPolicies {
       callback(isPermissionAllowed(permission)),
     );
     target.setPermissionCheckHandler((_contents, permission) => isPermissionAllowed(permission));
+    const profileId = profileIdFromPartition(partition) ?? DEFAULT_PROFILE_ID;
     target.on("will-download", (_event, item, contents) => {
-      const folder = app.getPath("downloads");
+      const folder = this.downloadsFolder();
       const name = uniqueDownloadName(item.getFilename(), (candidate) =>
         fs.existsSync(path.join(folder, candidate)),
       );
-      item.setSavePath(path.join(folder, name));
-      item.once("done", (_doneEvent, state) => {
-        const text =
-          state === "completed"
-            ? `Downloaded ${name} to the Downloads folder.`
-            : `The download of ${name} did not complete.`;
-        this.sendToWindowOf(contents, Channels.notice, text);
-      });
+      const savePath = path.join(folder, name);
+      if (!this.downloads) {
+        item.setSavePath(savePath);
+        return;
+      }
+      this.downloads.start(item, savePath, profileId, (done) =>
+        this.sendToWindowOf(contents, Channels.downloadDone, done),
+      );
     });
   }
 
@@ -184,9 +255,12 @@ export class GuestPolicies {
 
   // Sends to the Theia window that shows this page: the embedder of a
   // `<webview>`, or else the focused (or first) Theia window. A popup window
-  // of a page is never the target.
+  // of a page is never the target. A destroyed page (for example the closed
+  // tab of a download) throws when code reads `hostWebContents`, so it uses
+  // the Theia window.
   sendToWindowOf(contents: WebContents, channel: string, payload: unknown): void {
-    const embedder = contents.hostWebContents ?? this.theiaWindowContents();
+    const embedder =
+      (contents.isDestroyed() ? undefined : contents.hostWebContents) ?? this.theiaWindowContents();
     if (embedder && !embedder.isDestroyed()) {
       embedder.send(channel, payload);
     }

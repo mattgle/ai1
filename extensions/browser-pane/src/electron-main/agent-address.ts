@@ -4,10 +4,10 @@ import * as path from "node:path";
 import {
   AgentAddressConfig,
   AgentAddressResult,
-  AgentState,
   Channels,
   CreateAgentTabRequest,
 } from "../common/browser-ipc";
+import { prepareAgentAttach } from "./agent-attach";
 import { AgentAddressServer, AgentTarget } from "./agent-address-server";
 import { AgentProxies } from "./agent-proxies";
 import { readOrCreateSecret } from "./agent-secret";
@@ -17,6 +17,7 @@ import { GuestPolicies } from "./guest-policies";
 import { GuestRegistry } from "./guest-registry";
 import { OnePageProxy } from "./one-page-proxy";
 import { SerialQueue } from "./serial-queue";
+import { ViewportEmulations } from "./viewport-emulation";
 
 @injectable()
 export class AgentAddress {
@@ -25,6 +26,9 @@ export class AgentAddress {
 
   @inject(GuestPolicies)
   protected readonly guestPolicies!: GuestPolicies;
+
+  @inject(ViewportEmulations)
+  protected readonly viewports!: ViewportEmulations;
 
   tabs!: AgentTabs;
   protected server: AgentAddressServer | undefined;
@@ -37,6 +41,8 @@ export class AgentAddress {
 
   @postConstruct()
   protected init(): void {
+    // The page of a connected agent gets all keys: no shortcut is caught.
+    this.guestPolicies.setAgentConnectedCheck((guestId) => this.proxies.isConnected(guestId));
     this.tabs = new AgentTabs(this.registry, {
       lastFocusedWindow: () => this.focusedTheiaWindow(),
       requestAgentTab: (windowId, requestId) => {
@@ -47,9 +53,24 @@ export class AgentAddress {
         const guest = webContents.fromId(guestId);
         return guest !== undefined && !guest.isDestroyed();
       },
-      // Close the agent's connection to the old agent tab. The next
-      // connection gets the new agent tab.
-      releaseGuest: (guestId) => this.proxies.release(guestId),
+      // A tab with open DevTools refuses the connection before any change.
+      // Electron allows one debugger client for each page. The viewport
+      // emulation clears its overrides and detaches before the proxy
+      // attaches. On a page that does not answer, it detaches after at most
+      // `RELEASE_TIMEOUT_MS`. The proxy has no client at this time, so it
+      // ignores the "detach" event of this detach.
+      beforeAgentAttach: (guestId) =>
+        prepareAgentAttach(guestId, {
+          entry: (id) => this.registry.entry(id),
+          devToolsOpened: (id) => {
+            const guest = webContents.fromId(id);
+            return guest !== undefined && !guest.isDestroyed() && guest.isDevToolsOpened();
+          },
+          restoreWaiting: (windowId, tabId) => this.tabs.restoreWaiting(windowId, tabId),
+          notify: (windowId, text) => webContents.fromId(windowId)?.send(Channels.notice, text),
+          release: (id) => this.viewports.release(id),
+        }),
+      stateChanged: () => this.sendState(),
     });
   }
 
@@ -60,6 +81,11 @@ export class AgentAddress {
         this.lastFocusedWindow = window.webContents.id;
       }
     });
+  }
+
+  // True while an agent is connected to this guest.
+  agentConnected(guestId: number): boolean {
+    return this.proxies.isConnected(guestId);
   }
 
   address(): string | undefined {
@@ -127,46 +153,35 @@ export class AgentAddress {
     if (!guest || guest.isDestroyed() || !entry) {
       throw new Error("The agent tab closed.");
     }
-    if (guest.isDevToolsOpened()) {
-      const text =
-        "An agent cannot connect while DevTools is open on the agent tab. Close DevTools, then connect again.";
-      webContents.fromId(entry.windowId)?.send(Channels.notice, text);
-      throw new Error(text);
-    }
-    let proxy = this.proxies.get(guestId);
-    if (!proxy) {
+    if (!this.proxies.get(guestId)) {
       const created = new OnePageProxy(guest, {
-        onClientChange: (connected) => this.sendState(entry.windowId, connected),
+        onClientChange: (connected) => {
+          if (connected) {
+            this.tabs.connected(guestId, this.tabs.nextNumber());
+          } else {
+            this.tabs.disconnected(guestId);
+          }
+        },
         captureScreenshot: (params) =>
           new Promise((resolve, reject) =>
             captureScreenshot(guest, params, resolve, (message) => reject(new Error(message))),
           ),
       });
-      guest.once("destroyed", () => this.proxies.remove(guestId));
+      guest.once("destroyed", () => {
+        this.proxies.remove(guestId);
+        this.tabs.disconnected(guestId);
+      });
       this.proxies.add(guestId, created);
-      proxy = created;
     }
-    return {
-      handleHttpRequest: (requestPath, response) => {
-        if (["/json/list", "/json/list/", "/json", "/json/"].includes(requestPath)) {
-          response.writeHead(200, { "content-type": "application/json" });
-          response.end(JSON.stringify([proxy!.listEntry(this.server?.webSocketUrl() ?? "")]));
-          return;
-        }
-        response.writeHead(404).end();
-      },
-      acceptClient: (client) => this.proxies.accept(guestId, client),
-    };
+    return { acceptClient: (client) => this.proxies.accept(guestId, client) };
   }
 
-  // True when an agent is connected to the agent tab of this window.
-  agentConnected(windowId: number): boolean {
-    const tabId = this.tabs.agentTabOf(windowId);
-    return this.proxies.isConnected(tabId === undefined ? undefined : this.registry.guestOf(windowId, tabId));
-  }
-
-  sendState(windowId: number, connected: boolean): void {
-    const state: AgentState = { tabId: this.tabs.agentTabOf(windowId), connected };
-    webContents.fromId(windowId)?.send(Channels.agentState, state);
+  // Sends to each Theia window the agent state of its own tabs.
+  sendState(): void {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed() && !this.guestPolicies.isAi1BrowserContents(window.webContents)) {
+        window.webContents.send(Channels.agentState, this.tabs.stateFor(window.webContents.id));
+      }
+    }
   }
 }

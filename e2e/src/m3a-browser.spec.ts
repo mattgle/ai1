@@ -246,6 +246,14 @@ test("a ⌘-click on a terminal link asks one time, then opens the AI1 tab", asy
   await app.quickCommandPalette.trigger("Terminal: Create New Terminal");
   const screen = app.page.locator(".terminal-container:not(.lm-mod-hidden) .xterm-screen").last();
   await expect(screen).toBeVisible();
+  // Theia drops the keys that come before the terminal has its shell
+  // process. The tab label changes from "Terminal" to the shell name when
+  // the process exists.
+  const terminalId = await app.page
+    .locator(".terminal-container:not(.lm-mod-hidden)")
+    .last()
+    .getAttribute("id");
+  await expect(app.page.locator(`#shell-tab-${terminalId}`)).not.toHaveText(/^Terminal$/);
   // xterm keeps the real input focus on a hidden textarea, not the screen.
   // Monaco clears the `inQuickInput` context in a timer after the command
   // palette loses the focus. Until then, Theia gives Enter to the palette,
@@ -411,6 +419,7 @@ test("Playwright controls the agent tab through the agent address, and sees only
   // The secret of this run is in its own temporary user data folder.
   const secret = fs.readFileSync(path.join(userDataDir, "ai1-browser-agent-secret"), "utf8").trim();
   const agentTab = app.page.locator("#theia-main-content-panel .lm-TabBar-tab.ai1-browser-agent-tab");
+  let firstTab = agentTab;
   const browser = await chromium.connectOverCDP(`http://127.0.0.1:${agentPort}/${secret}/`);
   try {
     const pages = browser.contexts().flatMap((context) => context.pages());
@@ -427,34 +436,42 @@ test("Playwright controls the agent tab through the agent address, and sees only
     // The agent cannot open a local file.
     await expect(page.goto("file:///etc/hosts")).rejects.toThrow(/only http and https/);
     await expect(page).toHaveTitle("Welcome");
-    await expect(agentTab).toHaveText(/Welcome/);
-    // A new connection replaces the old one and gets the same page.
+    await expect(agentTab).toHaveText(/Agent \d+ · Welcome/);
+    firstTab = app.page.locator(`[id="${await agentTab.getAttribute("id")}"]`);
+    // A new connection gets its own new tab, and the first agent stays
+    // connected to its page.
     const second = await chromium.connectOverCDP(`http://127.0.0.1:${agentPort}/${secret}/`);
     try {
-      await expect.poll(() => browser.isConnected()).toBe(false);
+      await expect(agentTab).toHaveCount(2);
       const pagesAgain = second.contexts().flatMap((context) => context.pages());
       expect(pagesAgain).toHaveLength(1);
-      await expect(pagesAgain[0]).toHaveTitle("Welcome");
-      await expect(agentTab).toHaveClass(/ai1-browser-agent-connected/);
+      expect(pagesAgain[0].url()).toBe("about:blank");
+      expect(browser.isConnected()).toBe(true);
+      await expect(page).toHaveTitle("Welcome");
     } finally {
       await second.close();
     }
+    await expect(agentTab).toHaveCount(1);
+    await expect(agentTab).toHaveText(/Welcome/);
   } finally {
     await browser.close();
   }
-  // The agent tab stays open and keeps its mark, without the connected mark.
-  await expect(agentTab).toHaveText(/Welcome/);
-  await expect(agentTab).not.toHaveClass(/ai1-browser-agent-connected/);
+  // The tab stays open as a normal tab: no agent mark and no number.
+  await expect(agentTab).toHaveCount(0);
+  await expect(firstTab).toHaveText(/Welcome/);
+  await expect(firstTab).not.toHaveText(/Agent/);
+  await expect(firstTab).not.toHaveClass(/ai1-browser-agent/);
 });
 
 test("a new agent connection opens the agent tab and does not take the keyboard focus", async () => {
   const secret = fs.readFileSync(path.join(userDataDir, "ai1-browser-agent-secret"), "utf8").trim();
   const agentTab = app.page.locator("#theia-main-content-panel .lm-TabBar-tab.ai1-browser-agent-tab");
-  // Close the agent tab of the previous test, so the next connection opens a
-  // new one.
-  await clickTab(agentTab, { button: "right" });
-  await app.page.locator(".lm-Menu-item", { hasText: /^Close$/ }).click();
+  // No agent is connected after the previous test.
   await expect(agentTab).toHaveCount(0);
+  // The previous test can leave a `<webview>` with the keyboard focus. Then
+  // a key goes to its page, not to Theia, and the command palette does not
+  // open. A click on the status bar moves the focus back to Theia.
+  await app.page.locator("#theia-statusBar").click();
 
   await app.quickCommandPalette.trigger("Terminal: Create New Terminal");
   const input = app.page.locator(".terminal-container:not(.lm-mod-hidden) .xterm-helper-textarea").last();

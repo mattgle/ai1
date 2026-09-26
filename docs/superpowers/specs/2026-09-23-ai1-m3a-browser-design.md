@@ -323,3 +323,23 @@ These go to M3b: the cookie import from Chrome, Arc, and Brave; Design Mode;
 annotations and comments; viewport sizes; find in page; the downloads list;
 history and "reopen closed tab"; zoom controls; a "Stop server" action in the
 Ports view; one tab for each agent.
+
+## Changes in M3b part A
+
+`docs/superpowers/specs/2026-09-25-ai1-m3b-a-browser-basics-design.md` (M3b
+part A) replaces two rules of this document:
+
+- **"One client at a time."** M3b part A lets more than one agent connect at
+  the same time. Each connection gets its own tab and its own proxy.
+- **"With more than one AI1 window, the address uses the agent tab of the
+  window that had the focus last."** M3b part A picks a tab for a new
+  connection from the waiting tab first. Only when no tab waits does it open a
+  new tab in the window that had the focus last.
+
+M3b part A also changes the rule that the fake browser answers `/json/list`
+with exactly one target. The agent address now answers `/json/list` and
+`/json` with `[]` for a plain HTTP request. Only a WebSocket connection gets a
+tab, so an HTTP request cannot open an empty tab or use up the "Waiting for
+agent" mark.
+
+See the M3b part A spec for the full design.

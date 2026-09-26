@@ -8,6 +8,9 @@ import * as path from "node:path";
 const page = (title: string, body = "", script = ""): string =>
   `<!doctype html><html><head><title>${title}</title></head><body>${body}<script>${script}</script></body></html>`;
 
+// The content of the file that `/download.txt` gives as a download.
+export const DOWNLOAD_TEXT = "AI1 download fixture\n";
+
 export interface LocalCertificate {
   key: Buffer;
   cert: Buffer;
@@ -126,6 +129,16 @@ export class BrowserFixtureServer {
       case "/button":
         html(page("Button", `<button id="go" onclick="document.title='Clicked'">Go</button>`));
         return;
+      case "/responsive":
+        // A mobile page without this tag has a layout width of 980 pixels.
+        html(
+          `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">` +
+            `<title>Responsive</title></head><body><p>Responsive</p></body></html>`,
+        );
+        return;
+      case "/apples":
+        html(page("Apples", "<p>apple</p><p>An apple a day</p><p>Green apple</p>"));
+        return;
       case "/counter":
         html(
           page(
@@ -134,6 +147,19 @@ export class BrowserFixtureServer {
             "var ai1Count = 0; setInterval(function () { ai1Count += 1; document.title = 'count ' + ai1Count; }, 200);",
           ),
         );
+        return;
+      case "/history-one":
+        html(page("History One"));
+        return;
+      case "/history-two":
+        html(page("History Two"));
+        return;
+      case "/download.txt":
+        response.writeHead(200, {
+          "content-type": "text/plain",
+          "content-disposition": 'attachment; filename="download.txt"',
+        });
+        response.end(DOWNLOAD_TEXT);
         return;
       default:
         html(page(request.url?.startsWith("/flood-tab") ? "Flood tab" : "Start"));

@@ -96,17 +96,6 @@ export class OnePageProxy {
     this.hooks.onClientChange(true);
   }
 
-  // The `/json/list` entry. The id is the last known real id.
-  listEntry(webSocketUrl: string): object {
-    return {
-      id: this.targetId ?? "",
-      type: "page",
-      title: this.guest.isDestroyed() ? "" : this.guest.getTitle(),
-      url: this.guest.isDestroyed() ? "" : this.guest.getURL(),
-      webSocketDebuggerUrl: webSocketUrl,
-    };
-  }
-
   get connected(): boolean {
     return this.client !== undefined;
   }

@@ -1,4 +1,4 @@
-import { FrontendApplicationContribution } from "@theia/core/lib/browser";
+import { FrontendApplicationContribution, WidgetManager } from "@theia/core/lib/browser";
 import { ClipboardService } from "@theia/core/lib/browser/clipboard-service";
 import { Command, CommandContribution, CommandRegistry, MessageService } from "@theia/core/lib/common";
 import {
@@ -6,21 +6,25 @@ import {
   PreferenceScope,
   PreferenceService,
 } from "@theia/core/lib/common/preferences";
-import { inject, injectable } from "@theia/core/shared/inversify";
+import { inject, injectable, postConstruct } from "@theia/core/shared/inversify";
+import { AgentTabState } from "../common/browser-ipc";
 import { buildMcpConfig } from "../common/mcp-config";
 import { AGENT_PROFILE_ID } from "../common/profiles";
 import { userPreference } from "../common/user-preference";
 import { browserApi } from "./browser-api";
 import { AGENT_ADDRESS_ENABLED, AGENT_ADDRESS_PORT } from "./browser-preferences";
 import { BrowserTabs } from "./browser-tabs";
+import { BrowserWidget } from "./browser-widget";
 
 export const AgentCommands = {
   COPY_MCP_CONFIG: { id: "ai1.browser.copyMcpConfig", label: "Browser: Copy Playwright MCP Config" },
+  CANCEL_GIVE_TO_AGENT: { id: "ai1.browser.cancelGiveToAgent", label: "Browser: Cancel Give to Agent" },
 } satisfies Record<string, Command>;
 
 // The front-end part of the agent address: it starts or stops the address
 // when the preferences change, opens an agent tab when the main process asks
-// for one, marks the agent tab, and copies the MCP config.
+// for one, marks the waiting and the connected tabs, and copies the MCP
+// config.
 @injectable()
 export class AgentContribution implements FrontendApplicationContribution, CommandContribution {
   @inject(PreferenceService)
@@ -38,15 +42,34 @@ export class AgentContribution implements FrontendApplicationContribution, Comma
   @inject(ClipboardService)
   protected readonly clipboard!: ClipboardService;
 
+  @inject(WidgetManager)
+  protected readonly widgets!: WidgetManager;
+
+  // The last agent state of the tabs of this window.
+  protected states: AgentTabState[] = [];
+
+  // A tab that Theia restores after the last state message also gets its
+  // state, for example after a reload of the window.
+  @postConstruct()
+  protected init(): void {
+    this.widgets.onDidCreateWidget(({ factoryId, widget }) => {
+      if (factoryId === BrowserWidget.FACTORY_ID) {
+        const browserWidget = widget as BrowserWidget;
+        browserWidget.setAgentState(this.states.find((state) => state.tabId === browserWidget.tabId));
+      }
+    });
+  }
+
   async onStart(): Promise<void> {
     const api = browserApi();
     api.onCreateAgentTab(async (request) => {
       const widget = await this.tabs.open("about:blank", AGENT_PROFILE_ID, { activate: false });
       await api.agentTabCreated(request.requestId, widget.tabId);
     });
-    api.onAgentState((state) => {
+    api.onAgentState((states) => {
+      this.states = states;
       for (const widget of this.tabs.all()) {
-        widget.setAgentMark(widget.tabId === state.tabId, state.connected);
+        widget.setAgentState(states.find((state) => state.tabId === widget.tabId));
       }
     });
     await this.preferences.ready;
@@ -75,6 +98,10 @@ export class AgentContribution implements FrontendApplicationContribution, Comma
   }
 
   registerCommands(registry: CommandRegistry): void {
+    registry.registerCommand(AgentCommands.CANCEL_GIVE_TO_AGENT, {
+      isEnabled: () => this.states.some((state) => state.state === "waiting"),
+      execute: () => browserApi().giveToAgent(undefined),
+    });
     registry.registerCommand(AgentCommands.COPY_MCP_CONFIG, {
       execute: async () => {
         const address = await browserApi().agentAddress();

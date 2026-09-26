@@ -1,11 +1,28 @@
-import { BaseWidget, StatefulWidget } from "@theia/core/lib/browser";
+import { ApplicationShell, BaseWidget, QuickInputService, StatefulWidget } from "@theia/core/lib/browser";
+import { ContextKeyService } from "@theia/core/lib/browser/context-key-service";
 import { inject, injectable, postConstruct } from "@theia/core/shared/inversify";
 import type { WebviewTag } from "electron";
 import { normalizeAddress } from "../common/address";
-import { CertificateErrorEvent } from "../common/browser-ipc";
+import { AgentTabState, CertificateErrorEvent } from "../common/browser-ipc";
+import { ClosedTab } from "../common/closed-tabs";
 import { isLocalCertificateHost } from "../common/guest-policy";
 import { DEFAULT_PROFILE_ID, partitionFor, Profile } from "../common/profiles";
+import { BrowserShortcut } from "../common/shortcuts";
+import { resolveViewport, validateCustomSize, VIEWPORT_PRESETS, ViewportChoice } from "../common/viewport";
+import { nextZoom, zoomKey } from "../common/zoom";
 import { browserApi } from "./browser-api";
+import { FindBar } from "./find-bar";
+
+// The context keys of a browser tab. They are local keys: a scoped context
+// on the node of the tab (and on its find bar) holds them. Theia gives a
+// keybinding whose `when` uses a local key of the focused element priority
+// over other keybindings with the same keys
+// (`KeybindingRegistry.selectBindingByLocalContext`). Thus the browser
+// keybindings win over, for example, the Source Control toggle (⇧⌘G) and
+// the core Find (⌘F) while a browser tab has the focus, and they do not run
+// anywhere else.
+export const BROWSER_FOCUS_CONTEXT = "ai1BrowserFocus";
+export const BROWSER_FIND_FOCUS_CONTEXT = "ai1BrowserFindFocus";
 
 export const BrowserWidgetOptions = Symbol("BrowserWidgetOptions");
 export interface BrowserWidgetOptions {
@@ -14,10 +31,33 @@ export interface BrowserWidgetOptions {
   profileId: string;
 }
 
+// The parts of `BrowserTabs` that a browser widget uses to keep the shared
+// list of closed tabs. This type avoids a circular import between this file
+// and `browser-tabs.ts`, which owns the list. `BrowserTabs` gives its own
+// instance to each widget after it creates it.
+export interface ClosedTabsHandle {
+  pushClosed(tab: ClosedTab): void;
+  reopenClosed(): Promise<BrowserWidget | undefined>;
+}
+
 interface BrowserTabState {
   url: string;
   profileId: string;
+  viewport?: ViewportChoice;
 }
+
+// One entry of the viewport menu and of the command "Browser: Set
+// Viewport…".
+export interface ViewportEntry {
+  id: string;
+  label: string;
+  checked: boolean;
+  enabled: boolean;
+}
+
+const VIEWPORT_OFF: ViewportChoice = { kind: "off" };
+const OFF_LABEL = "Responsive (off)";
+const PRESET_ENTRY = "preset:";
 
 // One browser tab: a toolbar and one `<webview>`. The `<webview>` is made
 // once for each profile and never gets a new parent element (a new parent
@@ -30,6 +70,15 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
   @inject(BrowserWidgetOptions)
   protected readonly options!: BrowserWidgetOptions;
 
+  @inject(ContextKeyService)
+  protected readonly contextKeys!: ContextKeyService;
+
+  @inject(QuickInputService)
+  protected readonly quickInput!: QuickInputService;
+
+  @inject(ApplicationShell)
+  protected readonly shell!: ApplicationShell;
+
   protected url = "about:blank";
   protected profile = DEFAULT_PROFILE_ID;
   protected profileList: Profile[] = [];
@@ -39,18 +88,64 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
   // event. Until then, `navigate` keeps the address in `pendingUrl`.
   protected webviewReady = false;
   protected pendingUrl: string | undefined;
-  protected isAgentTab = false;
+  protected agentState: AgentTabState | undefined;
+  // The title of the page (or of the error). The tab label adds the agent
+  // number to it while an agent is connected.
+  protected pageTitle = "New Tab";
+  // The zoom of the current page: the address of the last main-frame
+  // navigation, its `zoomKey`, and its level in percent.
+  protected zoomUrl: string | undefined;
+  protected pageZoomKey: string | undefined;
+  protected zoomPercent = 100;
+  // The viewport size of the tab. The main process has it for the guest
+  // `viewportGuestId` (after its registration).
+  protected viewportChoice: ViewportChoice = VIEWPORT_OFF;
+  protected viewportGuestId: number | undefined;
+  // The error text of the last viewport change that failed, while the
+  // message shows it.
+  protected viewportError: string | undefined;
+  // Set once by `BrowserTabs` after it creates this widget. It pushes this
+  // tab to the closed list when the owner closes it, and reopens the last
+  // closed tab for the shortcut (see `onCloseRequest` and `runShortcut`).
+  protected closedTabsHandle: ClosedTabsHandle | undefined;
+  protected readonly viewportButton = document.createElement("button");
+  protected readonly viewportMenu = document.createElement("div");
+  protected readonly viewportLabel = document.createElement("div");
+  protected readonly closeViewportMenuOnClick = (event: MouseEvent): void => {
+    if (!this.viewportMenu.contains(event.target as Node) && event.target !== this.viewportButton) {
+      this.closeViewportMenu();
+    }
+  };
   protected readonly toolbar = document.createElement("div");
   protected readonly backButton = document.createElement("button");
   protected readonly forwardButton = document.createElement("button");
   protected readonly reloadButton = document.createElement("button");
   protected readonly addressInput = document.createElement("input");
+  protected readonly zoomButton = document.createElement("button");
   protected readonly profileSelect = document.createElement("select");
   protected readonly agentButton = document.createElement("button");
   protected readonly devToolsButton = document.createElement("button");
   protected readonly message = document.createElement("div");
   protected readonly viewport = document.createElement("div");
   protected readonly errorPanel = document.createElement("div");
+  protected readonly findBar = new FindBar({
+    find: (text, options) =>
+      this.webview && this.webviewReady ? this.webview.findInPage(text, options) : undefined,
+    stop: () => {
+      if (this.webview && this.webviewReady) {
+        this.webview.stopFindInPage("clearSelection");
+      }
+    },
+    openChanged: (open) => {
+      const guestId = this.currentGuestId();
+      if (guestId !== undefined) {
+        void browserApi()
+          .setFindOpen(guestId, open)
+          .catch(() => undefined);
+      }
+    },
+    returnFocus: () => this.webview?.focus(),
+  });
 
   get tabId(): string {
     return this.options.tabId;
@@ -64,13 +159,18 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     return this.url;
   }
 
+  // True while an agent is connected to this tab.
+  get agentConnected(): boolean {
+    return this.agentState?.state === "connected";
+  }
+
   @postConstruct()
   protected init(): void {
     this.id = `${BrowserWidget.FACTORY_ID}:${this.options.tabId}`;
     this.url = this.options.url;
     this.profile = this.options.profileId;
-    this.title.label = "New Tab";
-    this.title.caption = this.url;
+    this.updateLabel();
+    this.updateCaption();
     this.title.closable = true;
     this.title.iconClass = "codicon codicon-globe";
     this.addClass("ai1-browser");
@@ -80,15 +180,39 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     this.viewport.className = "ai1-browser-viewport";
     this.errorPanel.className = "ai1-browser-error";
     this.errorPanel.hidden = true;
-    this.viewport.appendChild(this.errorPanel);
-    this.node.append(this.toolbar, this.message, this.viewport);
+    this.viewportLabel.className = "ai1-browser-viewport-label";
+    this.viewportLabel.hidden = true;
+    this.viewport.append(this.viewportLabel, this.errorPanel);
+    this.node.append(this.toolbar, this.findBar.node, this.message, this.viewport);
+    const tabContext = this.contextKeys.createScoped(this.node);
+    tabContext.createKey(BROWSER_FOCUS_CONTEXT, true);
+    // The find bar has its own scope, so the Esc keybinding works only in
+    // the find bar. Only the nearest scope gives local keys, so this scope
+    // also holds the key of the tab.
+    const findContext = tabContext.createScoped(this.findBar.node);
+    findContext.createKey(BROWSER_FOCUS_CONTEXT, true);
+    findContext.createKey(BROWSER_FIND_FOCUS_CONTEXT, true);
+    // `toDispose` disposes in the reverse order, so the child scope goes
+    // first. When the parent goes first, Monaco does not remove the context
+    // of the child scope, and one context stays for each closed tab.
+    this.toDispose.push(tabContext);
+    this.toDispose.push(findContext);
     this.toDispose.push({
       dispose: browserApi().onCertificateError((event) => this.onCertificateError(event)),
     });
+    this.toDispose.push({
+      dispose: browserApi().onZoomChanged((event) => {
+        if (event.key === this.pageZoomKey) {
+          this.setZoomLevel(event.percent);
+        }
+      }),
+    });
+    this.toDispose.push({ dispose: () => this.closeViewportMenu() });
+    this.updateViewportLayout();
   }
 
   storeState(): BrowserTabState {
-    return { url: this.url, profileId: this.profile };
+    return { url: this.url, profileId: this.profile, viewport: this.viewportChoice };
   }
 
   restoreState(oldState: object): void {
@@ -99,11 +223,22 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     if (typeof state.profileId === "string") {
       this.profile = state.profileId;
     }
+    // The widget sets the size on the page after the first `dom-ready`
+    // (see `onGuestRegistered`).
+    if (state.viewport !== undefined && resolveViewport(state.viewport) !== undefined) {
+      this.viewportChoice = state.viewport;
+      this.updateViewportLayout();
+    }
     // Theia calls this after the widget got the profile list, so check the
     // restored profile again: it can be gone.
     if (this.profileList.length > 0) {
       this.setProfiles(this.profileList);
     }
+  }
+
+  // `BrowserTabs` calls this once, right after it creates the widget.
+  setClosedTabsHandle(handle: ClosedTabsHandle): void {
+    this.closedTabsHandle = handle;
   }
 
   protected override onAfterAttach(msg: Parameters<BaseWidget["onAfterAttach"]>[0]): void {
@@ -125,6 +260,49 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
   focusAddress(): void {
     this.addressInput.focus();
     this.addressInput.select();
+  }
+
+  // The one entry point for the browser shortcuts: from a Theia keybinding,
+  // and from the main process when the page has the focus.
+  runShortcut(shortcut: BrowserShortcut): void {
+    switch (shortcut) {
+      case "find":
+        this.findBar.open();
+        return;
+      case "findNext":
+        this.findBar.next();
+        return;
+      case "findPrevious":
+        this.findBar.previous();
+        return;
+      case "closeFind": {
+        // From the Esc keybinding the focus is in the find bar, which
+        // becomes hidden: give the focus to the page.
+        const focusInBar = this.findBar.node.contains(document.activeElement);
+        this.findBar.close();
+        if (focusInBar) {
+          this.webview?.focus();
+        }
+        return;
+      }
+      case "focusAddress":
+        this.focusAddress();
+        return;
+      case "zoomIn":
+        this.changeZoom(nextZoom(this.zoomPercent, 1));
+        return;
+      case "zoomOut":
+        this.changeZoom(nextZoom(this.zoomPercent, -1));
+        return;
+      case "zoomReset":
+        this.changeZoom(100);
+        return;
+      case "reopenClosedTab":
+        void this.closedTabsHandle?.reopenClosed();
+        return;
+      default:
+        return;
+    }
   }
 
   navigate(input: string): void {
@@ -153,28 +331,96 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     }
   }
 
-  setAgentMark(isAgent: boolean, connected: boolean): void {
-    this.isAgentTab = isAgent;
-    this.agentButton.classList.toggle("ai1-browser-agent-active", isAgent);
+  // `undefined` makes the tab a normal tab.
+  setAgentState(state: AgentTabState | undefined): void {
+    this.agentState = state;
+    const waiting = state?.state === "waiting";
+    const connected = state?.state === "connected";
+    this.agentButton.classList.toggle("ai1-browser-agent-active", waiting);
+    this.agentButton.disabled = connected;
+    this.agentButton.title = connected
+      ? "An agent is connected to this tab"
+      : waiting
+        ? "This tab waits for an agent"
+        : "Give this tab to the agent";
+    this.viewportButton.disabled = connected;
+    if (connected) {
+      // The main process cleared the size before the agent got the page.
+      this.closeViewportMenu();
+      this.viewportChoice = VIEWPORT_OFF;
+      this.updateViewportLayout();
+    }
     this.title.className = [
-      isAgent ? "ai1-browser-agent-tab" : "",
-      isAgent && connected ? "ai1-browser-agent-connected" : "",
+      waiting ? "ai1-browser-agent-waiting" : "",
+      connected ? "ai1-browser-agent-tab ai1-browser-agent-connected" : "",
     ]
       .filter((name) => name !== "")
       .join(" ");
-    this.title.caption = isAgent
-      ? `${this.url} (agent tab${connected ? ", agent connected" : ""})`
-      : this.url;
+    this.updateLabel();
+    this.updateCaption();
+  }
+
+  // Theia sends the close request only when the owner closes the tab, not
+  // at shutdown and not on a layout restore (those call `dispose` without
+  // it). Push the tab to the closed list before `super` detaches it from
+  // its tab bar, so the tab bar still holds its left neighbor.
+  protected override onCloseRequest(msg: Parameters<BaseWidget["onCloseRequest"]>[0]): void {
+    if (!this.agentConnected && this.url !== "about:blank") {
+      this.closedTabsHandle?.pushClosed({
+        url: this.url,
+        profileId: this.profile,
+        viewport: this.viewportChoice,
+        previousTabId: this.leftNeighborTabId(),
+      });
+    }
+    super.onCloseRequest(msg);
+  }
+
+  // The tab id of the browser tab to the left of this one in the same tab
+  // bar, or `undefined` when there is none.
+  protected leftNeighborTabId(): string | undefined {
+    const tabBar = this.shell.getTabBarFor(this);
+    if (!tabBar) {
+      return undefined;
+    }
+    const index = tabBar.titles.indexOf(this.title);
+    if (index <= 0) {
+      return undefined;
+    }
+    const neighbor = tabBar.titles[index - 1].owner;
+    return neighbor instanceof BrowserWidget ? neighbor.tabId : undefined;
   }
 
   override dispose(): void {
-    // Tell the main process that the agent tab is gone.
-    if (this.isAgentTab) {
+    // A closed tab cannot wait for an agent.
+    if (this.agentState?.state === "waiting") {
       void browserApi()
-        .setAgentTab(undefined)
+        .giveToAgent(undefined)
         .catch(() => undefined);
     }
     super.dispose();
+  }
+
+  protected setPageTitle(title: string): void {
+    this.pageTitle = title;
+    this.updateLabel();
+  }
+
+  protected updateLabel(): void {
+    this.title.label =
+      this.agentState?.state === "connected"
+        ? `Agent ${this.agentState.number} · ${this.pageTitle}`
+        : this.pageTitle;
+  }
+
+  protected updateCaption(): void {
+    const state = this.agentState?.state;
+    this.title.caption =
+      state === "waiting"
+        ? `${this.url} (waiting for agent)`
+        : state === "connected"
+          ? `${this.url} (agent connected)`
+          : this.url;
   }
 
   protected switchProfile(profileId: string): void {
@@ -183,6 +429,8 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     }
     this.profile = profileId;
     this.profileSelect.value = profileId;
+    // Close the find bar while the old page exists.
+    this.findBar.close();
     if (this.webview) {
       this.webview.remove();
       this.webview = undefined;
@@ -206,9 +454,19 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
       this.webview?.reload();
     });
     button(this.agentButton, "codicon-hubot", "Give this tab to the agent", () => {
-      void browserApi().setAgentTab(this.tabId);
+      void browserApi().giveToAgent(this.tabId);
     });
     this.agentButton.classList.add("ai1-browser-give-to-agent");
+    button(this.viewportButton, "codicon-device-mobile", OFF_LABEL, () => this.toggleViewportMenu());
+    this.viewportButton.classList.add("ai1-browser-viewport-button");
+    this.viewportMenu.className = "ai1-browser-viewport-menu";
+    this.viewportMenu.hidden = true;
+    this.viewportMenu.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        this.closeViewportMenu();
+        this.viewportButton.focus();
+      }
+    });
     button(this.devToolsButton, "codicon-tools", "Open DevTools", () => this.webview?.openDevTools());
     this.backButton.disabled = true;
     this.forwardButton.disabled = true;
@@ -220,6 +478,10 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
         this.navigate(this.addressInput.value);
       }
     });
+    this.zoomButton.className = "ai1-browser-zoom theia-button secondary";
+    this.zoomButton.title = "Reset the zoom to 100%";
+    this.zoomButton.hidden = true;
+    this.zoomButton.addEventListener("click", () => this.changeZoom(100));
     this.profileSelect.className = "ai1-browser-profile theia-select";
     this.profileSelect.title = "Profile of this tab";
     this.profileSelect.addEventListener("change", () => this.switchProfile(this.profileSelect.value));
@@ -228,9 +490,12 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
       this.forwardButton,
       this.reloadButton,
       this.addressInput,
+      this.zoomButton,
       this.profileSelect,
+      this.viewportButton,
       this.agentButton,
       this.devToolsButton,
+      this.viewportMenu,
     );
   }
 
@@ -253,14 +518,20 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     webview.setAttribute("webpreferences", "disableHtmlFullscreenWindowResize=true,transparent=false");
     webview.className = "ai1-browser-webview";
     webview.addEventListener("dom-ready", () => this.onDomReady(webview));
-    webview.addEventListener("did-navigate", (event) => this.onNavigated(event.url));
+    // `did-navigate` is only for the main frame.
+    webview.addEventListener("did-navigate", (event) => {
+      this.findBar.close();
+      this.onNavigated(event.url);
+      this.updateZoomForPage(event.url);
+    });
+    webview.addEventListener("found-in-page", (event) => this.findBar.showResult(event.result));
     webview.addEventListener("did-navigate-in-page", (event) => {
       if (event.isMainFrame) {
         this.onNavigated(event.url);
       }
     });
     webview.addEventListener("page-title-updated", (event) => {
-      this.title.label = event.title || this.url;
+      this.setPageTitle(event.title || this.url);
     });
     webview.addEventListener("did-fail-load", (event) => {
       // -3 is ERR_ABORTED: a new navigation replaced this one. -200 to -299
@@ -281,11 +552,21 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     this.webview = webview;
     this.webviewReady = false;
     this.pendingUrl = undefined;
+    this.zoomUrl = undefined;
+    this.pageZoomKey = undefined;
+    this.setZoomLevel(100);
+    this.viewportGuestId = undefined;
     this.viewport.insertBefore(webview, this.errorPanel);
+    this.updateViewportLayout();
   }
 
   protected onDomReady(webview: WebviewTag): void {
+    const firstReady = !this.webviewReady;
     this.webviewReady = true;
+    // A navigation before the first `dom-ready` cannot set the zoom.
+    if (firstReady) {
+      this.applyZoom();
+    }
     if (this.pendingUrl !== undefined) {
       const url = this.pendingUrl;
       this.pendingUrl = undefined;
@@ -298,7 +579,184 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     this.registeredGuestId = guestId;
     browserApi()
       .registerGuest(guestId, this.tabId)
+      .then(() => this.onGuestRegistered(guestId))
       .catch((error) => this.showMessage(String(error)));
+  }
+
+  // A new guest (a new tab, a restored tab, or a profile change) gets the
+  // viewport size of the tab.
+  protected onGuestRegistered(guestId: number): void {
+    if (guestId !== this.registeredGuestId) {
+      return;
+    }
+    this.viewportGuestId = guestId;
+    if (this.viewportChoice.kind !== "off" && !this.agentConnected) {
+      void this.setViewport(this.viewportChoice);
+    }
+  }
+
+  // The entries of the viewport menu, in the order of the spec.
+  viewportEntries(): ViewportEntry[] {
+    const choice = this.viewportChoice;
+    const enabled = !this.agentConnected;
+    return [
+      { id: "off", label: OFF_LABEL, checked: choice.kind === "off", enabled },
+      ...VIEWPORT_PRESETS.map((preset) => ({
+        id: PRESET_ENTRY + preset.id,
+        label: `${preset.label} (${preset.width} × ${preset.height})`,
+        checked: choice.kind === "preset" && choice.id === preset.id,
+        enabled,
+      })),
+      { id: "custom", label: "Custom…", checked: choice.kind === "custom", enabled },
+      { id: "rotate", label: "Rotate", checked: false, enabled: enabled && choice.kind === "preset" },
+    ];
+  }
+
+  // Sets the viewport choice of a reopened tab. Like `restoreState`, it
+  // only sets the choice: the widget applies it to the page after its
+  // first guest registration (see `onGuestRegistered`).
+  applyViewportChoice(choice: ViewportChoice): void {
+    if (resolveViewport(choice) !== undefined) {
+      this.viewportChoice = choice;
+      this.updateViewportLayout();
+    }
+  }
+
+  async chooseViewportEntry(id: string): Promise<void> {
+    const choice = this.viewportChoice;
+    if (id === "off") {
+      await this.setViewport(VIEWPORT_OFF);
+    } else if (id.startsWith(PRESET_ENTRY)) {
+      await this.setViewport({ kind: "preset", id: id.slice(PRESET_ENTRY.length), rotated: false });
+    } else if (id === "custom") {
+      const size = await this.askCustomSize();
+      if (size) {
+        await this.setViewport({ kind: "custom", ...size });
+      }
+    } else if (id === "rotate" && choice.kind === "preset") {
+      await this.setViewport({ ...choice, rotated: !choice.rotated });
+    }
+  }
+
+  protected async askCustomSize(): Promise<{ width: number; height: number } | undefined> {
+    const current = resolveViewport(this.viewportChoice);
+    const toNumber = (text: string): number => (text.trim() === "" ? Number.NaN : Number(text));
+    const widthText = await this.quickInput.input({
+      prompt: "Width of the viewport in CSS pixels (200 to 4000)",
+      value: String(current?.width ?? 1280),
+      validateInput: async (text) => validateCustomSize(toNumber(text), 200),
+    });
+    if (widthText === undefined) {
+      return undefined;
+    }
+    const width = toNumber(widthText);
+    const heightText = await this.quickInput.input({
+      prompt: "Height of the viewport in CSS pixels (200 to 4000)",
+      value: String(current?.height ?? 800),
+      validateInput: async (text) => validateCustomSize(width, toNumber(text)),
+    });
+    if (heightText === undefined) {
+      return undefined;
+    }
+    const height = toNumber(heightText);
+    return validateCustomSize(width, height) === undefined ? { width, height } : undefined;
+  }
+
+  // Sends the size to the main process when the guest is registered. Else
+  // the widget keeps it and sends it after the registration.
+  protected async setViewport(choice: ViewportChoice): Promise<void> {
+    if (this.agentConnected) {
+      return;
+    }
+    const guestId = this.viewportGuestId;
+    if (guestId !== undefined) {
+      let error: string | undefined;
+      try {
+        const result = await browserApi().setViewport(guestId, choice);
+        error = result.ok ? undefined : result.error;
+      } catch (thrown) {
+        error = String(thrown);
+      }
+      // Ignore a result for an old guest. An agent that connected in the
+      // meantime cleared the size (see `setAgentState`).
+      if (guestId !== this.viewportGuestId || this.agentConnected) {
+        return;
+      }
+      if (error !== undefined) {
+        this.showMessage(error);
+        this.viewportError = error;
+        if (this.viewportChoice === choice) {
+          // A saved size that cannot be set now.
+          this.viewportChoice = VIEWPORT_OFF;
+          this.updateViewportLayout();
+        }
+        return;
+      }
+    }
+    if (this.viewportError !== undefined && this.message.textContent === this.viewportError) {
+      this.showMessage(undefined);
+    }
+    this.viewportError = undefined;
+    this.viewportChoice = choice;
+    this.updateViewportLayout();
+  }
+
+  // With a size, the page has that CSS size, in the center of the tab, with
+  // a label above it.
+  protected updateViewportLayout(): void {
+    const settings = resolveViewport(this.viewportChoice);
+    this.viewport.classList.toggle("ai1-browser-emulated", settings !== undefined);
+    this.viewportLabel.hidden = settings === undefined;
+    this.viewportLabel.textContent = settings ? `${settings.width} × ${settings.height}` : "";
+    if (this.webview) {
+      this.webview.style.width = settings ? `${settings.width}px` : "";
+      this.webview.style.height = settings ? `${settings.height}px` : "";
+    }
+    const label = this.viewportEntries().find((entry) => entry.checked)?.label ?? OFF_LABEL;
+    const rotated = this.viewportChoice.kind === "preset" && this.viewportChoice.rotated ? ", rotated" : "";
+    this.viewportButton.title = `Viewport: ${label}${rotated}`;
+    this.viewportButton.classList.toggle("ai1-browser-viewport-active", settings !== undefined);
+  }
+
+  protected toggleViewportMenu(): void {
+    if (this.viewportMenu.hidden) {
+      this.openViewportMenu();
+    } else {
+      this.closeViewportMenu();
+    }
+  }
+
+  protected openViewportMenu(): void {
+    if (this.agentConnected) {
+      return;
+    }
+    this.viewportMenu.replaceChildren(
+      ...this.viewportEntries().map((entry) => {
+        const item = document.createElement("button");
+        item.className = "ai1-browser-viewport-item";
+        item.disabled = !entry.enabled;
+        item.dataset.entry = entry.id;
+        const check = document.createElement("span");
+        check.className = `codicon ${entry.checked ? "codicon-check" : "codicon-blank"}`;
+        const text = document.createElement("span");
+        text.textContent = entry.label;
+        item.append(check, text);
+        item.addEventListener("click", () => {
+          this.closeViewportMenu();
+          void this.chooseViewportEntry(entry.id);
+        });
+        return item;
+      }),
+    );
+    this.viewportMenu.style.left = `${this.viewportButton.offsetLeft}px`;
+    this.viewportMenu.hidden = false;
+    document.addEventListener("mousedown", this.closeViewportMenuOnClick, true);
+    this.viewportMenu.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+  }
+
+  protected closeViewportMenu(): void {
+    this.viewportMenu.hidden = true;
+    document.removeEventListener("mousedown", this.closeViewportMenuOnClick, true);
   }
 
   protected onNavigated(url: string): void {
@@ -309,10 +767,62 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     }
     this.url = url;
     this.addressInput.value = url === "about:blank" ? "" : url;
-    this.title.caption = url;
+    this.updateCaption();
     this.backButton.disabled = !this.webview?.canGoBack();
     this.forwardButton.disabled = !this.webview?.canGoForward();
     this.hideError();
+  }
+
+  // Called after each main-frame navigation, not after an in-page
+  // navigation. A page with a new `zoomKey` gets its saved level. A page
+  // with the same key gets the current level again, because a new document
+  // can start at the default level.
+  protected updateZoomForPage(url: string): void {
+    const key = zoomKey(this.profile, url);
+    this.zoomUrl = url;
+    if (key === this.pageZoomKey) {
+      this.applyZoom();
+      return;
+    }
+    this.pageZoomKey = key;
+    if (key === undefined) {
+      this.setZoomLevel(100);
+      return;
+    }
+    browserApi()
+      .getZoom(this.profile, url)
+      .then((percent) => {
+        // Ignore a level that comes after the next navigation.
+        if (this.pageZoomKey === key) {
+          this.setZoomLevel(percent);
+        }
+      })
+      .catch(() => undefined);
+  }
+
+  // Saves the new level. The main process sends it back to all tabs with
+  // the same profile and host (`zoomChanged`). A page with no host has no
+  // zoom.
+  protected changeZoom(percent: number): void {
+    if (this.pageZoomKey === undefined || this.zoomUrl === undefined) {
+      return;
+    }
+    browserApi()
+      .setZoom(this.profile, this.zoomUrl, percent)
+      .catch((error) => this.showMessage(String(error)));
+  }
+
+  protected setZoomLevel(percent: number): void {
+    this.zoomPercent = percent;
+    this.zoomButton.textContent = `${percent}%`;
+    this.zoomButton.hidden = percent === 100;
+    this.applyZoom();
+  }
+
+  protected applyZoom(): void {
+    if (this.webview && this.webviewReady) {
+      this.webview.setZoomFactor(this.zoomPercent / 100);
+    }
   }
 
   protected onCertificateError(event: CertificateErrorEvent): void {
@@ -358,7 +868,7 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
   }
 
   protected showError(text: string, actionLabel?: string, action?: () => unknown): void {
-    this.title.label = "Cannot open page";
+    this.setPageTitle("Cannot open page");
     const paragraph = document.createElement("p");
     paragraph.textContent = text;
     this.errorPanel.replaceChildren(paragraph);
