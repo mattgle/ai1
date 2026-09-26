@@ -259,3 +259,44 @@ mocha tests it.
 - Find, zoom, viewport sizes, downloads, history, and reopen closed tab work as
   written above.
 - All gates pass: lint, typecheck, unit tests, format, build, and e2e (hidden).
+
+## Changes during the implementation
+
+- **The agent address answers `/json/list` and `/json` with `[]`.** Only a
+  WebSocket connection gets a tab. A plain HTTP request must not use up the
+  "Waiting for agent" mark or open an empty tab. This also changes the M3a
+  rule that the fake browser answers `/json/list` with exactly one target
+  (see the new note in the M3a spec).
+- **Tab marks show the agent number and the page title.** A connected agent
+  tab shows "Agent \<n\> · \<page title\>" with a green "●". A waiting tab
+  shows "· Waiting for agent" after its title. This lets the owner read the
+  agent state and the page title at the same time. The agent address server
+  also keeps every client, so it can close all of them when it stops.
+- **The browser keybindings use a context key, scoped to each tab.** A real
+  test showed that a CDP key event (Playwright) does not fire
+  `before-input-event`. So an agent's keys never reach the shortcut catch in
+  the main process, and the front end needs its own way to give its
+  keybindings priority. Each browser tab node gets a context key. A
+  keybinding with this context wins over a Theia keybinding with the same
+  keys (Find, Source Control ⇧⌘G, the window zoom ⌘+, ⌘-, and ⌘0, and Reopen
+  Closed Editor ⇧⌘T), only while a browser tab has the focus. Esc in the find
+  bar is also a keybinding, with a context scoped to the find bar itself, so
+  it fires only while the bar has the focus.
+- **The zoom key drops the port.** The key is the profile and the host name,
+  with no port, the same as Chrome. Chromium shares one zoom level for each
+  host name in a session, not for each port.
+- **The viewport release has a time limit.** The release before an agent
+  connects waits at most 2 seconds, then detaches the debugger of AI1. A page
+  that does not answer must not block an agent connection. Each emulation
+  command has its own limit of 5 seconds, for the same reason. The command
+  "Browser: Set Viewport…" gives the owner a way to change the viewport size
+  without the toolbar menu.
+- **Two test-only download settings need the hidden e2e mode.**
+  `AI1_E2E_DOWNLOADS_DIR` and `AI1_E2E_SHELL_LOG` work only when
+  `AI1_E2E_BACKGROUND=1`. A normal start of AI1 never uses them. The toggle
+  command for the Downloads view is "View: Toggle Downloads", the standard
+  Theia name for a view toggle.
+- **The history quick pick uses an item button, not ⌘Enter.** Theia's quick
+  pick has no hook for a modifier-Enter. The item button "Open in New Tab"
+  replaces ⌘Enter. When an agent is connected to the current tab, Enter opens
+  the page in a new tab instead of the current one.
