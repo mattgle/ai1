@@ -192,8 +192,11 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     const findContext = tabContext.createScoped(this.findBar.node);
     findContext.createKey(BROWSER_FOCUS_CONTEXT, true);
     findContext.createKey(BROWSER_FIND_FOCUS_CONTEXT, true);
-    this.toDispose.push(findContext);
+    // `toDispose` disposes in the reverse order, so the child scope goes
+    // first. When the parent goes first, Monaco does not remove the context
+    // of the child scope, and one context stays for each closed tab.
     this.toDispose.push(tabContext);
+    this.toDispose.push(findContext);
     this.toDispose.push({
       dispose: browserApi().onCertificateError((event) => this.onCertificateError(event)),
     });

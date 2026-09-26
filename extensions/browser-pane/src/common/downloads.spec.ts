@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import { downloadHost, e2eSetting, formatBytes, ProgressThrottle } from "./downloads";
+import { downloadDoneText, downloadHost, e2eSetting, formatBytes, ProgressThrottle } from "./downloads";
 
 describe("ProgressThrottle", () => {
   function throttle(): { throttle: ProgressThrottle; advance(ms: number): void } {
@@ -79,5 +79,15 @@ describe("formatBytes", () => {
     assert.strictEqual(formatBytes(1536), "1.5 KB");
     assert.strictEqual(formatBytes(5 * 1024 * 1024), "5.0 MB");
     assert.strictEqual(formatBytes(3 * 1024 * 1024 * 1024), "3.0 GB");
+  });
+});
+
+describe("downloadDoneText", () => {
+  it("gives a separate text for each end state", () => {
+    const text = (state: "completed" | "cancelled" | "failed") =>
+      downloadDoneText({ id: "a", fileName: "report.pdf", state });
+    assert.strictEqual(text("completed"), "Downloaded report.pdf to the Downloads folder.");
+    assert.strictEqual(text("cancelled"), "The download of report.pdf was cancelled.");
+    assert.strictEqual(text("failed"), "The download of report.pdf did not complete.");
   });
 });

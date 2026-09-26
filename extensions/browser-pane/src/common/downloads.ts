@@ -87,3 +87,15 @@ export function formatBytes(bytes: number): string {
   }
   return `${value.toFixed(1)} ${UNITS[unit]}`;
 }
+
+// The notice text for a download that is done.
+export function downloadDoneText(done: DownloadDone): string {
+  switch (done.state) {
+    case "completed":
+      return `Downloaded ${done.fileName} to the Downloads folder.`;
+    case "cancelled":
+      return `The download of ${done.fileName} was cancelled.`;
+    default:
+      return `The download of ${done.fileName} did not complete.`;
+  }
+}

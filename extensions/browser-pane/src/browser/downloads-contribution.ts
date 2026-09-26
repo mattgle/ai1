@@ -9,7 +9,7 @@ import {
 } from "@theia/core/lib/browser/shell/tab-bar-toolbar";
 import { Command, CommandRegistry, MenuModelRegistry, MessageService } from "@theia/core/lib/common";
 import { inject, injectable } from "@theia/core/shared/inversify";
-import { DownloadDone, DownloadEntry } from "../common/downloads";
+import { DownloadDone, downloadDoneText, DownloadEntry } from "../common/downloads";
 import { browserApi } from "./browser-api";
 import { DOWNLOADS_ROW_MENU, DownloadsWidget } from "./downloads-widget";
 
@@ -98,13 +98,10 @@ export class DownloadsContribution
 
   protected async notifyDone(done: DownloadDone): Promise<void> {
     if (done.state !== "completed") {
-      await this.messages.info(`The download of ${done.fileName} did not complete.`);
+      await this.messages.info(downloadDoneText(done));
       return;
     }
-    const answer = await this.messages.info(
-      `Downloaded ${done.fileName} to the Downloads folder.`,
-      SHOW_IN_FINDER,
-    );
+    const answer = await this.messages.info(downloadDoneText(done), SHOW_IN_FINDER);
     if (answer === SHOW_IN_FINDER) {
       const error = await browserApi().showDownload(done.id);
       if (error) {
