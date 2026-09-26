@@ -148,6 +148,12 @@ export class BrowserFixtureServer {
           ),
         );
         return;
+      case "/history-one":
+        html(page("History One"));
+        return;
+      case "/history-two":
+        html(page("History Two"));
+        return;
       case "/download.txt":
         response.writeHead(200, {
           "content-type": "text/plain",

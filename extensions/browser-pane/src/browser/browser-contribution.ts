@@ -1,13 +1,15 @@
 import {
   ApplicationShell,
+  codicon,
   FrontendApplicationContribution,
   KeybindingContribution,
   KeybindingRegistry,
   QuickInputService,
 } from "@theia/core/lib/browser";
 import { Command, CommandContribution, CommandRegistry, MessageService } from "@theia/core/lib/common";
-import { QuickPickService } from "@theia/core/lib/common/quick-pick-service";
+import { QuickInputButton, QuickPickItem, QuickPickService } from "@theia/core/lib/common/quick-pick-service";
 import { inject, injectable } from "@theia/core/shared/inversify";
+import { dayLabel, HistoryEntry } from "../common/history";
 import { DEFAULT_PROFILE_ID, Profile } from "../common/profiles";
 import { BrowserShortcut } from "../common/shortcuts";
 import { browserApi } from "./browser-api";
@@ -27,6 +29,8 @@ export const BrowserCommands = {
   ZOOM_OUT: { id: "ai1.browser.zoomOut", label: "Browser: Zoom Out" },
   ZOOM_RESET: { id: "ai1.browser.zoomReset", label: "Browser: Reset Zoom" },
   SET_VIEWPORT: { id: "ai1.browser.setViewport", label: "Browser: Set Viewport…" },
+  SHOW_HISTORY: { id: "ai1.browser.showHistory", label: "Browser: Show History" },
+  CLEAR_HISTORY: { id: "ai1.browser.clearHistory", label: "Browser: Clear History…" },
 } satisfies Record<string, Command>;
 
 // The shortcuts that are also Theia keybindings. They work when the focus
@@ -96,6 +100,24 @@ const SHORTCUT_COMMANDS: {
   },
 ];
 
+interface HistoryItem extends QuickPickItem {
+  url: string;
+}
+
+// When the owner types a search text, the Monaco quick pick sorts the
+// matches by their label. The history must stay newest first. Theia 1.75
+// does not give `sortByLabel` in its `QuickPick`, so set it on the Monaco
+// quick pick that the Theia object holds. Without that object, the matches
+// stay sorted by label.
+function keepItemOrder(pick: object): void {
+  const wrapped = (pick as { wrapped?: { sortByLabel?: boolean } }).wrapped;
+  if (wrapped && typeof wrapped.sortByLabel === "boolean") {
+    wrapped.sortByLabel = false;
+  }
+}
+
+const OPEN_IN_NEW_TAB: QuickInputButton = { iconClass: codicon("link-external"), tooltip: "Open in New Tab" };
+
 // Removes the prefix that Electron adds to an error from `ipcMain.handle`.
 function errorText(error: unknown): string {
   return String(error instanceof Error ? error.message : error).replace(
@@ -149,6 +171,8 @@ export class BrowserContribution
       isEnabled: () => this.currentBrowser()?.agentConnected === false,
       execute: () => this.setViewport(),
     });
+    registry.registerCommand(BrowserCommands.SHOW_HISTORY, { execute: () => this.showHistory() });
+    registry.registerCommand(BrowserCommands.CLEAR_HISTORY, { execute: () => this.clearHistory() });
     for (const { command, shortcut } of SHORTCUT_COMMANDS) {
       registry.registerCommand(command, {
         isEnabled: () => this.currentBrowser() !== undefined,
@@ -175,6 +199,71 @@ export class BrowserContribution
     }
     const current = this.shell.currentWidget;
     return current instanceof BrowserWidget ? current : undefined;
+  }
+
+  // The history of the profile of the current browser tab, or of Default.
+  // Enter opens the page in the current browser tab, or in a new tab when
+  // there is no current browser tab (or an agent is connected to it). The
+  // item button opens the page in a new tab. Theia's quick pick has no hook
+  // for ⌘Enter, so the button replaces it.
+  protected async showHistory(): Promise<void> {
+    const browser = this.currentBrowser();
+    const profileId = browser?.profileId ?? DEFAULT_PROFILE_ID;
+    let entries: HistoryEntry[];
+    try {
+      entries = await browserApi().listHistory(profileId);
+    } catch (error) {
+      await this.messages.error(errorText(error));
+      return;
+    }
+    const now = Date.now();
+    const pick = this.quickInput.createQuickPick<HistoryItem>();
+    pick.placeholder = "Type to search the history by title or address";
+    pick.matchOnDescription = true;
+    keepItemOrder(pick);
+    pick.items = entries.map((entry) => ({
+      label: entry.title || entry.url,
+      description: entry.url,
+      detail: dayLabel(entry.time, now),
+      url: entry.url,
+      buttons: [OPEN_IN_NEW_TAB],
+    }));
+    pick.onDidAccept(() => {
+      const item = pick.selectedItems[0] ?? pick.activeItems[0];
+      pick.hide();
+      if (!item) {
+        return;
+      }
+      if (browser && !browser.agentConnected && browser.isAttached) {
+        browser.navigate(item.url);
+        void this.shell.activateWidget(browser.id);
+      } else {
+        void this.tabs.open(item.url, profileId);
+      }
+    });
+    pick.onDidTriggerItemButton(({ item }) => {
+      pick.hide();
+      void this.tabs.open((item as HistoryItem).url, profileId);
+    });
+    pick.onDidHide(() => pick.dispose());
+    pick.show();
+  }
+
+  protected async clearHistory(): Promise<void> {
+    const profileId = this.currentBrowser()?.profileId ?? DEFAULT_PROFILE_ID;
+    const name = this.tabs.profiles().find((profile) => profile.id === profileId)?.name ?? profileId;
+    const answer = await this.messages.warn(
+      `Clear the browsing history of the profile "${name}"?`,
+      "Clear History",
+    );
+    if (answer !== "Clear History") {
+      return;
+    }
+    try {
+      await browserApi().clearHistory(profileId);
+    } catch (error) {
+      await this.messages.error(errorText(error));
+    }
   }
 
   // The same entries as the viewport menu of the tab, as a quick pick.

@@ -21,6 +21,7 @@ import { DEFAULT_PROFILE_ID, partitionFor, profileIdFromPartition } from "../com
 import { shortcutFor, ShortcutInput } from "../common/shortcuts";
 import { DownloadTracker } from "./download-tracker";
 import { GuestRegistry } from "./guest-registry";
+import { HistoryRecorder, HistorySink } from "./history-recorder";
 
 const POPUP_NOTICE = "A page tried to open too many popups. AI1 blocked the rest.";
 
@@ -40,6 +41,8 @@ export class GuestPolicies {
   protected agentConnected: (guestId: number) => boolean = () => false;
   // `BrowserMainContribution` makes it in `onStart`, before the first page.
   protected downloads: DownloadTracker | undefined;
+  // `BrowserMainContribution` sets it in `onStart`, before the first page.
+  protected historyRecorder: HistoryRecorder | undefined;
 
   @inject(GuestRegistry)
   protected registry!: GuestRegistry;
@@ -50,6 +53,10 @@ export class GuestPolicies {
 
   setDownloadTracker(tracker: DownloadTracker): void {
     this.downloads = tracker;
+  }
+
+  setHistory(history: HistorySink): void {
+    this.historyRecorder = new HistoryRecorder(history, (guestId) => this.agentConnected(guestId));
   }
 
   // The Downloads folder of the user. Only an e2e run can give another
@@ -109,6 +116,7 @@ export class GuestPolicies {
     // and send them to the window of the tab.
     contents.on("before-input-event", (event, input) => this.onInput(contents, event, input));
     contents.on("destroyed", () => this.findOpenGuests.delete(contents.id));
+    this.historyRecorder?.attach(contents);
     // A page cannot hold a nested `<webview>` page. `webviewTag` is off, and
     // this refuses the attach if a page gets one all the same.
     contents.on("will-attach-webview", (event) => event.preventDefault());

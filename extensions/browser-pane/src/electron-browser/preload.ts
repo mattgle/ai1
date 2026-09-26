@@ -45,6 +45,8 @@ const api: Ai1BrowserApi = {
   showDownload: (id) => ipcRenderer.invoke(Channels.showDownload, id),
   removeDownload: (id) => ipcRenderer.invoke(Channels.removeDownload, id),
   clearDownloads: () => ipcRenderer.invoke(Channels.clearDownloads),
+  listHistory: (profileId) => ipcRenderer.invoke(Channels.listHistory, profileId),
+  clearHistory: (profileId) => ipcRenderer.invoke(Channels.clearHistory, profileId),
   onProfilesChanged: listen<Profile[]>(Channels.profilesChanged),
   onOpenTab: listen<OpenTabRequest>(Channels.openTab),
   onCreateAgentTab: listen<CreateAgentTabRequest>(Channels.createAgentTab),

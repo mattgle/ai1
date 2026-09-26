@@ -126,6 +126,23 @@ describe("GuestPolicies.attach", () => {
     assert.strictEqual(prevented, 1);
   });
 
+  it("records the navigations of the page in the history, except while an agent is connected", () => {
+    const policies = new GuestPolicies();
+    const visits: string[] = [];
+    policies.setHistory({
+      visit: (profileId, url) => visits.push(`${profileId} ${url}`),
+      setTitle: () => undefined,
+    });
+    let connected = false;
+    policies.setAgentConnectedCheck((guestId) => connected && guestId === 1);
+    const guest = new FakeContents(1, AI1_PATH);
+    policies.attach(asContents(guest));
+    guest.emit("did-navigate", {}, "https://example.com/a", 200, "OK");
+    connected = true;
+    guest.emit("did-navigate", {}, "https://example.com/b", 200, "OK");
+    assert.deepStrictEqual(visits, ["default https://example.com/a"]);
+  });
+
   it("opens at most five popups in ten seconds and gives one notice for each burst", () => {
     const policies = new TestGuestPolicies();
     const guest = new FakeContents(1, AI1_PATH);

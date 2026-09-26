@@ -1,4 +1,5 @@
 import { DownloadDone, DownloadEntry } from "./downloads";
+import { HistoryEntry } from "./history";
 import { Profile } from "./profiles";
 import { BrowserShortcut } from "./shortcuts";
 import { ViewportChoice } from "./viewport";
@@ -30,6 +31,8 @@ export const Channels = {
   showDownload: "ai1-browser:show-download",
   removeDownload: "ai1-browser:remove-download",
   clearDownloads: "ai1-browser:clear-downloads",
+  listHistory: "ai1-browser:list-history",
+  clearHistory: "ai1-browser:clear-history",
 
   profilesChanged: "ai1-browser:profiles-changed",
   openTab: "ai1-browser:open-tab",
@@ -129,6 +132,10 @@ export interface Ai1BrowserApi {
   removeDownload(id: string): Promise<void>;
   // Removes all entries that are not in progress. The files stay.
   clearDownloads(): Promise<void>;
+  // The browsing history of the profile, newest first.
+  listHistory(profileId: string): Promise<HistoryEntry[]>;
+  // Removes all entries of the browsing history of the profile.
+  clearHistory(profileId: string): Promise<void>;
   onProfilesChanged(listener: (profiles: Profile[]) => void): () => void;
   onOpenTab(listener: (request: OpenTabRequest) => void): () => void;
   onCreateAgentTab(listener: (request: CreateAgentTabRequest) => void): () => void;

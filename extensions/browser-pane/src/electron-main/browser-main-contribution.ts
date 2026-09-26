@@ -14,6 +14,7 @@ import { DownloadStore } from "./download-store";
 import { DownloadTracker } from "./download-tracker";
 import { GuestPolicies } from "./guest-policies";
 import { GuestRegistry } from "./guest-registry";
+import { HistoryStore } from "./history-store";
 import { ProfileStore } from "./profile-store";
 import { ShellActions } from "./shell-actions";
 import { ViewportEmulation, ViewportEmulations } from "./viewport-emulation";
@@ -37,6 +38,7 @@ export class BrowserMainContribution implements ElectronMainApplicationContribut
   protected zoomStore!: ZoomStore;
   protected downloadStore!: DownloadStore;
   protected downloads!: DownloadTracker;
+  protected historyStore!: HistoryStore;
   protected readonly shellActions = new ShellActions();
 
   onStart(_application: ElectronMainApplication): void {
@@ -59,6 +61,7 @@ export class BrowserMainContribution implements ElectronMainApplicationContribut
     });
     ipcMain.handle(Channels.deleteProfile, async (_event, id: string) => {
       await this.store.delete(id);
+      this.historyStore.deleteProfile(id);
       this.broadcast(Channels.profilesChanged, this.store.list());
     });
     ipcMain.handle(Channels.registerGuest, (event, guestId: number, tabId: string) => {
@@ -125,6 +128,7 @@ export class BrowserMainContribution implements ElectronMainApplicationContribut
       return this.setViewport(event.sender.id, guestId, choice);
     });
     this.startDownloads();
+    this.startHistory();
     ipcMain.handle(Channels.agentTabCreated, (event, requestId: string, tabId: string) =>
       this.agentAddress.tabs.tabCreated(event.sender.id, requestId, tabId),
     );
@@ -187,6 +191,27 @@ export class BrowserMainContribution implements ElectronMainApplicationContribut
       this.downloadStore.clearFinished();
       changed();
     });
+  }
+
+  protected startHistory(): void {
+    this.historyStore = new HistoryStore(path.join(app.getPath("userData"), "ai1-browser-history"));
+    this.guestPolicies.setHistory(this.historyStore);
+    app.on("before-quit", () => this.historyStore.flush());
+    // Only an AI1 window can read or clear the history. The profile id is
+    // the name of the history file, so it must be a known profile.
+    const handle = (channel: string, handler: (profileId: string) => unknown): void => {
+      ipcMain.handle(channel, (event, profileId: unknown) => {
+        if (this.guestPolicies.isAi1BrowserContents(event.sender)) {
+          throw new Error("Only an AI1 window can use the history.");
+        }
+        if (typeof profileId !== "string" || !this.store.has(profileId)) {
+          throw new Error("There is no such profile.");
+        }
+        return handler(profileId);
+      });
+    };
+    handle(Channels.listHistory, (profileId) => this.historyStore.list(profileId));
+    handle(Channels.clearHistory, (profileId) => this.historyStore.clear(profileId));
   }
 
   // The file of a completed download, when it is still in its folder. When

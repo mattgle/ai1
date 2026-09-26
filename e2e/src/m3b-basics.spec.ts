@@ -471,3 +471,46 @@ test("a download shows in the Downloads view, and Show in Finder goes to the stu
   const badge = app.page.locator("#shell-tab-ai1-downloads .theia-badge-decorator-sidebar");
   await expect(badge).toBeHidden();
 });
+
+test("Show History lists the visits newest first, and Enter opens the chosen page in the current tab", async () => {
+  const listHistory = (profileId: string) =>
+    app.page.evaluate(
+      (id) =>
+        (
+          window as unknown as {
+            electronAi1Browser: { listHistory(id: string): Promise<{ url: string; title: string }[]> };
+          }
+        ).electronAi1Browser.listHistory(id),
+      profileId,
+    );
+  const current = app.page.locator(".lm-mod-current");
+  await openBrowserTab(app, `${fixture.url}history-one`);
+  await expect(mainTab("History One").and(current)).toBeVisible();
+  const count = await browserCount();
+  const address = activeBrowser().locator(".ai1-browser-address");
+  await address.fill(`${fixture.url}history-two`);
+  await address.press("Enter");
+  await expect(mainTab("History Two").and(current)).toBeVisible();
+  await expect.poll(async () => (await listHistory("default"))[0]?.title).toBe("History Two");
+  expect(await listHistory("agent")).toEqual([]);
+
+  await app.quickCommandPalette.trigger("Browser: Show History");
+  await app.quickCommandPalette.type("History");
+  const rows = app.page.locator(".quick-input-widget .monaco-list-row");
+  // Each row has the title, the address, and the day label.
+  await expect(rows).toHaveText([/History Two/, /History One/]);
+  await expect(rows.first()).toContainText(`${fixture.url}history-two`);
+  await expect(rows.first()).toContainText("Today");
+
+  await rows.filter({ hasText: "History One" }).click();
+  await expect(app.page.locator(".quick-input-widget")).toBeHidden();
+  await expect(mainTab("History One").and(current)).toBeVisible();
+  await expect(address).toHaveValue(`${fixture.url}history-one`);
+  expect(await browserCount()).toBe(count);
+  // The store writes the file at most 5 seconds after the change.
+  await expect
+    .poll(() => fs.existsSync(path.join(userDataDir, "ai1-browser-history", "default.json")), {
+      timeout: 15_000,
+    })
+    .toBe(true);
+});
