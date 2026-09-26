@@ -1,4 +1,12 @@
-import { app, BrowserWindow, ipcMain, session, webContents } from "@theia/core/electron-shared/electron";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  IpcMainInvokeEvent,
+  session,
+  WebContents,
+  webContents,
+} from "@theia/core/electron-shared/electron";
 import {
   ElectronMainApplication,
   ElectronMainApplicationContribution,
@@ -17,6 +25,7 @@ import { GuestRegistry } from "./guest-registry";
 import { HistoryStore } from "./history-store";
 import { ProfileStore } from "./profile-store";
 import { ShellActions } from "./shell-actions";
+import { guardTheiaSender } from "./theia-sender";
 import { ViewportEmulation, ViewportEmulations } from "./viewport-emulation";
 import { ZoomStore } from "./zoom-store";
 
@@ -49,22 +58,22 @@ export class BrowserMainContribution implements ElectronMainApplicationContribut
     );
     this.store.load();
 
-    ipcMain.handle(Channels.listProfiles, () => this.store.list());
-    ipcMain.handle(Channels.addProfile, (_event, name: string) => {
+    this.handle(Channels.listProfiles, () => this.store.list());
+    this.handle(Channels.addProfile, (_event, name: string) => {
       const profile = this.store.add(name);
       this.broadcast(Channels.profilesChanged, this.store.list());
       return profile;
     });
-    ipcMain.handle(Channels.renameProfile, (_event, id: string, name: string) => {
+    this.handle(Channels.renameProfile, (_event, id: string, name: string) => {
       this.store.rename(id, name);
       this.broadcast(Channels.profilesChanged, this.store.list());
     });
-    ipcMain.handle(Channels.deleteProfile, async (_event, id: string) => {
+    this.handle(Channels.deleteProfile, async (_event, id: string) => {
       await this.store.delete(id);
       this.historyStore.deleteProfile(id);
       this.broadcast(Channels.profilesChanged, this.store.list());
     });
-    ipcMain.handle(Channels.registerGuest, (event, guestId: number, tabId: string) => {
+    this.handle(Channels.registerGuest, (event, guestId: number, tabId: string) => {
       const guest = webContents.fromId(guestId);
       if (!guest || guest.getType() !== "webview" || guest.hostWebContents?.id !== event.sender.id) {
         throw new Error("This page is not a browser tab of this window.");
@@ -73,42 +82,30 @@ export class BrowserMainContribution implements ElectronMainApplicationContribut
       this.agentAddress.tabs.guestRegistered(event.sender.id, tabId, guestId);
       guest.once("destroyed", () => this.registry.forget(guestId));
     });
-    ipcMain.handle(Channels.acceptCertificate, (_event, guestId: number, host: string) =>
+    this.handle(Channels.acceptCertificate, (_event, guestId: number, host: string) =>
       this.guestPolicies.acceptCertificate(guestId, host),
     );
     this.agentAddress.trackFocus();
-    ipcMain.handle(Channels.configureAgentAddress, (_event, config: AgentAddressConfig) =>
+    this.handle(Channels.configureAgentAddress, (_event, config: AgentAddressConfig) =>
       this.agentAddress.configure(config),
     );
-    ipcMain.handle(Channels.agentAddress, () => this.agentAddress.address());
-    ipcMain.handle(Channels.giveToAgent, (event, tabId: string | undefined) => {
-      if (this.guestPolicies.isAi1BrowserContents(event.sender)) {
-        throw new Error("Only an AI1 window can give a tab to an agent.");
-      }
+    this.handle(Channels.agentAddress, () => this.agentAddress.address());
+    this.handle(Channels.giveToAgent, (event, tabId: string | undefined) => {
       this.agentAddress.tabs.giveTab(event.sender.id, tabId);
     });
-    ipcMain.handle(Channels.setFindOpen, (event, guestId: number, open: boolean) => {
-      if (this.guestPolicies.isAi1BrowserContents(event.sender)) {
-        throw new Error("Only an AI1 window can open a find bar.");
-      }
+    this.handle(Channels.setFindOpen, (event, guestId: number, open: boolean) => {
       if (this.registry.entry(guestId)?.windowId === event.sender.id) {
         this.guestPolicies.setFindOpen(guestId, open === true);
       }
     });
     this.zoomStore = new ZoomStore(path.join(app.getPath("userData"), "ai1-browser-zoom.json"));
     this.zoomStore.load();
-    ipcMain.handle(Channels.getZoom, (event, profileId: string, url: string) => {
-      if (this.guestPolicies.isAi1BrowserContents(event.sender)) {
-        throw new Error("Only an AI1 window can read a zoom level.");
-      }
+    this.handle(Channels.getZoom, (_event, profileId: string, url: string) => {
       const key =
         typeof profileId === "string" && typeof url === "string" ? zoomKey(profileId, url) : undefined;
       return key === undefined ? 100 : this.zoomStore.get(key);
     });
-    ipcMain.handle(Channels.setZoom, (event, profileId: string, url: string, percent: number) => {
-      if (this.guestPolicies.isAi1BrowserContents(event.sender)) {
-        throw new Error("Only an AI1 window can change a zoom level.");
-      }
+    this.handle(Channels.setZoom, (_event, profileId: string, url: string, percent: number) => {
       if (typeof profileId !== "string" || typeof url !== "string" || !this.store.has(profileId)) {
         throw new Error("There is no such profile.");
       }
@@ -121,16 +118,26 @@ export class BrowserMainContribution implements ElectronMainApplicationContribut
       const payload: ZoomChangedEvent = { key, percent };
       this.broadcast(Channels.zoomChanged, payload);
     });
-    ipcMain.handle(Channels.setViewport, (event, guestId: number, choice: ViewportChoice) => {
-      if (this.guestPolicies.isAi1BrowserContents(event.sender)) {
-        throw new Error("Only an AI1 window can set a viewport size.");
-      }
-      return this.setViewport(event.sender.id, guestId, choice);
-    });
+    this.handle(Channels.setViewport, (event, guestId: number, choice: ViewportChoice) =>
+      this.setViewport(event.sender.id, guestId, choice),
+    );
     this.startDownloads();
     this.startHistory();
-    ipcMain.handle(Channels.agentTabCreated, (event, requestId: string, tabId: string) =>
+    this.handle(Channels.agentTabCreated, (event, requestId: string, tabId: string) =>
       this.agentAddress.tabs.tabCreated(event.sender.id, requestId, tabId),
+    );
+  }
+
+  // Registers an IPC handler that runs only for a request from the main
+  // frame of a Theia window. Every handler of the AI1 browser goes through
+  // this method. A page of the AI1 browser is not trusted.
+  protected handle<A extends unknown[]>(
+    channel: string,
+    handler: (event: IpcMainInvokeEvent, ...args: A) => unknown,
+  ): void {
+    ipcMain.handle(
+      channel,
+      guardTheiaSender((contents: WebContents) => this.guestPolicies.isAi1BrowserContents(contents), handler),
     );
   }
 
@@ -145,35 +152,25 @@ export class BrowserMainContribution implements ElectronMainApplicationContribut
     );
     this.guestPolicies.setDownloadTracker(this.downloads);
     const changed = (): void => this.broadcast(Channels.downloadsChanged, this.downloadStore.list());
-    // Only an AI1 window can use the downloads. A page must never open a
-    // file or list the downloads.
-    const handle = (channel: string, handler: (id: unknown) => unknown): void => {
-      ipcMain.handle(channel, (event, id: unknown) => {
-        if (this.guestPolicies.isAi1BrowserContents(event.sender)) {
-          throw new Error("Only an AI1 window can use the downloads.");
-        }
-        return handler(id);
-      });
-    };
-    handle(Channels.listDownloads, () => {
+    this.handle(Channels.listDownloads, () => {
       if (this.downloadStore.refreshDeleted()) {
         changed();
       }
       return this.downloadStore.list();
     });
-    handle(Channels.cancelDownload, (id) => {
+    this.handle(Channels.cancelDownload, (_event, id: unknown) => {
       if (typeof id === "string") {
         this.downloads.cancel(id);
       }
     });
-    handle(Channels.openDownload, async (id) => {
+    this.handle(Channels.openDownload, async (_event, id: unknown) => {
       const file = this.finishedFile(id, changed);
       if (file === undefined) {
         return "The file of this download is not in its folder.";
       }
       return this.shellActions.openPath(file);
     });
-    handle(Channels.showDownload, (id) => {
+    this.handle(Channels.showDownload, (_event, id: unknown) => {
       const file = this.finishedFile(id, changed);
       if (file === undefined) {
         return "The file of this download is not in its folder.";
@@ -181,13 +178,13 @@ export class BrowserMainContribution implements ElectronMainApplicationContribut
       this.shellActions.showItemInFolder(file);
       return "";
     });
-    handle(Channels.removeDownload, (id) => {
+    this.handle(Channels.removeDownload, (_event, id: unknown) => {
       if (typeof id === "string" && !this.downloads.isRunning(id)) {
         this.downloadStore.remove(id);
         changed();
       }
     });
-    handle(Channels.clearDownloads, () => {
+    this.handle(Channels.clearDownloads, () => {
       this.downloadStore.clearFinished();
       changed();
     });
@@ -197,21 +194,18 @@ export class BrowserMainContribution implements ElectronMainApplicationContribut
     this.historyStore = new HistoryStore(path.join(app.getPath("userData"), "ai1-browser-history"));
     this.guestPolicies.setHistory(this.historyStore);
     app.on("before-quit", () => this.historyStore.flush());
-    // Only an AI1 window can read or clear the history. The profile id is
-    // the name of the history file, so it must be a known profile.
-    const handle = (channel: string, handler: (profileId: string) => unknown): void => {
-      ipcMain.handle(channel, (event, profileId: unknown) => {
-        if (this.guestPolicies.isAi1BrowserContents(event.sender)) {
-          throw new Error("Only an AI1 window can use the history.");
-        }
+    // The profile id is the name of the history file, so it must be a known
+    // profile.
+    const handleProfile = (channel: string, handler: (profileId: string) => unknown): void => {
+      this.handle(channel, (_event, profileId: unknown) => {
         if (typeof profileId !== "string" || !this.store.has(profileId)) {
           throw new Error("There is no such profile.");
         }
         return handler(profileId);
       });
     };
-    handle(Channels.listHistory, (profileId) => this.historyStore.list(profileId));
-    handle(Channels.clearHistory, (profileId) => this.historyStore.clear(profileId));
+    handleProfile(Channels.listHistory, (profileId) => this.historyStore.list(profileId));
+    handleProfile(Channels.clearHistory, (profileId) => this.historyStore.clear(profileId));
   }
 
   // The file of a completed download, when it is still in its folder. When
