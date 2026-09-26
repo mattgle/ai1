@@ -31,6 +31,7 @@ export const BrowserCommands = {
   SET_VIEWPORT: { id: "ai1.browser.setViewport", label: "Browser: Set Viewport…" },
   SHOW_HISTORY: { id: "ai1.browser.showHistory", label: "Browser: Show History" },
   CLEAR_HISTORY: { id: "ai1.browser.clearHistory", label: "Browser: Clear History…" },
+  REOPEN_CLOSED_TAB: { id: "ai1.browser.reopenClosedTab", label: "Browser: Reopen Closed Tab" },
 } satisfies Record<string, Command>;
 
 // The shortcuts that are also Theia keybindings. They work when the focus
@@ -173,6 +174,12 @@ export class BrowserContribution
     });
     registry.registerCommand(BrowserCommands.SHOW_HISTORY, { execute: () => this.showHistory() });
     registry.registerCommand(BrowserCommands.CLEAR_HISTORY, { execute: () => this.clearHistory() });
+    // Not in `SHORTCUT_COMMANDS`: this command reopens a tab that no longer
+    // exists, so it does not depend on a current browser tab, unlike the
+    // shortcuts that act on the current tab.
+    registry.registerCommand(BrowserCommands.REOPEN_CLOSED_TAB, {
+      execute: () => this.tabs.reopenClosed(),
+    });
     for (const { command, shortcut } of SHORTCUT_COMMANDS) {
       registry.registerCommand(command, {
         isEnabled: () => this.currentBrowser() !== undefined,
@@ -187,6 +194,14 @@ export class BrowserContribution
         keybindings.registerKeybinding({ command: command.id, keybinding, when });
       }
     }
+    // Theia's own "Reopen Closed Editor" uses the same keys
+    // (`ctrlcmd+shift+t`). The local context key gives this binding
+    // priority while a browser tab has the focus (see `BROWSER_FOCUS_CONTEXT`).
+    keybindings.registerKeybinding({
+      command: BrowserCommands.REOPEN_CLOSED_TAB.id,
+      keybinding: "ctrlcmd+shift+t",
+      when: BROWSER_FOCUS_CONTEXT,
+    });
   }
 
   // The browser tab that has the focus, or else the current tab of the main

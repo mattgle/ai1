@@ -1,9 +1,10 @@
-import { BaseWidget, QuickInputService, StatefulWidget } from "@theia/core/lib/browser";
+import { ApplicationShell, BaseWidget, QuickInputService, StatefulWidget } from "@theia/core/lib/browser";
 import { ContextKeyService } from "@theia/core/lib/browser/context-key-service";
 import { inject, injectable, postConstruct } from "@theia/core/shared/inversify";
 import type { WebviewTag } from "electron";
 import { normalizeAddress } from "../common/address";
 import { AgentTabState, CertificateErrorEvent } from "../common/browser-ipc";
+import { ClosedTab } from "../common/closed-tabs";
 import { isLocalCertificateHost } from "../common/guest-policy";
 import { DEFAULT_PROFILE_ID, partitionFor, Profile } from "../common/profiles";
 import { BrowserShortcut } from "../common/shortcuts";
@@ -28,6 +29,15 @@ export interface BrowserWidgetOptions {
   tabId: string;
   url: string;
   profileId: string;
+}
+
+// The parts of `BrowserTabs` that a browser widget uses to keep the shared
+// list of closed tabs. This type avoids a circular import between this file
+// and `browser-tabs.ts`, which owns the list. `BrowserTabs` gives its own
+// instance to each widget after it creates it.
+export interface ClosedTabsHandle {
+  pushClosed(tab: ClosedTab): void;
+  reopenClosed(): Promise<BrowserWidget | undefined>;
 }
 
 interface BrowserTabState {
@@ -66,6 +76,9 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
   @inject(QuickInputService)
   protected readonly quickInput!: QuickInputService;
 
+  @inject(ApplicationShell)
+  protected readonly shell!: ApplicationShell;
+
   protected url = "about:blank";
   protected profile = DEFAULT_PROFILE_ID;
   protected profileList: Profile[] = [];
@@ -91,6 +104,10 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
   // The error text of the last viewport change that failed, while the
   // message shows it.
   protected viewportError: string | undefined;
+  // Set once by `BrowserTabs` after it creates this widget. It pushes this
+  // tab to the closed list when the owner closes it, and reopens the last
+  // closed tab for the shortcut (see `onCloseRequest` and `runShortcut`).
+  protected closedTabsHandle: ClosedTabsHandle | undefined;
   protected readonly viewportButton = document.createElement("button");
   protected readonly viewportMenu = document.createElement("div");
   protected readonly viewportLabel = document.createElement("div");
@@ -216,6 +233,11 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     }
   }
 
+  // `BrowserTabs` calls this once, right after it creates the widget.
+  setClosedTabsHandle(handle: ClosedTabsHandle): void {
+    this.closedTabsHandle = handle;
+  }
+
   protected override onAfterAttach(msg: Parameters<BaseWidget["onAfterAttach"]>[0]): void {
     super.onAfterAttach(msg);
     if (!this.webview) {
@@ -271,6 +293,9 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
         return;
       case "zoomReset":
         this.changeZoom(100);
+        return;
+      case "reopenClosedTab":
+        void this.closedTabsHandle?.reopenClosed();
         return;
       default:
         return;
@@ -330,6 +355,37 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
       .join(" ");
     this.updateLabel();
     this.updateCaption();
+  }
+
+  // Theia sends the close request only when the owner closes the tab, not
+  // at shutdown and not on a layout restore (those call `dispose` without
+  // it). Push the tab to the closed list before `super` detaches it from
+  // its tab bar, so the tab bar still holds its left neighbor.
+  protected override onCloseRequest(msg: Parameters<BaseWidget["onCloseRequest"]>[0]): void {
+    if (!this.agentConnected && this.url !== "about:blank") {
+      this.closedTabsHandle?.pushClosed({
+        url: this.url,
+        profileId: this.profile,
+        viewport: this.viewportChoice,
+        previousTabId: this.leftNeighborTabId(),
+      });
+    }
+    super.onCloseRequest(msg);
+  }
+
+  // The tab id of the browser tab to the left of this one in the same tab
+  // bar, or `undefined` when there is none.
+  protected leftNeighborTabId(): string | undefined {
+    const tabBar = this.shell.getTabBarFor(this);
+    if (!tabBar) {
+      return undefined;
+    }
+    const index = tabBar.titles.indexOf(this.title);
+    if (index <= 0) {
+      return undefined;
+    }
+    const neighbor = tabBar.titles[index - 1].owner;
+    return neighbor instanceof BrowserWidget ? neighbor.tabId : undefined;
   }
 
   override dispose(): void {
@@ -551,6 +607,16 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
       { id: "custom", label: "Custom…", checked: choice.kind === "custom", enabled },
       { id: "rotate", label: "Rotate", checked: false, enabled: enabled && choice.kind === "preset" },
     ];
+  }
+
+  // Sets the viewport choice of a reopened tab. Like `restoreState`, it
+  // only sets the choice: the widget applies it to the page after its
+  // first guest registration (see `onGuestRegistered`).
+  applyViewportChoice(choice: ViewportChoice): void {
+    if (resolveViewport(choice) !== undefined) {
+      this.viewportChoice = choice;
+      this.updateViewportLayout();
+    }
   }
 
   async chooseViewportEntry(id: string): Promise<void> {

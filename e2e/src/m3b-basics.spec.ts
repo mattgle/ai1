@@ -514,3 +514,42 @@ test("Show History lists the visits newest first, and Enter opens the chosen pag
     })
     .toBe(true);
 });
+
+test("Reopen Closed Tab brings back the last closed tab at its old place", async () => {
+  // The previous test left the focus on a browser page. Keys on a focused
+  // page do not go to the command palette.
+  await app.page.locator("#theia-left-side-panel #files").click();
+  await openBrowserTab(app, `${fixture.url}apples`);
+  const anchorTab = mainTab("Apples").and(app.page.locator(".lm-mod-current"));
+  await expect(anchorTab).toBeVisible();
+  const anchorId = await anchorTab.getAttribute("id");
+
+  await openBrowserTab(app, `${fixture.url}welcome`);
+  const tab = mainTab("Welcome").and(app.page.locator(".lm-mod-current"));
+  await expect(tab).toBeVisible();
+  const closedId = await tab.getAttribute("id");
+  await closeTab(tab);
+  await expect(app.page.locator(`[id="${closedId}"]`)).toHaveCount(0);
+
+  // A browser tab must have the focus for its own ⇧⌘T binding to win over
+  // Theia's "Reopen Closed Editor" binding, which uses the same keys.
+  await clickTab(app.page.locator(`[id="${anchorId}"]`));
+  await activeBrowser().locator(".ai1-browser-address").focus();
+  await app.page.keyboard.press("Meta+Shift+KeyT");
+
+  const reopened = mainTab("Welcome").and(app.page.locator(".lm-mod-current"));
+  await expect(reopened).toBeVisible();
+  await expect(activeBrowser().locator(".ai1-browser-address")).toHaveValue(`${fixture.url}welcome`);
+  const reopenedId = await reopened.getAttribute("id");
+  expect(reopenedId).not.toBe(closedId);
+  const rightAfterAnchor = await app.page.evaluate(
+    ([anchor, next]) => {
+      const tabs = Array.from(document.querySelectorAll("#theia-main-content-panel .lm-TabBar-tab"));
+      const anchorIndex = tabs.findIndex((candidate) => candidate.id === anchor);
+      const nextIndex = tabs.findIndex((candidate) => candidate.id === next);
+      return anchorIndex >= 0 && nextIndex === anchorIndex + 1;
+    },
+    [anchorId, reopenedId] as const,
+  );
+  expect(rightAfterAnchor).toBe(true);
+});
