@@ -246,6 +246,14 @@ test("a ⌘-click on a terminal link asks one time, then opens the AI1 tab", asy
   await app.quickCommandPalette.trigger("Terminal: Create New Terminal");
   const screen = app.page.locator(".terminal-container:not(.lm-mod-hidden) .xterm-screen").last();
   await expect(screen).toBeVisible();
+  // Theia drops the keys that come before the terminal has its shell
+  // process. The tab label changes from "Terminal" to the shell name when
+  // the process exists.
+  const terminalId = await app.page
+    .locator(".terminal-container:not(.lm-mod-hidden)")
+    .last()
+    .getAttribute("id");
+  await expect(app.page.locator(`#shell-tab-${terminalId}`)).not.toHaveText(/^Terminal$/);
   // xterm keeps the real input focus on a hidden textarea, not the screen.
   // Monaco clears the `inQuickInput` context in a timer after the command
   // palette loses the focus. Until then, Theia gives Enter to the palette,

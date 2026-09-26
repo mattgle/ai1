@@ -213,3 +213,66 @@
 .ai1-ports-program {
   opacity: 0.7;
 }
+
+.ai1-downloads-list,
+.ai1-downloads-empty {
+  padding: 6px 0;
+}
+
+.ai1-downloads-empty {
+  padding-left: 12px;
+  opacity: 0.8;
+}
+
+.ai1-downloads-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 12px;
+}
+
+.ai1-downloads-row:hover {
+  background: var(--theia-list-hoverBackground);
+}
+
+.ai1-downloads-line {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.ai1-downloads-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai1-downloads-agent {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--theia-badge-background);
+  color: var(--theia-badge-foreground);
+  font-size: 0.85em;
+}
+
+.ai1-downloads-details {
+  opacity: 0.7;
+  font-size: 0.9em;
+}
+
+.ai1-downloads-progress {
+  flex: 1;
+  min-width: 40px;
+}
+
+.ai1-downloads-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.ai1-downloads-actions .theia-button {
+  min-width: 0;
+  margin: 0;
+  padding: 0 8px;
+}

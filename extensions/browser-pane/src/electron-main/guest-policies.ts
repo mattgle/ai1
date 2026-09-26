@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { isAllowedGuestUrl } from "../common/address";
 import { CertificateErrorEvent, Channels, OpenTabRequest, ShortcutEvent } from "../common/browser-ipc";
+import { E2E_DOWNLOADS_DIR, e2eSetting } from "../common/downloads";
 import {
   decidePopup,
   forceGuestPreferences,
@@ -18,6 +19,7 @@ import {
 } from "../common/guest-policy";
 import { DEFAULT_PROFILE_ID, partitionFor, profileIdFromPartition } from "../common/profiles";
 import { shortcutFor, ShortcutInput } from "../common/shortcuts";
+import { DownloadTracker } from "./download-tracker";
 import { GuestRegistry } from "./guest-registry";
 
 const POPUP_NOTICE = "A page tried to open too many popups. AI1 blocked the rest.";
@@ -36,12 +38,24 @@ export class GuestPolicies {
   // True for a guest with a connected agent. `AgentAddress` sets it: it
   // injects this class, so this class cannot inject it.
   protected agentConnected: (guestId: number) => boolean = () => false;
+  // `BrowserMainContribution` makes it in `onStart`, before the first page.
+  protected downloads: DownloadTracker | undefined;
 
   @inject(GuestRegistry)
   protected registry!: GuestRegistry;
 
   setAgentConnectedCheck(check: (guestId: number) => boolean): void {
     this.agentConnected = check;
+  }
+
+  setDownloadTracker(tracker: DownloadTracker): void {
+    this.downloads = tracker;
+  }
+
+  // The Downloads folder of the user. Only an e2e run can give another
+  // folder (see `e2eSetting`).
+  downloadsFolder(): string {
+    return e2eSetting(process.env, E2E_DOWNLOADS_DIR) ?? app.getPath("downloads");
   }
 
   setFindOpen(guestId: number, open: boolean): void {
@@ -196,19 +210,20 @@ export class GuestPolicies {
       callback(isPermissionAllowed(permission)),
     );
     target.setPermissionCheckHandler((_contents, permission) => isPermissionAllowed(permission));
+    const profileId = profileIdFromPartition(partition) ?? DEFAULT_PROFILE_ID;
     target.on("will-download", (_event, item, contents) => {
-      const folder = app.getPath("downloads");
+      const folder = this.downloadsFolder();
       const name = uniqueDownloadName(item.getFilename(), (candidate) =>
         fs.existsSync(path.join(folder, candidate)),
       );
-      item.setSavePath(path.join(folder, name));
-      item.once("done", (_doneEvent, state) => {
-        const text =
-          state === "completed"
-            ? `Downloaded ${name} to the Downloads folder.`
-            : `The download of ${name} did not complete.`;
-        this.sendToWindowOf(contents, Channels.notice, text);
-      });
+      const savePath = path.join(folder, name);
+      if (!this.downloads) {
+        item.setSavePath(savePath);
+        return;
+      }
+      this.downloads.start(item, savePath, profileId, (done) =>
+        this.sendToWindowOf(contents, Channels.downloadDone, done),
+      );
     });
   }
 

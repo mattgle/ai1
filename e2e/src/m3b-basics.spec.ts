@@ -5,7 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { Browser, chromium, expect, Locator, test } from "@playwright/test";
 import { TheiaApp, TheiaAppLoader, TheiaExplorerView, TheiaWorkspace } from "@theia/playwright";
-import { BrowserFixtureServer } from "./browser-fixture-server";
+import { BrowserFixtureServer, DOWNLOAD_TEXT } from "./browser-fixture-server";
 import { clickTab } from "./click-tab";
 import { openBrowserTab } from "./open-browser-tab";
 import { removeTempDir } from "./remove-temp-dir";
@@ -18,6 +18,8 @@ let configDir: string;
 let userDataDir: string;
 let fixture: BrowserFixtureServer;
 let agentPort: number;
+let downloadsDir: string;
+let shellLog: string;
 
 async function freePort(): Promise<number> {
   const server = http.createServer();
@@ -104,6 +106,12 @@ test.beforeAll(async ({ playwright, browser }) => {
     JSON.stringify({ "ai1.browser.agentAddress.enabled": true, "ai1.browser.agentAddress.port": agentPort }),
   );
   userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-m3b-userdata-"));
+  // The app reads these two only when AI1_E2E_BACKGROUND is 1. Playwright
+  // gives the Electron process the environment of this process.
+  downloadsDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-m3b-downloads-"));
+  shellLog = path.join(downloadsDir, "..", `${path.basename(downloadsDir)}-shell.log`);
+  process.env.AI1_E2E_DOWNLOADS_DIR = downloadsDir;
+  process.env.AI1_E2E_SHELL_LOG = shellLog;
   const workspace = new TheiaWorkspace();
   workspace.initialize();
   fixture = new BrowserFixtureServer();
@@ -138,7 +146,11 @@ test.afterAll(async () => {
     await app.page.close();
   } finally {
     await fixture.stop();
+    delete process.env.AI1_E2E_DOWNLOADS_DIR;
+    delete process.env.AI1_E2E_SHELL_LOG;
     fs.rmSync(configDir, { recursive: true, force: true });
+    fs.rmSync(downloadsDir, { recursive: true, force: true });
+    fs.rmSync(shellLog, { force: true });
     await removeTempDir(userDataDir);
   }
 });
@@ -428,4 +440,34 @@ test("Set Viewport gives the page the iPhone 15 size with touch, and an agent co
   await expect(givenTab).not.toHaveClass(/ai1-browser-agent/);
   await expect(viewportButton).toBeEnabled();
   await expect(viewportButton).toHaveAttribute("title", "Viewport: Responsive (off)");
+});
+
+test("a download shows in the Downloads view, and Show in Finder goes to the stubbed shell", async () => {
+  // Without it, the app would use the real Downloads folder and Finder.
+  expect(process.env.AI1_E2E_BACKGROUND).toBe("1");
+  await openBrowserTab(app, `${fixture.url}download.txt`);
+  const saved = path.join(downloadsDir, "download.txt");
+  await expect.poll(() => fs.existsSync(saved) && fs.readFileSync(saved, "utf8")).toBe(DOWNLOAD_TEXT);
+
+  await clickTab(app.page.locator("#shell-tab-ai1-downloads"));
+  const row = app.page.locator("#ai1-downloads .ai1-downloads-row", { hasText: "download.txt" });
+  await expect(row).toHaveClass(/ai1-downloads-completed/);
+  await expect(row.locator(".ai1-downloads-host")).toHaveText("127.0.0.1");
+  await expect(row.locator(".ai1-downloads-agent")).toHaveCount(0);
+
+  await row.locator(".ai1-downloads-show").click();
+  await expect
+    .poll(() =>
+      fs.existsSync(shellLog)
+        ? fs
+            .readFileSync(shellLog, "utf8")
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line))
+        : [],
+    )
+    .toContainEqual({ action: "show", path: saved });
+
+  const badge = app.page.locator("#shell-tab-ai1-downloads .theia-badge-decorator-sidebar");
+  await expect(badge).toBeHidden();
 });

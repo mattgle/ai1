@@ -17,6 +17,8 @@ import { BrowserOpenHandler } from "./browser-open-handler";
 import { BrowserPreferenceContribution } from "./browser-preferences";
 import { BrowserTabs } from "./browser-tabs";
 import { BrowserWidget, BrowserWidgetOptions } from "./browser-widget";
+import { DownloadsContribution } from "./downloads-contribution";
+import { DownloadsWidget } from "./downloads-widget";
 import { PortsContribution } from "./ports-contribution";
 import { PortsWidget } from "./ports-widget";
 import { ShiftTracker } from "./shift-tracker";
@@ -65,4 +67,14 @@ export default new ContainerModule((bind) => {
   bindViewContribution(bind, PortsContribution);
   bind(FrontendApplicationContribution).toService(PortsContribution);
   bind(TabBarToolbarContribution).toService(PortsContribution);
+  bind(DownloadsWidget).toSelf();
+  bind(WidgetFactory)
+    .toDynamicValue((context) => ({
+      id: DownloadsWidget.ID,
+      createWidget: () => context.container.get(DownloadsWidget),
+    }))
+    .inSingletonScope();
+  bindViewContribution(bind, DownloadsContribution);
+  bind(FrontendApplicationContribution).toService(DownloadsContribution);
+  bind(TabBarToolbarContribution).toService(DownloadsContribution);
 });

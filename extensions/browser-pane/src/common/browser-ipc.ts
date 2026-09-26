@@ -1,3 +1,4 @@
+import { DownloadDone, DownloadEntry } from "./downloads";
 import { Profile } from "./profiles";
 import { BrowserShortcut } from "./shortcuts";
 import { ViewportChoice } from "./viewport";
@@ -23,6 +24,12 @@ export const Channels = {
   getZoom: "ai1-browser:get-zoom",
   setZoom: "ai1-browser:set-zoom",
   setViewport: "ai1-browser:set-viewport",
+  listDownloads: "ai1-browser:list-downloads",
+  cancelDownload: "ai1-browser:cancel-download",
+  openDownload: "ai1-browser:open-download",
+  showDownload: "ai1-browser:show-download",
+  removeDownload: "ai1-browser:remove-download",
+  clearDownloads: "ai1-browser:clear-downloads",
 
   profilesChanged: "ai1-browser:profiles-changed",
   openTab: "ai1-browser:open-tab",
@@ -32,6 +39,8 @@ export const Channels = {
   notice: "ai1-browser:notice",
   shortcut: "ai1-browser:shortcut",
   zoomChanged: "ai1-browser:zoom-changed",
+  downloadsChanged: "ai1-browser:downloads-changed",
+  downloadDone: "ai1-browser:download-done",
 } as const;
 
 // A new zoom level for all tabs whose `zoomKey` is `key`.
@@ -106,6 +115,20 @@ export interface Ai1BrowserApi {
   // Sets the viewport size of this guest. The page loads again when its
   // user agent changes.
   setViewport(guestId: number, choice: ViewportChoice): Promise<SetViewportResult>;
+  // All download entries, newest first. A completed entry whose file is gone
+  // becomes "deleted" first.
+  listDownloads(): Promise<DownloadEntry[]>;
+  cancelDownload(id: string): Promise<void>;
+  // Opens the file of a completed download. Gives the error text of the
+  // system, or an empty text when it worked.
+  openDownload(id: string): Promise<string>;
+  // Shows the file of a completed download in Finder. Gives an error text,
+  // or an empty text when it worked.
+  showDownload(id: string): Promise<string>;
+  // Removes an entry that is not in progress from the list. The file stays.
+  removeDownload(id: string): Promise<void>;
+  // Removes all entries that are not in progress. The files stay.
+  clearDownloads(): Promise<void>;
   onProfilesChanged(listener: (profiles: Profile[]) => void): () => void;
   onOpenTab(listener: (request: OpenTabRequest) => void): () => void;
   onCreateAgentTab(listener: (request: CreateAgentTabRequest) => void): () => void;
@@ -114,4 +137,6 @@ export interface Ai1BrowserApi {
   onNotice(listener: (text: string) => void): () => void;
   onShortcut(listener: (event: ShortcutEvent) => void): () => void;
   onZoomChanged(listener: (event: ZoomChangedEvent) => void): () => void;
+  onDownloadsChanged(listener: (entries: DownloadEntry[]) => void): () => void;
+  onDownloadDone(listener: (done: DownloadDone) => void): () => void;
 }

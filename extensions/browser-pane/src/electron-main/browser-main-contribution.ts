@@ -4,14 +4,18 @@ import {
   ElectronMainApplicationContribution,
 } from "@theia/core/lib/electron-main/electron-main-application";
 import { inject, injectable } from "@theia/core/shared/inversify";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { AgentAddressConfig, Channels, SetViewportResult, ZoomChangedEvent } from "../common/browser-ipc";
 import { resolveViewport, ViewportChoice } from "../common/viewport";
 import { zoomKey } from "../common/zoom";
 import { AgentAddress } from "./agent-address";
+import { DownloadStore } from "./download-store";
+import { DownloadTracker } from "./download-tracker";
 import { GuestPolicies } from "./guest-policies";
 import { GuestRegistry } from "./guest-registry";
 import { ProfileStore } from "./profile-store";
+import { ShellActions } from "./shell-actions";
 import { ViewportEmulation, ViewportEmulations } from "./viewport-emulation";
 import { ZoomStore } from "./zoom-store";
 
@@ -31,6 +35,9 @@ export class BrowserMainContribution implements ElectronMainApplicationContribut
 
   protected store!: ProfileStore;
   protected zoomStore!: ZoomStore;
+  protected downloadStore!: DownloadStore;
+  protected downloads!: DownloadTracker;
+  protected readonly shellActions = new ShellActions();
 
   onStart(_application: ElectronMainApplication): void {
     this.guestPolicies.install();
@@ -117,9 +124,84 @@ export class BrowserMainContribution implements ElectronMainApplicationContribut
       }
       return this.setViewport(event.sender.id, guestId, choice);
     });
+    this.startDownloads();
     ipcMain.handle(Channels.agentTabCreated, (event, requestId: string, tabId: string) =>
       this.agentAddress.tabs.tabCreated(event.sender.id, requestId, tabId),
     );
+  }
+
+  protected startDownloads(): void {
+    this.downloadStore = new DownloadStore(
+      path.join(app.getPath("userData"), "ai1-browser-downloads.json"),
+      (file) => fs.existsSync(file),
+    );
+    this.downloadStore.load();
+    this.downloads = new DownloadTracker(this.downloadStore, (entries) =>
+      this.broadcast(Channels.downloadsChanged, entries),
+    );
+    this.guestPolicies.setDownloadTracker(this.downloads);
+    const changed = (): void => this.broadcast(Channels.downloadsChanged, this.downloadStore.list());
+    // Only an AI1 window can use the downloads. A page must never open a
+    // file or list the downloads.
+    const handle = (channel: string, handler: (id: unknown) => unknown): void => {
+      ipcMain.handle(channel, (event, id: unknown) => {
+        if (this.guestPolicies.isAi1BrowserContents(event.sender)) {
+          throw new Error("Only an AI1 window can use the downloads.");
+        }
+        return handler(id);
+      });
+    };
+    handle(Channels.listDownloads, () => {
+      if (this.downloadStore.refreshDeleted()) {
+        changed();
+      }
+      return this.downloadStore.list();
+    });
+    handle(Channels.cancelDownload, (id) => {
+      if (typeof id === "string") {
+        this.downloads.cancel(id);
+      }
+    });
+    handle(Channels.openDownload, async (id) => {
+      const file = this.finishedFile(id, changed);
+      if (file === undefined) {
+        return "The file of this download is not in its folder.";
+      }
+      return this.shellActions.openPath(file);
+    });
+    handle(Channels.showDownload, (id) => {
+      const file = this.finishedFile(id, changed);
+      if (file === undefined) {
+        return "The file of this download is not in its folder.";
+      }
+      this.shellActions.showItemInFolder(file);
+      return "";
+    });
+    handle(Channels.removeDownload, (id) => {
+      if (typeof id === "string" && !this.downloads.isRunning(id)) {
+        this.downloadStore.remove(id);
+        changed();
+      }
+    });
+    handle(Channels.clearDownloads, () => {
+      this.downloadStore.clearFinished();
+      changed();
+    });
+  }
+
+  // The file of a completed download, when it is still in its folder. When
+  // it is gone, the entry becomes "deleted".
+  protected finishedFile(id: unknown, changed: () => void): string | undefined {
+    const entry = typeof id === "string" ? this.downloadStore.get(id) : undefined;
+    if (entry?.state !== "completed") {
+      return undefined;
+    }
+    if (!fs.existsSync(entry.savePath)) {
+      this.downloadStore.refreshDeleted();
+      changed();
+      return undefined;
+    }
+    return entry.savePath;
   }
 
   protected async setViewport(

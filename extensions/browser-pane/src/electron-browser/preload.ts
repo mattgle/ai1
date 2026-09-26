@@ -11,6 +11,7 @@ import {
   ShortcutEvent,
   ZoomChangedEvent,
 } from "../common/browser-ipc";
+import { DownloadDone, DownloadEntry } from "../common/downloads";
 import { Profile } from "../common/profiles";
 
 function listen<T>(channel: string): (listener: (payload: T) => void) => () => void {
@@ -38,6 +39,12 @@ const api: Ai1BrowserApi = {
   getZoom: (profileId, url) => ipcRenderer.invoke(Channels.getZoom, profileId, url),
   setZoom: (profileId, url, percent) => ipcRenderer.invoke(Channels.setZoom, profileId, url, percent),
   setViewport: (guestId, choice) => ipcRenderer.invoke(Channels.setViewport, guestId, choice),
+  listDownloads: () => ipcRenderer.invoke(Channels.listDownloads),
+  cancelDownload: (id) => ipcRenderer.invoke(Channels.cancelDownload, id),
+  openDownload: (id) => ipcRenderer.invoke(Channels.openDownload, id),
+  showDownload: (id) => ipcRenderer.invoke(Channels.showDownload, id),
+  removeDownload: (id) => ipcRenderer.invoke(Channels.removeDownload, id),
+  clearDownloads: () => ipcRenderer.invoke(Channels.clearDownloads),
   onProfilesChanged: listen<Profile[]>(Channels.profilesChanged),
   onOpenTab: listen<OpenTabRequest>(Channels.openTab),
   onCreateAgentTab: listen<CreateAgentTabRequest>(Channels.createAgentTab),
@@ -46,6 +53,8 @@ const api: Ai1BrowserApi = {
   onNotice: listen<string>(Channels.notice),
   onShortcut: listen<ShortcutEvent>(Channels.shortcut),
   onZoomChanged: listen<ZoomChangedEvent>(Channels.zoomChanged),
+  onDownloadsChanged: listen<DownloadEntry[]>(Channels.downloadsChanged),
+  onDownloadDone: listen<DownloadDone>(Channels.downloadDone),
 };
 
 export function preload(): void {
