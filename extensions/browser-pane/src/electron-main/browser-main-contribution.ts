@@ -81,6 +81,10 @@ export class BrowserMainContribution implements ElectronMainApplicationContribut
       this.registry.register(guestId, tabId, event.sender.id);
       this.agentAddress.tabs.guestRegistered(event.sender.id, tabId, guestId);
       guest.once("destroyed", () => this.registry.forget(guestId));
+      // A reload of the window keeps the agent state in this process, but the
+      // new front end does not know it. Send the state of all tabs of this
+      // window again.
+      event.sender.send(Channels.agentState, this.agentAddress.tabs.stateFor(event.sender.id));
     });
     this.handle(Channels.acceptCertificate, (_event, guestId: number, host: string) =>
       this.guestPolicies.acceptCertificate(guestId, host),

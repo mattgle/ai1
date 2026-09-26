@@ -553,3 +553,30 @@ test("Reopen Closed Tab brings back the last closed tab at its old place", async
   );
   expect(rightAfterAnchor).toBe(true);
 });
+
+test("a waiting tab keeps its mark after a window reload, and Cancel Give to Agent still works", async () => {
+  // The previous test left the focus on a browser page. Keys on a focused
+  // page do not go to the command palette.
+  await app.page.locator("#theia-left-side-panel #files").click();
+  await openBrowserTab(app, `${fixture.url}apples`);
+  const tab = mainTab("Apples").and(app.page.locator(".lm-mod-current"));
+  await expect(tab).toBeVisible();
+  const tabId = await tab.getAttribute("id");
+  const givenTab = app.page.locator(`[id="${tabId}"]`);
+  await activeBrowser().locator(".ai1-browser-give-to-agent").click();
+  await expect(givenTab).toHaveClass(/ai1-browser-agent-waiting/);
+
+  await app.page.locator("#theia-left-side-panel #files").click();
+  const reloaded = app.page.waitForEvent("load");
+  await app.quickCommandPalette.type("Reload Window");
+  await app.quickCommandPalette.trigger("Reload Window");
+  await reloaded;
+  await app.waitForShellAndInitialized();
+
+  await expect(givenTab).toHaveClass(/ai1-browser-agent-waiting/);
+  await clickTab(givenTab);
+  await expect(activeBrowser().locator(".ai1-browser-give-to-agent")).toHaveClass(/ai1-browser-agent-active/);
+  await app.page.locator("#theia-left-side-panel #files").click();
+  await app.quickCommandPalette.trigger("Browser: Cancel Give to Agent");
+  await expect(givenTab).not.toHaveClass(/ai1-browser-agent-waiting/);
+});
