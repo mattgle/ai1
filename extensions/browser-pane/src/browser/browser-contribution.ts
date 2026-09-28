@@ -314,6 +314,7 @@ export class BrowserContribution
       [
         { id: "add", label: "Add Profile…" },
         { id: "rename", label: "Rename Profile…" },
+        { id: "importCookies", label: "Import Cookies…" },
         { id: "delete", label: "Delete Profile…" },
       ],
       { placeholder: "Manage the browser profiles" },
@@ -344,9 +345,45 @@ export class BrowserContribution
             await browserApi().deleteProfile(profile.id);
           }
         }
+      } else if (action?.id === "importCookies") {
+        await this.importCookiesIntoProfile();
       }
     } catch (error) {
       await this.messages.error(errorText(error));
     }
+  }
+
+  protected async importCookiesIntoProfile(): Promise<void> {
+    const sources = await browserApi().listCookieImportSources();
+    if (sources.length === 0) {
+      await this.messages.info("AI1 did not find Chrome, Arc, or Brave profiles on this Mac.");
+      return;
+    }
+    const target = await this.pickProfile("Import cookies into which AI1 profile?", this.tabs.profiles());
+    if (!target) {
+      return;
+    }
+    const selected = await this.quickPick.show(
+      sources.map((source, index) => ({
+        id: String(index),
+        label: `${source.browserName} · ${source.profileName}`,
+      })),
+      { placeholder: "Import cookies from which browser profile?" },
+    );
+    const source = selected ? sources[Number(selected.id)] : undefined;
+    if (!source) {
+      return;
+    }
+    const answer = await this.messages.warn(
+      `Import login cookies from ${source.browserName} (${source.profileName}) into "${target.name}"? Imported cookies can give sites access to your accounts. Existing cookies with the same site, name, and path will be replaced.`,
+      "Import",
+    );
+    if (answer !== "Import") {
+      return;
+    }
+    const result = await browserApi().importCookies(source, target.id);
+    await this.messages.info(
+      `Imported ${result.imported} cookies from ${result.browserName} (${result.browserProfile}) into "${result.targetProfile}". ${result.skipped} cookies were skipped.`,
+    );
   }
 }

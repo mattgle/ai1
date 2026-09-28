@@ -50,6 +50,12 @@ interface PageCursor {
 
 export type EventHandler = (type: string, properties: Record<string, unknown>) => void;
 
+export interface PromptFileAttachment {
+  uri: string;
+  name?: string;
+  description?: string;
+}
+
 // An OpenCode HTTP error, with the response's own status code, so a caller
 // can act on one particular status (for example `AgentsServiceImpl.lastMessage`,
 // which treats a 404 for one session as "the session is gone", the same as
@@ -392,6 +398,10 @@ export class OpenCodeClient {
 
   async deleteSession(id: string): Promise<void> {
     await this.request("DELETE", `/api/session/${id}`);
+  }
+
+  async sendPrompt(id: string, text: string, files: PromptFileAttachment[] = []): Promise<void> {
+    await this.request("POST", `/api/session/${encodeURIComponent(id)}/prompt`, { text, files });
   }
 
   // Opens the event stream and keeps it open. On a cut it reconnects with a

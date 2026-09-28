@@ -355,6 +355,13 @@ export class AgentsServiceImpl implements AgentsService {
     }
   }
 
+  async sendPrompt(id: string, text: string, files: { uri: string; name?: string }[] = []): Promise<void> {
+    if (!this.tracked.has(id)) {
+      throw new Error("This agent session is not available in this workspace.");
+    }
+    await (await this.hub.apiClient()).sendPrompt(id, text, files);
+  }
+
   async sessionCommand(id: string, directory: string): Promise<{ program: string; args: string[] }> {
     return { program: this.resolvePath("opencode"), args: ["--session", id, directory] };
   }

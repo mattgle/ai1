@@ -129,6 +129,9 @@ export class BrowserFixtureServer {
       case "/button":
         html(page("Button", `<button id="go" onclick="document.title='Clicked'">Go</button>`));
         return;
+      case "/design-mode":
+        html(page("Design Mode Fixture", `<button id="design-target">Review this</button>`));
+        return;
       case "/responsive":
         // A mobile page without this tag has a layout width of 980 pixels.
         html(

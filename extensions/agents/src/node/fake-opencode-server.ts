@@ -19,6 +19,7 @@ export class FakeOpenCodeServer {
   active = new Set<string>();
   pending = new Set<string>();
   messages = new Map<string, string[]>();
+  prompts: { sessionId: string; body: { text: string; files?: { uri: string; name?: string }[] } }[] = [];
   requests: string[] = [];
   brokenSessionBody = false;
   repeatCursor = false;
@@ -244,6 +245,14 @@ export class FakeOpenCodeServer {
       if (method === "DELETE" && parts.length === 3) {
         this.sessions = this.sessions.filter((session) => session.id !== id);
         json(200, { data: true });
+        return;
+      }
+      if (method === "POST" && parts[3] === "prompt") {
+        this.prompts.push({
+          sessionId: id,
+          body: JSON.parse(body) as { text: string; files?: { uri: string; name?: string }[] },
+        });
+        response.writeHead(204).end();
         return;
       }
       if (method === "GET" && parts[3] === "message") {

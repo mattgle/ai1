@@ -52,6 +52,7 @@ export interface AgentsService {
   lastMessage(id: string): Promise<string | undefined>;
   createSession(directory: string, title?: string): Promise<SessionSummary>;
   deleteSession(id: string): Promise<void>;
+  sendPrompt(id: string, text: string, files?: { uri: string; name?: string }[]): Promise<void>;
   // The command line of the interface process for a session terminal.
   sessionCommand(id: string, directory: string): Promise<{ program: string; args: string[] }>;
   // The command line of a new persistent shell. `directory` is omitted when

@@ -4,8 +4,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { TheiaApp, TheiaAppLoader, TheiaWorkspace } from "@theia/playwright";
+import { BrowserFixtureServer } from "./browser-fixture-server";
 import { clickTab } from "./click-tab";
 import { createMetaRepoFixture } from "./meta-repo-fixture";
+import { openBrowserTab } from "./open-browser-tab";
 import { removeTempDir } from "./remove-temp-dir";
 
 const electronAppPath = path.resolve(__dirname, "..", "..", "applications", "electron");
@@ -17,6 +19,7 @@ let userDataDir: string;
 let sessionId: string;
 let dirtyRepo: string;
 let preexistingTmuxSessions: string[];
+let browserFixture: BrowserFixtureServer;
 
 // Reads the names of the ai1-* tmux sessions from the output of `tmux ls`.
 // No tmux server running is not an error: it just means no session exists.
@@ -102,6 +105,8 @@ test.beforeAll(async ({ playwright, browser }) => {
   const workspace = new TheiaWorkspace();
   workspace.initialize();
   createMetaRepoFixture(workspace.path);
+  browserFixture = new BrowserFixtureServer();
+  await browserFixture.start();
   // OpenCode stores `location.directory` verbatim, with no resolution of
   // its own. The Electron main process, on its side, resolves the
   // workspace path with `fs.realpath` before it opens the window
@@ -152,7 +157,7 @@ test.beforeAll(async ({ playwright, browser }) => {
 
 test.afterAll(async () => {
   try {
-    await app.page.close();
+    await app?.page.close();
     if (sessionId) {
       execFileSync("opencode", ["api", "DELETE", `/api/session/${sessionId}`]);
     }
@@ -207,6 +212,7 @@ test.afterAll(async () => {
       }
     }
   } finally {
+    await browserFixture?.stop();
     fs.rmSync(configDir, { recursive: true, force: true });
     await removeTempDir(userDataDir);
   }
@@ -313,6 +319,67 @@ test("a prompt moves the card to working and then to done", async () => {
   // times out at the outer level with a less clear failure.
   await expect(row.locator(".ai1-agents-status-working")).toBeVisible({ timeout: 20_000 });
   await expect(row.locator(".ai1-agents-status-done")).toBeVisible({ timeout: 80_000 });
+});
+
+test("Design Mode sends drawn feedback and its screenshot to the chosen agent session", async () => {
+  const designSession = JSON.parse(
+    execFileSync(
+      "opencode",
+      [
+        "api",
+        "POST",
+        "/api/session",
+        "--data",
+        JSON.stringify({ title: "ai1-e2e-design-mode-session", location: { directory: dirtyRepo } }),
+      ],
+      { cwd: dirtyRepo, encoding: "utf8" },
+    ),
+  ).data as { id: string };
+  try {
+    await openBrowserTab(app, `${browserFixture.url}design-mode`);
+    await expect(
+      app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "Design Mode Fixture" }),
+    ).toBeVisible();
+    const browser = app.page.locator(".ai1-browser:not(.lm-mod-hidden)");
+    const inspectButton = browser.locator(".ai1-browser-inspect-button");
+    await inspectButton.click();
+    const selectionOverlay = browser.locator(".ai1-browser-inspect-overlay");
+    await expect(selectionOverlay).toBeVisible();
+    await selectionOverlay.click({ position: { x: 25, y: 15 } });
+    const markupDialog = browser.locator(".ai1-browser-markup-dialog");
+    await expect(markupDialog).toBeVisible();
+    const canvas = markupDialog.locator("canvas");
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+    await app.page.mouse.move(box!.x + 20, box!.y + 20);
+    await app.page.mouse.down();
+    await app.page.mouse.move(box!.x + 60, box!.y + 45);
+    await app.page.mouse.up();
+    await markupDialog.getByRole("button", { name: "Use markup" }).click();
+    const comment = app.page.locator(".quick-input-widget input");
+    await expect(comment).toBeVisible();
+    await comment.fill("Move this button down.");
+    await comment.press("Enter");
+    await browser.getByRole("button", { name: "Send feedback (1)" }).click();
+    await app.page
+      .locator(".quick-input-widget .monaco-list-row", { hasText: "ai1-e2e-design-mode-session" })
+      .click();
+    await expect(browser.locator(".ai1-browser-message")).toContainText(
+      "Browser feedback sent to ai1-e2e-design-mode-session.",
+    );
+
+    const raw = execFileSync(
+      "opencode",
+      ["api", "GET", `/api/session/${designSession.id}/message?limit=10&order=desc`],
+      { cwd: dirtyRepo, encoding: "utf8" },
+    );
+    const messages = JSON.parse(raw).data as unknown[];
+    const sentMessage = JSON.stringify(messages);
+    expect(sentMessage).toContain("Move this button down.");
+    expect(sentMessage).toContain("browser-selection-1.png");
+  } finally {
+    execFileSync("opencode", ["api", "DELETE", `/api/session/${designSession.id}`], { cwd: dirtyRepo });
+  }
 });
 
 test("a session that waits for a permission shows a notice and a badge", async () => {

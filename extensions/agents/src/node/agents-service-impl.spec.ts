@@ -108,6 +108,19 @@ describe("AgentsServiceImpl", () => {
     assert.strictEqual(snapshot.truncated, false);
   });
 
+  it("sends feedback only to a session that belongs to this workspace", async () => {
+    await service.load(["file:///m"]);
+    const files = [{ uri: "data:image/png;base64,cG5n", name: "selection.png" }];
+    await service.sendPrompt("ses_a", "Inspect this selection.", files);
+    assert.deepStrictEqual(server.prompts, [
+      { sessionId: "ses_a", body: { text: "Inspect this selection.", files } },
+    ]);
+    await assert.rejects(
+      service.sendPrompt("ses_x", "Do not send this.", []),
+      /not available in this workspace/,
+    );
+  });
+
   it("reports the snapshot as truncated when the global session cap cuts off real data", async () => {
     server.endlessPages = true;
     const snapshot = await service.load(["file:///m/alpha"]);

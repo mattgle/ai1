@@ -19,7 +19,10 @@ import { resolveViewport, ViewportChoice } from "../common/viewport";
 import { zoomKey } from "../common/zoom";
 import { AgentAddress } from "./agent-address";
 import { DownloadStore } from "./download-store";
+import { sanitizeDesignSelection } from "../common/design-selection";
+import { CookieImportSource } from "../common/cookie-import";
 import { DownloadTracker } from "./download-tracker";
+import { detectCookieImportSources, importCookiesToProfile } from "./cookie-import";
 import { GuestPolicies } from "./guest-policies";
 import { GuestRegistry } from "./guest-registry";
 import { HistoryStore } from "./history-store";
@@ -125,6 +128,16 @@ export class BrowserMainContribution implements ElectronMainApplicationContribut
     this.handle(Channels.setViewport, (event, guestId: number, choice: ViewportChoice) =>
       this.setViewport(event.sender.id, guestId, choice),
     );
+    this.handle(Channels.inspectElement, (event, guestId: number, x: number, y: number) =>
+      this.inspectElement(event.sender.id, guestId, x, y),
+    );
+    this.handle(Channels.listCookieImportSources, () => detectCookieImportSources());
+    this.handle(Channels.importCookies, (_event, source: CookieImportSource, targetProfileId: string) => {
+      if (!this.store.has(targetProfileId)) {
+        throw new Error("The target browser profile does not exist.");
+      }
+      return importCookiesToProfile(source, targetProfileId, this.store.list());
+    });
     this.startDownloads();
     this.startHistory();
     this.handle(Channels.agentTabCreated, (event, requestId: string, tabId: string) =>
@@ -258,6 +271,65 @@ export class BrowserMainContribution implements ElectronMainApplicationContribut
       guest.reload();
     }
     return { ok: true };
+  }
+
+  protected async inspectElement(
+    windowId: number,
+    guestId: number,
+    x: number,
+    y: number,
+  ): Promise<ReturnType<typeof sanitizeDesignSelection>> {
+    const guest = webContents.fromId(guestId);
+    if (
+      !guest ||
+      guest.isDestroyed() ||
+      guest.getType() !== "webview" ||
+      this.registry.entry(guestId)?.windowId !== windowId ||
+      !Number.isFinite(x) ||
+      !Number.isFinite(y)
+    ) {
+      return undefined;
+    }
+    const script = `(() => {
+      const element = document.elementFromPoint(${JSON.stringify(x)}, ${JSON.stringify(y)});
+      if (!element || element === document.documentElement || element === document.body) return null;
+      const rect = element.getBoundingClientRect();
+      const styles = getComputedStyle(element);
+      const styleNames = ['display', 'position', 'width', 'height', 'margin', 'padding', 'color', 'background-color', 'border', 'border-radius', 'font-family', 'font-size', 'font-weight', 'line-height', 'text-align'];
+      const selectedStyles = {};
+      for (const name of styleNames) selectedStyles[name] = styles.getPropertyValue(name);
+      let selector = element.tagName.toLowerCase();
+      if (element.id) selector += '#' + CSS.escape(element.id);
+      else if (element.classList.length) selector += '.' + [...element.classList].slice(0, 3).map(CSS.escape).join('.');
+      return {
+        pageUrl: location.href,
+        pageTitle: document.title,
+        tagName: element.tagName,
+        selector,
+        text: (element.innerText || element.textContent || '').trim(),
+        html: element.outerHTML,
+        styles: selectedStyles,
+        rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+      };
+    })()`;
+    try {
+      const selection = sanitizeDesignSelection(await guest.executeJavaScript(script, true));
+      if (!selection || guest.isDestroyed()) {
+        return selection;
+      }
+      const left = Math.max(0, Math.floor(selection.rect.x));
+      const top = Math.max(0, Math.floor(selection.rect.y));
+      const width = Math.min(Math.max(1, Math.ceil(selection.rect.width)), 1000);
+      const height = Math.min(Math.max(1, Math.ceil(selection.rect.height)), 800);
+      if (!width || !height) {
+        return selection;
+      }
+      const image = await guest.capturePage({ x: left, y: top, width, height });
+      const scaled = image.resize({ width: Math.min(image.getSize().width, 800) });
+      return { ...selection, screenshot: scaled.toDataURL() };
+    } catch {
+      return undefined;
+    }
   }
 
   broadcast(channel: string, payload: unknown): void {

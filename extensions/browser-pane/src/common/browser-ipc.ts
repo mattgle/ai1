@@ -3,6 +3,8 @@ import { HistoryEntry } from "./history";
 import { Profile } from "./profiles";
 import { BrowserShortcut } from "./shortcuts";
 import { ViewportChoice } from "./viewport";
+import { DesignSelection } from "./design-selection";
+import { CookieImportResult, CookieImportSource } from "./cookie-import";
 
 // The name of the preload API on `window`.
 export const AI1_BROWSER_API = "electronAi1Browser";
@@ -25,6 +27,9 @@ export const Channels = {
   getZoom: "ai1-browser:get-zoom",
   setZoom: "ai1-browser:set-zoom",
   setViewport: "ai1-browser:set-viewport",
+  inspectElement: "ai1-browser:inspect-element",
+  listCookieImportSources: "ai1-browser:list-cookie-import-sources",
+  importCookies: "ai1-browser:import-cookies",
   listDownloads: "ai1-browser:list-downloads",
   cancelDownload: "ai1-browser:cancel-download",
   openDownload: "ai1-browser:open-download",
@@ -118,6 +123,9 @@ export interface Ai1BrowserApi {
   // Sets the viewport size of this guest. The page loads again when its
   // user agent changes.
   setViewport(guestId: number, choice: ViewportChoice): Promise<SetViewportResult>;
+  inspectElement(guestId: number, x: number, y: number): Promise<DesignSelection | undefined>;
+  listCookieImportSources(): Promise<CookieImportSource[]>;
+  importCookies(source: CookieImportSource, targetProfileId: string): Promise<CookieImportResult>;
   // All download entries, newest first. A completed entry whose file is gone
   // becomes "deleted" first.
   listDownloads(): Promise<DownloadEntry[]>;

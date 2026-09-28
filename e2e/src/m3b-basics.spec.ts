@@ -155,6 +155,37 @@ test.afterAll(async () => {
   }
 });
 
+test("Design Mode selects an element, adds drawn feedback, and cancels safely", async () => {
+  await openBrowserTab(app, `${fixture.url}design-mode`);
+  const browser = activeBrowser();
+  const inspectButton = browser.locator(".ai1-browser-inspect-button");
+  await inspectButton.click();
+  const selectionOverlay = browser.locator(".ai1-browser-inspect-overlay");
+  await expect(selectionOverlay).toBeVisible();
+  await app.page.keyboard.press("Escape");
+  await expect(selectionOverlay).toBeHidden();
+
+  await inspectButton.click();
+  await selectionOverlay.click({ position: { x: 25, y: 15 } });
+  const markupDialog = browser.locator(".ai1-browser-markup-dialog");
+  await expect(markupDialog).toBeVisible();
+  const canvas = markupDialog.locator("canvas");
+  const box = await canvas.boundingBox();
+  expect(box).not.toBeNull();
+  await app.page.mouse.move(box!.x + 20, box!.y + 20);
+  await app.page.mouse.down();
+  await app.page.mouse.move(box!.x + 60, box!.y + 45);
+  await app.page.mouse.up();
+  await markupDialog.getByRole("button", { name: "Use markup" }).click();
+  const comment = app.page.locator(".quick-input-widget input");
+  await expect(comment).toBeVisible();
+  await comment.fill("Move this button down.");
+  await comment.press("Enter");
+  await expect(browser.getByRole("button", { name: "Send feedback (1)" })).toBeVisible();
+  await browser.locator('button[title="Clear browser feedback"]').click();
+  await expect(markupDialog).toBeHidden();
+});
+
 test("two agents connect at the same time, and each agent has its own tab and sees only its own page", async () => {
   const [first, second] = await Promise.all([connectAgent(), connectAgent()]);
   try {

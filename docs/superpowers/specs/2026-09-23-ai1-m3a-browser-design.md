@@ -343,3 +343,18 @@ tab, so an HTTP request cannot open an empty tab or use up the "Waiting for
 agent" mark.
 
 See the M3b part A spec for the full design.
+
+## Changes in M3b part B
+
+M3b part B adds Design Mode and annotations. The owner can select an element,
+draw on its screenshot, add or edit feedback, then copy it or send it with the
+page context to a chosen OpenCode session. The new design is in
+`docs/superpowers/specs/2026-09-28-ai1-m3b-b-design-mode.md`.
+
+## Changes in M3b part C
+
+M3b part C adds a macOS cookie import from Chrome, Arc, and Brave into a chosen
+AI1 profile. It reads Chromium cookie databases in read-only mode, decrypts
+supported values with the browser's Keychain Safe Storage password, and asks
+the owner to confirm before import. The full scope is in
+`docs/superpowers/specs/2026-09-28-ai1-m3b-c-cookie-import.md`.

@@ -1,11 +1,14 @@
 import { ApplicationShell, BaseWidget, QuickInputService, StatefulWidget } from "@theia/core/lib/browser";
 import { ContextKeyService } from "@theia/core/lib/browser/context-key-service";
 import { inject, injectable, postConstruct } from "@theia/core/shared/inversify";
+import { WorkspaceService } from "@theia/workspace/lib/browser/workspace-service";
 import type { WebviewTag } from "electron";
+import { AgentsService, SessionSummary } from "ai1-agents";
 import { normalizeAddress } from "../common/address";
 import { AgentTabState, CertificateErrorEvent } from "../common/browser-ipc";
 import { ClosedTab } from "../common/closed-tabs";
 import { isLocalCertificateHost } from "../common/guest-policy";
+import { DesignSelection } from "../common/design-selection";
 import { DEFAULT_PROFILE_ID, partitionFor, Profile } from "../common/profiles";
 import { BrowserShortcut } from "../common/shortcuts";
 import { resolveViewport, validateCustomSize, VIEWPORT_PRESETS, ViewportChoice } from "../common/viewport";
@@ -55,6 +58,11 @@ export interface ViewportEntry {
   enabled: boolean;
 }
 
+interface BrowserAnnotation {
+  selection: DesignSelection;
+  comment: string;
+}
+
 const VIEWPORT_OFF: ViewportChoice = { kind: "off" };
 const OFF_LABEL = "Responsive (off)";
 const PRESET_ENTRY = "preset:";
@@ -69,6 +77,12 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
 
   @inject(BrowserWidgetOptions)
   protected readonly options!: BrowserWidgetOptions;
+
+  @inject(AgentsService)
+  protected readonly agents!: AgentsService;
+
+  @inject(WorkspaceService)
+  protected readonly workspace!: WorkspaceService;
 
   @inject(ContextKeyService)
   protected readonly contextKeys!: ContextKeyService;
@@ -125,6 +139,14 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
   protected readonly profileSelect = document.createElement("select");
   protected readonly agentButton = document.createElement("button");
   protected readonly devToolsButton = document.createElement("button");
+  protected readonly inspectButton = document.createElement("button");
+  protected readonly sendFeedbackButton = document.createElement("button");
+  protected readonly copyFeedbackButton = document.createElement("button");
+  protected readonly manageFeedbackButton = document.createElement("button");
+  protected readonly clearFeedbackButton = document.createElement("button");
+  protected readonly inspectOverlay = document.createElement("div");
+  protected inspecting = false;
+  protected annotations: BrowserAnnotation[] = [];
   protected readonly message = document.createElement("div");
   protected readonly viewport = document.createElement("div");
   protected readonly errorPanel = document.createElement("div");
@@ -182,7 +204,12 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     this.errorPanel.hidden = true;
     this.viewportLabel.className = "ai1-browser-viewport-label";
     this.viewportLabel.hidden = true;
-    this.viewport.append(this.viewportLabel, this.errorPanel);
+    this.inspectOverlay.hidden = true;
+    this.inspectOverlay.className = "ai1-browser-inspect-overlay";
+    this.inspectOverlay.tabIndex = 0;
+    this.inspectOverlay.setAttribute("aria-label", "Select an element on the page. Press Escape to cancel.");
+    this.inspectOverlay.addEventListener("click", (event) => void this.pickElement(event));
+    this.viewport.append(this.viewportLabel, this.errorPanel, this.inspectOverlay);
     this.node.append(this.toolbar, this.findBar.node, this.message, this.viewport);
     const tabContext = this.contextKeys.createScoped(this.node);
     tabContext.createKey(BROWSER_FOCUS_CONTEXT, true);
@@ -392,6 +419,7 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
   }
 
   override dispose(): void {
+    this.stopDesignMode();
     // A closed tab cannot wait for an agent.
     if (this.agentState?.state === "waiting") {
       void browserApi()
@@ -428,6 +456,9 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
       return;
     }
     this.profile = profileId;
+    this.stopDesignMode();
+    this.annotations = [];
+    this.updateFeedbackControls();
     this.profileSelect.value = profileId;
     // Close the find bar while the old page exists.
     this.findBar.close();
@@ -450,6 +481,9 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     button(this.backButton, "codicon-arrow-left", "Back", () => this.webview?.goBack());
     button(this.forwardButton, "codicon-arrow-right", "Forward", () => this.webview?.goForward());
     button(this.reloadButton, "codicon-refresh", "Reload", () => {
+      this.stopDesignMode();
+      this.annotations = [];
+      this.updateFeedbackControls();
       this.hideError();
       this.webview?.reload();
     });
@@ -468,6 +502,28 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
       }
     });
     button(this.devToolsButton, "codicon-tools", "Open DevTools", () => this.webview?.openDevTools());
+    button(this.inspectButton, "codicon-inspect", "Select an element and add feedback", () =>
+      this.toggleDesignMode(),
+    );
+    this.inspectButton.classList.add("ai1-browser-inspect-button");
+    button(
+      this.sendFeedbackButton,
+      "codicon-send",
+      "Send browser feedback to an agent",
+      () => void this.sendFeedback(),
+    );
+    this.sendFeedbackButton.hidden = true;
+    button(this.copyFeedbackButton, "codicon-copy", "Copy browser feedback", () => void this.copyFeedback());
+    this.copyFeedbackButton.hidden = true;
+    button(
+      this.manageFeedbackButton,
+      "codicon-edit",
+      "Edit or remove browser feedback",
+      () => void this.manageFeedback(),
+    );
+    this.manageFeedbackButton.hidden = true;
+    button(this.clearFeedbackButton, "codicon-trash", "Clear browser feedback", () => this.clearFeedback());
+    this.clearFeedbackButton.hidden = true;
     this.backButton.disabled = true;
     this.forwardButton.disabled = true;
     this.addressInput.className = "ai1-browser-address theia-input";
@@ -493,10 +549,323 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
       this.zoomButton,
       this.profileSelect,
       this.viewportButton,
+      this.inspectButton,
+      this.sendFeedbackButton,
+      this.copyFeedbackButton,
+      this.manageFeedbackButton,
+      this.clearFeedbackButton,
       this.agentButton,
       this.devToolsButton,
       this.viewportMenu,
     );
+  }
+
+  protected toggleDesignMode(): void {
+    if (this.inspecting) {
+      this.stopDesignMode();
+      return;
+    }
+    if (!this.webview || !this.webviewReady || this.agentConnected) {
+      this.showMessage("Select an element after the page loads and the agent disconnects.");
+      return;
+    }
+    const hostRect = this.viewport.getBoundingClientRect();
+    const pageRect = this.webview.getBoundingClientRect();
+    this.inspectOverlay.style.left = `${pageRect.left - hostRect.left}px`;
+    this.inspectOverlay.style.top = `${pageRect.top - hostRect.top}px`;
+    this.inspectOverlay.style.width = `${pageRect.width}px`;
+    this.inspectOverlay.style.height = `${pageRect.height}px`;
+    this.inspecting = true;
+    this.inspectOverlay.hidden = false;
+    this.inspectButton.classList.add("ai1-browser-inspect-active");
+    this.showMessage("Click an element to add feedback. Press Escape to cancel.");
+    document.addEventListener("keydown", this.onDesignModeKeyDown, true);
+    this.inspectOverlay.focus();
+  }
+
+  protected readonly onDesignModeKeyDown = (event: KeyboardEvent): void => {
+    if (event.key === "Escape" && this.inspecting) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.stopDesignMode();
+      this.showMessage(undefined);
+    }
+  };
+
+  protected stopDesignMode(): void {
+    this.inspecting = false;
+    this.inspectOverlay.hidden = true;
+    this.inspectButton.classList.remove("ai1-browser-inspect-active");
+    document.removeEventListener("keydown", this.onDesignModeKeyDown, true);
+  }
+
+  protected async pickElement(event: MouseEvent): Promise<void> {
+    if (!this.inspecting) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const guestId = this.currentGuestId();
+    const webview = this.webview;
+    if (guestId === undefined || !webview) {
+      this.stopDesignMode();
+      return;
+    }
+    const bounds = webview.getBoundingClientRect();
+    const selection = await browserApi()
+      .inspectElement(guestId, event.clientX - bounds.left, event.clientY - bounds.top)
+      .catch(() => undefined);
+    this.stopDesignMode();
+    if (!selection) {
+      this.showMessage("AI1 could not read that element. Select another one.");
+      return;
+    }
+    if (this.annotations.length >= 10) {
+      this.showMessage("A page can have up to 10 feedback items.");
+      return;
+    }
+    const markedSelection = await this.openScreenshotMarkup(selection);
+    if (!markedSelection) {
+      return;
+    }
+    const comment = await this.quickInput.input({
+      prompt: `Feedback for <${selection.tagName}>`,
+      value: "",
+    });
+    if (comment === undefined || comment.trim() === "") {
+      this.showMessage(undefined);
+      return;
+    }
+    this.annotations.push({ selection: markedSelection, comment: comment.trim().slice(0, 2000) });
+    this.updateFeedbackControls();
+    this.showMessage(`Added feedback for <${selection.tagName}>.`);
+  }
+
+  protected async openScreenshotMarkup(selection: DesignSelection): Promise<DesignSelection | undefined> {
+    if (!selection.screenshot) {
+      return selection;
+    }
+    const dialog = document.createElement("section");
+    dialog.className = "ai1-browser-markup-dialog";
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-label", "Mark up the selected element screenshot");
+    const heading = document.createElement("p");
+    heading.textContent =
+      "Draw on the screenshot. Use Markup to attach your drawing, or Skip to keep the original.";
+    const canvas = document.createElement("canvas");
+    canvas.className = "ai1-browser-markup-canvas";
+    const actions = document.createElement("div");
+    actions.className = "ai1-browser-markup-actions";
+    const makeButton = (label: string): HTMLButtonElement => {
+      const button = document.createElement("button");
+      button.className = "theia-button secondary";
+      button.textContent = label;
+      actions.append(button);
+      return button;
+    };
+    const markupButton = makeButton("Use markup");
+    const skipButton = makeButton("Skip markup");
+    const cancelButton = makeButton("Cancel selection");
+    dialog.append(heading, canvas, actions);
+    this.viewport.append(dialog);
+
+    const image = new Image();
+    await new Promise<void>((resolve) => {
+      image.onload = () => resolve();
+      image.onerror = () => resolve();
+      image.src = selection.screenshot!;
+    });
+    if (!image.naturalWidth || !image.naturalHeight) {
+      dialog.remove();
+      return selection;
+    }
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      dialog.remove();
+      return selection;
+    }
+    context.drawImage(image, 0, 0);
+    let drawing = false;
+    let hasDrawing = false;
+    const point = (event: PointerEvent): { x: number; y: number } => {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: ((event.clientX - rect.left) / rect.width) * canvas.width,
+        y: ((event.clientY - rect.top) / rect.height) * canvas.height,
+      };
+    };
+    canvas.addEventListener("pointerdown", (event) => {
+      drawing = true;
+      hasDrawing = true;
+      canvas.setPointerCapture(event.pointerId);
+      const p = point(event);
+      context.beginPath();
+      context.moveTo(p.x, p.y);
+      context.strokeStyle = "#ff3158";
+      context.lineWidth = Math.max(3, canvas.width / 120);
+      context.lineCap = "round";
+      context.lineJoin = "round";
+    });
+    canvas.addEventListener("pointermove", (event) => {
+      if (!drawing) {
+        return;
+      }
+      const p = point(event);
+      context.lineTo(p.x, p.y);
+      context.stroke();
+    });
+    canvas.addEventListener("pointerup", () => {
+      drawing = false;
+    });
+    canvas.addEventListener("pointercancel", () => {
+      drawing = false;
+    });
+
+    return new Promise<DesignSelection | undefined>((resolve) => {
+      const finish = (result: DesignSelection | undefined): void => {
+        document.removeEventListener("keydown", onKeyDown, true);
+        dialog.remove();
+        resolve(result);
+      };
+      const onKeyDown = (event: KeyboardEvent): void => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          finish(undefined);
+        }
+      };
+      document.addEventListener("keydown", onKeyDown, true);
+      markupButton.addEventListener("click", () =>
+        finish({
+          ...selection,
+          screenshot: hasDrawing ? canvas.toDataURL("image/png") : selection.screenshot,
+        }),
+      );
+      skipButton.addEventListener("click", () => finish(selection));
+      cancelButton.addEventListener("click", () => finish(undefined));
+      markupButton.focus();
+    });
+  }
+
+  protected updateFeedbackControls(): void {
+    const count = this.annotations.length;
+    this.sendFeedbackButton.hidden = count === 0;
+    this.copyFeedbackButton.hidden = count === 0;
+    this.manageFeedbackButton.hidden = count === 0;
+    this.clearFeedbackButton.hidden = count === 0;
+    this.sendFeedbackButton.textContent = `Send feedback (${count})`;
+    this.clearFeedbackButton.setAttribute("aria-label", `Clear ${count} browser feedback items`);
+  }
+
+  protected clearFeedback(): void {
+    this.annotations = [];
+    this.updateFeedbackControls();
+    this.showMessage("Browser feedback cleared.");
+  }
+
+  protected feedbackText(): string {
+    return this.annotations
+      .map(({ selection, comment }, index) =>
+        [
+          `## Browser feedback ${index + 1}`,
+          `Page: ${selection.pageTitle} (${selection.pageUrl})`,
+          `Element: <${selection.tagName}>`,
+          `Selector: ${selection.selector}`,
+          `Text: ${selection.text}`,
+          `Styles: ${JSON.stringify(selection.styles)}`,
+          `HTML: ${selection.html}`,
+          `Feedback: ${comment}`,
+        ].join("\n"),
+      )
+      .join("\n\n");
+  }
+
+  protected async copyFeedback(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(this.feedbackText());
+      this.showMessage("Browser feedback copied.");
+    } catch {
+      this.showMessage("AI1 could not copy browser feedback.");
+    }
+  }
+
+  protected async manageFeedback(): Promise<void> {
+    const entries = this.annotations.map((annotation, index) => ({
+      label: `${index + 1}. <${annotation.selection.tagName}> ${annotation.selection.selector}`,
+      description: annotation.comment,
+      index,
+    }));
+    const choice = await this.quickInput.showQuickPick(entries, {
+      placeholder: "Choose feedback to edit or remove",
+    });
+    if (!choice) {
+      return;
+    }
+    const action = await this.quickInput.showQuickPick(
+      [
+        { label: "Edit comment", value: "edit" },
+        { label: "Remove feedback", value: "remove" },
+      ],
+      { placeholder: "Choose an action" },
+    );
+    if (!action) {
+      return;
+    }
+    if (action.value === "remove") {
+      this.annotations.splice(choice.index, 1);
+      this.updateFeedbackControls();
+      return;
+    }
+    const annotation = this.annotations[choice.index];
+    const comment = await this.quickInput.input({ prompt: "Edit feedback", value: annotation.comment });
+    if (comment !== undefined && comment.trim()) {
+      annotation.comment = comment.trim().slice(0, 2000);
+    }
+  }
+
+  protected async sendFeedback(): Promise<void> {
+    if (this.annotations.length === 0) {
+      return;
+    }
+    try {
+      const roots = await this.workspace.roots;
+      const snapshot = await this.agents.load(roots.map((root) => root.resource.toString()));
+      const choices = snapshot.groups.flatMap((group) =>
+        group.sessions.map((session: SessionSummary) => ({
+          label: session.title,
+          description: `${group.name} · ${session.status}`,
+          session,
+        })),
+      );
+      if (choices.length === 0) {
+        this.showMessage("There are no agent sessions in this workspace.");
+        return;
+      }
+      const choice = await this.quickInput.showQuickPick(choices, { placeholder: "Choose an agent session" });
+      if (!choice) {
+        return;
+      }
+      const text = this.feedbackText();
+      const files = this.annotations.flatMap(({ selection }, index) =>
+        selection.screenshot
+          ? [
+              {
+                uri: selection.screenshot,
+                name: `browser-selection-${index + 1}.png`,
+                description: selection.selector,
+              },
+            ]
+          : [],
+      );
+      await this.agents.sendPrompt(choice.session.id, text, files);
+      this.showMessage(`Browser feedback sent to ${choice.session.title}.`);
+    } catch (error) {
+      this.showMessage(
+        `Could not send browser feedback: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   protected fillProfileSelect(): void {
@@ -764,6 +1133,11 @@ export class BrowserWidget extends BaseWidget implements StatefulWidget {
     // waits for `dom-ready`.
     if (this.pendingUrl !== undefined) {
       return;
+    }
+    if (this.url !== url) {
+      this.stopDesignMode();
+      this.annotations = [];
+      this.updateFeedbackControls();
     }
     this.url = url;
     this.addressInput.value = url === "about:blank" ? "" : url;

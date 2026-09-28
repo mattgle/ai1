@@ -91,6 +91,18 @@ describe("OpenCodeClient", () => {
     assert.ok(!server.sessions.some((session) => session.id === created.id));
   });
 
+  it("sends bounded text and image attachments to one session", async () => {
+    const files = [{ uri: "data:image/png;base64,cG5n", name: "selection.png" }];
+    await client.sendPrompt("ses_a", "Review this page element.", files);
+    assert.deepStrictEqual(server.prompts, [
+      {
+        sessionId: "ses_a",
+        body: { text: "Review this page element.", files },
+      },
+    ]);
+    assert.ok(server.requests.includes("POST /api/session/ses_a/prompt"));
+  });
+
   it("rejects with a clear message on 401 that names the file its own connection actually read", async () => {
     // A connection built from the state file names the state file, not a
     // fixed guess -- `servicePasswordDisplayPath` is what a real

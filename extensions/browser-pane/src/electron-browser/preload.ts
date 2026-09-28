@@ -13,6 +13,7 @@ import {
 } from "../common/browser-ipc";
 import { DownloadDone, DownloadEntry } from "../common/downloads";
 import { Profile } from "../common/profiles";
+import { CookieImportSource } from "../common/cookie-import";
 
 function listen<T>(channel: string): (listener: (payload: T) => void) => () => void {
   return (listener) => {
@@ -39,6 +40,10 @@ const api: Ai1BrowserApi = {
   getZoom: (profileId, url) => ipcRenderer.invoke(Channels.getZoom, profileId, url),
   setZoom: (profileId, url, percent) => ipcRenderer.invoke(Channels.setZoom, profileId, url, percent),
   setViewport: (guestId, choice) => ipcRenderer.invoke(Channels.setViewport, guestId, choice),
+  inspectElement: (guestId, x, y) => ipcRenderer.invoke(Channels.inspectElement, guestId, x, y),
+  listCookieImportSources: () => ipcRenderer.invoke(Channels.listCookieImportSources),
+  importCookies: (source: CookieImportSource, targetProfileId) =>
+    ipcRenderer.invoke(Channels.importCookies, source, targetProfileId),
   listDownloads: () => ipcRenderer.invoke(Channels.listDownloads),
   cancelDownload: (id) => ipcRenderer.invoke(Channels.cancelDownload, id),
   openDownload: (id) => ipcRenderer.invoke(Channels.openDownload, id),
