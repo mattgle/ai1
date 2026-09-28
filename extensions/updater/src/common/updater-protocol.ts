@@ -1,12 +1,19 @@
 import { UpdateReport } from "./update-record";
 
-export const UPDATER_SERVICE_PATH = "/services/ai1-updater";
-export const UpdaterService = Symbol("UpdaterService");
-export const UpdaterClient = Symbol("UpdaterClient");
+export const AI1_UPDATER_API = "electronAi1Updater";
+export const UpdaterServiceToken = Symbol("UpdaterService");
+export const UPDATER_CHANNELS = {
+  check: "ai1-updater:check",
+  updateTools: "ai1-updater:update-tools",
+  pendingReport: "ai1-updater:pending-report",
+  report: "ai1-updater:report",
+} as const;
 
 export interface UpdaterService {
   checkForUpdates(): Promise<UpdateReport>;
   updateTools(): Promise<string>;
+  takePendingReport(): Promise<UpdateReport | undefined>;
+  onScheduledReport(listener: (report: UpdateReport) => void): () => void;
 }
 
-export type UpdaterClient = Record<string, never>;
+export type UpdaterWindowApi = UpdaterService;

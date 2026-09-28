@@ -27,7 +27,8 @@
   "theiaExtensions": [
     {
       "frontend": "lib/browser/updater-frontend-module",
-      "backend": "lib/node/updater-backend-module"
+      "electronMain": "lib/electron-main/updater-electron-main-module",
+      "preload": "lib/electron-browser/updater-preload"
     }
   ]
 }
