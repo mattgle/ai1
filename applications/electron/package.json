@@ -30,7 +30,8 @@
     "ai1-browser-pane": "0.1.0",
     "ai1-changes-view": "0.1.0",
     "ai1-material-icons": "0.1.0",
-    "ai1-shell-layout": "0.1.0"
+    "ai1-shell-layout": "0.1.0",
+    "ai1-updater": "0.1.0"
   },
   "devDependencies": {
     "@theia/cli": "1.75.0",

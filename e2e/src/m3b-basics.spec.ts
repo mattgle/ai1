@@ -157,6 +157,9 @@ test.afterAll(async () => {
 
 test("Design Mode selects an element, adds drawn feedback, and cancels safely", async () => {
   await openBrowserTab(app, `${fixture.url}design-mode`);
+  await expect
+    .poll(() => runInTab<string>(0, "document.title").catch(() => ""), { timeout: 30_000 })
+    .toBe("Design Mode Fixture");
   const browser = activeBrowser();
   const inspectButton = browser.locator(".ai1-browser-inspect-button");
   await inspectButton.click();
