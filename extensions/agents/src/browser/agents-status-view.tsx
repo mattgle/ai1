@@ -1,4 +1,5 @@
 import * as React from "@theia/core/shared/react";
+import type { SessionStatus } from "../common/agents-protocol";
 import { reconnectingPrefix } from "../common/card-text";
 
 // The three non-tree states of the Agents view -- the load error, the
@@ -18,6 +19,28 @@ import { reconnectingPrefix } from "../common/card-text";
 // never show a different message for the same fact.
 export const SESSION_CAP_MESSAGE =
   "Showing the 200 newest OpenCode sessions of the service. Older sessions are not listed.";
+
+const SESSION_STATUS_LABELS: Record<SessionStatus, string> = {
+  working: "Working",
+  blocked: "Waiting for permission",
+  done: "Done",
+  failed: "Failed",
+  idle: "Idle",
+};
+
+export function renderSessionStatus(status: SessionStatus): React.ReactElement {
+  const label = SESSION_STATUS_LABELS[status];
+  return (
+    <span
+      className={`ai1-agents-status ai1-agents-status-${status}`}
+      role="img"
+      aria-label={label}
+      title={label}
+    >
+      {status === "blocked" ? <span aria-hidden="true">?</span> : null}
+    </span>
+  );
+}
 
 export interface ErrorStateProps {
   error: string;

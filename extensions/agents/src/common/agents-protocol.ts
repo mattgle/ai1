@@ -26,6 +26,8 @@ export interface SessionGroup {
 
 export interface AgentsSnapshot {
   groups: SessionGroup[];
+  // Resolved paths keep group labels consistent when the workspace uses a symbolic link.
+  workspaceRoots: string[];
   connected: boolean;
   // True when the service's own session list, capped globally at 200
   // sessions (see `OpenCodeClient.listSessions`), actually cut off real

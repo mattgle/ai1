@@ -1,5 +1,5 @@
 .ai1-agents .ai1-agents-summary {
-  padding: 4px var(--theia-ui-padding);
+  padding: 6px 12px;
   color: var(--theia-descriptionForeground);
   font-size: var(--theia-ui-font-size0);
 }
@@ -14,7 +14,15 @@
   align-items: baseline;
   gap: 6px;
 }
+.ai1-agents .ai1-agents-group-icon {
+  margin-right: 6px;
+  color: var(--theia-descriptionForeground);
+}
 .ai1-agents .ai1-agents-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-weight: 600;
 }
 .ai1-agents .ai1-agents-description,
@@ -27,6 +35,8 @@
   text-overflow: ellipsis;
 }
 .ai1-agents .ai1-agents-title {
+  min-width: 0;
+  flex: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -34,37 +44,134 @@
 .ai1-agents .theia-TreeNode {
   height: auto;
   align-items: flex-start;
-  padding-top: 3px;
-  padding-bottom: 3px;
+  margin: 2px 14px 2px 4px;
+  border-radius: 4px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+.ai1-agents .theia-TreeNodeContent {
+  min-width: 0;
+  padding-right: 6px;
+}
+.ai1-agents .ai1-agents-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 24px;
+}
+.ai1-agents .ai1-agents-card > .ai1-agents-meta,
+.ai1-agents .ai1-agents-card > .ai1-agents-last {
+  margin-left: 20px;
+  line-height: 18px;
+}
+.ai1-agents.theia-Tree:focus-within .theia-TreeNode.theia-mod-selected,
+.ai1-agents.theia-Tree:focus-within .theia-TreeNode.theia-mod-focus {
+  outline: none;
+}
+.ai1-agents.theia-Tree:focus-visible .theia-TreeNode.theia-mod-focus {
+  outline: 1px solid var(--theia-focusBorder);
+  outline-offset: -1px;
+}
+.ai1-agents.theia-Tree:focus .theia-TreeContainer.focused::before {
+  content: none;
 }
 .ai1-agents .ai1-agents-status {
-  margin-top: 2px;
-  margin-right: var(--theia-ui-padding);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 24px;
+  flex: 0 0 14px;
+  color: var(--theia-descriptionForeground);
+}
+.ai1-agents .ai1-agents-status::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: currentColor;
 }
 .ai1-agents .ai1-agents-status-working {
-  color: var(--theia-progressBar-background);
+  color: var(--theia-progressBar-background, #3794ff);
+}
+.ai1-agents .ai1-agents-status-working::before {
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+  background: transparent;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  animation: ai1-agents-working 1s linear infinite;
 }
 .ai1-agents .ai1-agents-status-blocked {
-  color: var(--theia-editorWarning-foreground);
+  color: var(--theia-editorWarning-foreground, #cca700);
+  font-weight: 600;
+}
+.ai1-agents .ai1-agents-status-blocked::before {
+  content: none;
 }
 .ai1-agents .ai1-agents-status-done {
-  color: var(--theia-testing-iconPassed);
+  color: var(--theia-testing-iconPassed, #73c991);
 }
 .ai1-agents .ai1-agents-status-failed {
-  color: var(--theia-editorError-foreground);
+  color: var(--theia-editorError-foreground, #f14c4c);
+}
+.ai1-agents .ai1-agents-status-idle {
+  opacity: 0.55;
 }
 .ai1-agents .ai1-agents-tail {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   margin-left: auto;
+  flex-shrink: 0;
+}
+.ai1-agents .ai1-agents-row-actions {
+  width: 0;
+  overflow: hidden;
+  opacity: 0;
+}
+.ai1-agents .theia-TreeNode:hover .ai1-agents-row-actions,
+.ai1-agents .theia-TreeNode:focus-within .ai1-agents-row-actions,
+.ai1-agents.theia-Tree:focus .theia-mod-focus .ai1-agents-row-actions {
+  width: auto;
+  overflow: visible;
+  opacity: 1;
 }
 .ai1-agents .ai1-agents-action {
-  visibility: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--theia-descriptionForeground);
+  opacity: 0;
   cursor: pointer;
 }
-.ai1-agents .theia-TreeNode:hover .ai1-agents-action {
-  visibility: visible;
+.ai1-agents .theia-TreeNode:hover .ai1-agents-action,
+.ai1-agents .theia-TreeNode:focus-within .ai1-agents-action,
+.ai1-agents.theia-Tree:focus .theia-mod-focus .ai1-agents-action {
+  opacity: 1;
+}
+.ai1-agents .ai1-agents-action:hover {
+  background: var(--theia-toolbar-hoverBackground, rgba(127, 127, 127, 0.2));
+  color: var(--theia-foreground);
+}
+.ai1-agents .ai1-agents-action:active {
+  background: var(--theia-toolbar-activeBackground, rgba(127, 127, 127, 0.3));
+}
+.ai1-agents .ai1-agents-action-delete:hover {
+  color: var(--theia-editorError-foreground, #f14c4c);
+}
+.ai1-agents .ai1-agents-action:focus-visible {
+  outline: 1px solid var(--theia-focusBorder);
+  outline-offset: -1px;
 }
 .ai1-agents .ai1-agents-badge {
   background: var(--theia-badge-background);
@@ -84,4 +191,16 @@
   padding: 2px var(--theia-ui-padding) 4px;
   color: var(--theia-descriptionForeground);
   font-size: var(--theia-ui-font-size0);
+}
+
+@keyframes ai1-agents-working {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai1-agents .ai1-agents-status-working::before {
+    animation: none;
+  }
 }

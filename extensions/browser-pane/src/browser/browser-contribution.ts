@@ -146,12 +146,33 @@ export class BrowserContribution
   @inject(MessageService)
   protected readonly messages!: MessageService;
 
+  @inject(CommandRegistry)
+  protected readonly commands!: CommandRegistry;
+
   async onStart(): Promise<void> {
     const api = browserApi();
     api.onProfilesChanged((profiles) => this.tabs.applyProfiles(profiles));
     api.onOpenTab((request) => void this.tabs.open(request.url, request.profileId));
     api.onNotice((text) => void this.messages.info(text));
-    api.onShortcut((event) => this.tabs.byTabId(event.tabId)?.runShortcut(event.shortcut));
+    api.onShortcut((event) => {
+      const widget = this.tabs.byTabId(event.tabId);
+      if (!widget) {
+        return;
+      }
+      if (event.shortcut === "toggleExplorer") {
+        void this.commands.executeCommand("fileNavigator:toggle").catch((error) => {
+          this.messages.error(errorText(error));
+        });
+        return;
+      }
+      if (event.shortcut === "newTerminal") {
+        void this.commands.executeCommand("ai1.terminal.newPersistent", widget).catch((error) => {
+          this.messages.error(errorText(error));
+        });
+      } else {
+        widget.runShortcut(event.shortcut);
+      }
+    });
     await this.tabs.refreshProfiles();
   }
 

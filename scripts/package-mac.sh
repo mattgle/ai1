@@ -19,6 +19,7 @@ cd "$(dirname "$0")/.."
 
 npm run download:plugins
 npm run build:production
+node applications/electron/scripts/generate-app-icon.mjs
 npm exec --workspace applications/electron -- electron-builder --config electron-builder.yml --mac --arm64 --publish never
 
 APP="applications/electron/dist/mac-arm64/AI1.app"

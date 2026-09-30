@@ -9,6 +9,8 @@ export type BrowserShortcut =
   | "zoomOut"
   | "zoomReset"
   | "reopenClosedTab"
+  | "newTerminal"
+  | "toggleExplorer"
   | "focusAddress";
 
 // The parts of an Electron `Input` (from `before-input-event`) that the
@@ -45,6 +47,10 @@ export function shortcutFor(input: ShortcutInput, findOpen: boolean): BrowserSho
     return key === "t" ? "reopenClosedTab" : undefined;
   }
   switch (key) {
+    case "b":
+      return "toggleExplorer";
+    case "t":
+      return "newTerminal";
     case "f":
       return "find";
     case "g":

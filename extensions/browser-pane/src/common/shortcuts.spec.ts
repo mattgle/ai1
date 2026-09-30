@@ -24,6 +24,11 @@ function key(keyName: string, keys: Keys = {}, findOpen = false) {
 }
 
 describe("shortcutFor", () => {
+  it("gives toggleExplorer for Command-B", () => {
+    assert.strictEqual(key("b", { meta: true }), "toggleExplorer");
+    assert.strictEqual(key("b", { meta: true, shift: true }), undefined);
+    assert.strictEqual(key("b"), undefined);
+  });
   it("gives find for ⌘F", () => {
     assert.strictEqual(key("f", { meta: true }), "find");
   });
@@ -61,7 +66,7 @@ describe("shortcutFor", () => {
   it("gives reopenClosedTab for ⇧⌘T only", () => {
     assert.strictEqual(key("T", { meta: true, shift: true }), "reopenClosedTab");
     assert.strictEqual(key("t", { meta: true, shift: true }), "reopenClosedTab");
-    assert.strictEqual(key("t", { meta: true }), undefined);
+    assert.strictEqual(key("t", { meta: true }), "newTerminal");
   });
 
   it("gives focusAddress for ⌘L", () => {

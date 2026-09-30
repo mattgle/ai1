@@ -1,10 +1,12 @@
 import { Command, CommandRegistry, MessageService, QuickPickService } from "@theia/core";
 import {
   AbstractViewContribution,
+  ApplicationShell,
   Badge,
   BadgeService,
   ConfirmDialog,
   FrontendApplicationContribution,
+  KeybindingRegistry,
   OnWillStopAction,
   Widget,
   WidgetManager,
@@ -16,12 +18,14 @@ import {
 import { inject, injectable } from "@theia/core/shared/inversify";
 import { FileService } from "@theia/filesystem/lib/browser/file-service";
 import { WorkspaceService } from "@theia/workspace/lib/browser/workspace-service";
+import { TerminalWidget } from "@theia/terminal/lib/browser/base/terminal-widget";
 import { AgentsService, SessionSummary } from "../common/agents-protocol";
 import { sessionBadge } from "../common/badge-decoration";
 import { AgentsModel } from "./agents-model";
 import { AgentsTerminals } from "./agents-terminals";
 import { SessionNode } from "./agents-tree";
 import { AgentsWidget } from "./agents-widget";
+import { TerminalControls } from "./terminal-controls";
 
 export const AgentsCommands = {
   NEW_SESSION: { id: "ai1.agents.newSession", label: "New Session", category: "Agents" },
@@ -43,6 +47,17 @@ export const AgentsCommands = {
     label: "New Persistent Terminal",
     category: "Terminal",
   },
+  SPLIT_TERMINAL_RIGHT: {
+    id: "ai1.terminal.splitRight",
+    label: "Split Terminal Right",
+    category: "Terminal",
+  },
+  SPLIT_TERMINAL_DOWN: { id: "ai1.terminal.splitDown", label: "Split Terminal Down", category: "Terminal" },
+  DELETE_TO_LINE_START: {
+    id: "ai1.terminal.deleteToLineStart",
+    label: "Delete to Line Start",
+    category: "Terminal",
+  },
 } satisfies Record<string, Command>;
 
 @injectable()
@@ -58,6 +73,9 @@ export class AgentsContribution
 
   @inject(AgentsTerminals)
   protected readonly terminals!: AgentsTerminals;
+
+  @inject(TerminalControls)
+  protected readonly terminalControls!: TerminalControls;
 
   @inject(QuickPickService)
   protected readonly quickPick!: QuickPickService;
@@ -226,8 +244,47 @@ export class AgentsContribution
       execute: () => this.closeIdleTerminals(),
     });
     commands.registerCommand(AgentsCommands.NEW_PERSISTENT_TERMINAL, {
-      execute: () => this.newPersistentTerminal(),
+      execute: (widget?: Widget) => this.newPersistentTerminal(widget),
     });
+    commands.registerCommand(AgentsCommands.DELETE_TO_LINE_START, {
+      isEnabled: () => this.shell.currentWidget instanceof TerminalWidget,
+      execute: () => {
+        const terminal = this.shell.currentWidget;
+        if (terminal instanceof TerminalWidget) {
+          terminal.sendText("\u0015");
+        }
+      },
+    });
+    for (const [command, mode] of [
+      [AgentsCommands.SPLIT_TERMINAL_RIGHT, "split-right"],
+      [AgentsCommands.SPLIT_TERMINAL_DOWN, "split-bottom"],
+    ] as const) {
+      commands.registerCommand(command, {
+        isEnabled: () => this.shell.currentWidget instanceof TerminalWidget,
+        execute: () => this.splitTerminal(mode),
+      });
+    }
+  }
+
+  override registerKeybindings(keybindings: KeybindingRegistry): void {
+    super.registerKeybindings(keybindings);
+    keybindings.registerKeybinding({
+      command: AgentsCommands.NEW_PERSISTENT_TERMINAL.id,
+      keybinding: "ctrlcmd+t",
+    });
+    keybindings.registerKeybindings(
+      {
+        command: AgentsCommands.DELETE_TO_LINE_START.id,
+        keybinding: "meta+backspace",
+        when: "terminalFocus",
+      },
+      { command: AgentsCommands.SPLIT_TERMINAL_RIGHT.id, keybinding: "ctrlcmd+d", when: "terminalFocus" },
+      {
+        command: AgentsCommands.SPLIT_TERMINAL_DOWN.id,
+        keybinding: "ctrlcmd+shift+d",
+        when: "terminalFocus",
+      },
+    );
   }
 
   registerToolbarItems(toolbar: TabBarToolbarRegistry): void {
@@ -328,13 +385,20 @@ export class AgentsContribution
     this.messages.info(`Closed ${closed} idle terminal${closed === 1 ? "" : "s"}.`);
   }
 
-  protected async newPersistentTerminal(): Promise<void> {
-    const target = await this.pickRepository("New persistent terminal in");
+  protected async newPersistentTerminal(widget?: Widget): Promise<void> {
+    this.terminalControls.restoreZoom();
+    const ref = widget ?? this.shell.currentTabBar?.currentTitle?.owner;
+    const placement: ApplicationShell.WidgetOptions = {
+      area: (ref && this.shell.getAreaFor(ref)) || "main",
+      ref,
+      mode: "tab-after",
+    };
+    const target = await this.pickRepository("New persistent terminal in", true);
     if (!target) {
       return;
     }
     try {
-      await this.terminals.newPersistent(target);
+      await this.terminals.newPersistent(target, placement);
     } catch (error) {
       // The back end's own message already carries an install hint when it
       // applies (see `resolve-program.ts`); showing it as-is avoids saying
@@ -343,13 +407,46 @@ export class AgentsContribution
     }
   }
 
+  protected async splitTerminal(mode: "split-right" | "split-bottom"): Promise<void> {
+    this.terminalControls.restoreZoom();
+    const ref = this.shell.currentWidget;
+    if (!(ref instanceof TerminalWidget)) {
+      return;
+    }
+    const placement: ApplicationShell.WidgetOptions = {
+      ref,
+      area: this.shell.getAreaFor(ref) || "main",
+      mode,
+    };
+    try {
+      const directory =
+        this.terminals.directoryOf(ref) ??
+        ref.lastCwd?.path.fsPath() ??
+        this.workspace.tryGetRoots()[0]?.resource.path.fsPath();
+      if (directory) {
+        await this.terminals.newPersistent(directory, placement);
+      }
+    } catch (error) {
+      this.messages.error(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   // The workspace roots and their direct child folders that hold a .git folder.
-  protected async pickRepository(placeholder: string): Promise<string | undefined> {
+  protected async pickRepository(
+    placeholder: string,
+    includeWorkspaceRoots = false,
+  ): Promise<string | undefined> {
     const roots = await this.workspace.roots;
     const candidates: { label: string; description: string; path: string }[] = [];
+    if (includeWorkspaceRoots) {
+      for (const root of roots) {
+        const rootPath = root.resource.path.fsPath();
+        candidates.push({ label: `./ · ${root.resource.path.base}`, description: rootPath, path: rootPath });
+      }
+    }
     for (const root of roots) {
       const rootPath = root.resource.path.fsPath();
-      if (await this.files.exists(root.resource.resolve(".git"))) {
+      if (!includeWorkspaceRoots && (await this.files.exists(root.resource.resolve(".git")))) {
         candidates.push({ label: root.resource.path.base, description: rootPath, path: rootPath });
       }
       const children = await this.files.resolve(root.resource).catch(() => undefined);

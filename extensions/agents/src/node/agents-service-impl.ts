@@ -294,6 +294,7 @@ export class AgentsServiceImpl implements AgentsService {
       (t) => (t.messageCount = 0),
     );
     return {
+      workspaceRoots: this.roots,
       groups: groupSessions(
         inside.map((t) => this.summary(t)),
         this.roots,

@@ -14,6 +14,7 @@ files:
   - resources
   - "!**/*.map"
 mac:
+  icon: resources/branding/AI1.icns
   target:
     - target: dir
       arch:

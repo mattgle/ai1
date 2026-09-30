@@ -1,4 +1,5 @@
 import { inject, injectable } from "@theia/core/shared/inversify";
+import { ApplicationShell } from "@theia/core/lib/browser";
 import { IShellTerminalServer } from "@theia/terminal/lib/common/shell-terminal-protocol";
 import { TerminalService } from "@theia/terminal/lib/browser/base/terminal-service";
 import { TerminalLocation, TerminalWidget } from "@theia/terminal/lib/browser/base/terminal-widget";
@@ -31,6 +32,11 @@ export class AgentsTerminals {
 
   protected readonly bySession = new IdentityMap<string, TerminalWidget>();
   protected readonly byTmux = new IdentityMap<string, TerminalWidget>();
+  protected readonly directories = new WeakMap<TerminalWidget, string>();
+
+  directoryOf(terminal: TerminalWidget): string | undefined {
+    return this.directories.get(terminal);
+  }
 
   async openSession(session: SessionSummary): Promise<void> {
     const existing = this.bySession.get(session.id);
@@ -58,6 +64,7 @@ export class AgentsTerminals {
       isTransient: true,
     });
     this.bySession.set(session.id, terminal);
+    this.directories.set(terminal, session.directory);
     this.model.markTerminalOpen(session.id);
     terminal.onTerminalDidClose(() => this.forgetSession(session.id, terminal));
     terminal.onDidDispose(() => this.forgetSession(session.id, terminal));
@@ -91,10 +98,10 @@ export class AgentsTerminals {
     }
   }
 
-  async newPersistent(directory: string): Promise<void> {
+  async newPersistent(directory: string, placement?: ApplicationShell.WidgetOptions): Promise<void> {
     const existing = await this.service.tmuxSessions();
     const name = nextTmuxName(existing.map((session) => session.name));
-    await this.openTmux(name, directory);
+    await this.openTmux(name, directory, true, placement);
   }
 
   // On start, each existing ai1-* tmux session gets its tab again. One
@@ -134,7 +141,12 @@ export class AgentsTerminals {
     );
   }
 
-  protected async openTmux(name: string, directory: string | undefined, activate = true): Promise<void> {
+  protected async openTmux(
+    name: string,
+    directory: string | undefined,
+    activate = true,
+    placement?: ApplicationShell.WidgetOptions,
+  ): Promise<void> {
     const command = await this.service.tmuxCommand(name, directory);
     const terminal = await this.terminals.newTerminal({
       title: `sh · ${directory ? directory.slice(directory.lastIndexOf("/") + 1) : name}`,
@@ -150,10 +162,16 @@ export class AgentsTerminals {
       isTransient: true,
     });
     this.byTmux.set(name, terminal);
+    if (directory) {
+      this.directories.set(terminal, directory);
+    }
     terminal.onTerminalDidClose(() => this.byTmux.forgetIfSame(name, terminal));
     terminal.onDidDispose(() => this.byTmux.forgetIfSame(name, terminal));
     await terminal.start();
-    await this.terminals.open(terminal, { mode: activate ? "activate" : "open" });
+    await this.terminals.open(terminal, {
+      mode: activate ? "activate" : "open",
+      widgetOptions: placement,
+    });
   }
 
   // Only forgets `terminal` if it is still the current tab of `id`: a

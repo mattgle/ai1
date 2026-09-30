@@ -2,6 +2,7 @@ import {
   bindViewContribution,
   createTreeContainer,
   FrontendApplicationContribution,
+  KeybindingContribution,
   WidgetFactory,
 } from "@theia/core/lib/browser";
 import { ServiceConnectionProvider } from "@theia/core/lib/browser/messaging/service-connection-provider";
@@ -10,6 +11,8 @@ import { PreferenceContribution } from "@theia/core/lib/common/preferences/prefe
 import { ContainerModule, interfaces } from "@theia/core/shared/inversify";
 import { AGENTS_SERVICE_PATH, AgentsClient, AgentsService } from "../common/agents-protocol";
 import { AgentsContribution } from "./agents-contribution";
+import { CommandContribution } from "@theia/core/lib/common";
+import { TerminalControls } from "./terminal-controls";
 import { AgentsModel } from "./agents-model";
 import { AgentsPreferenceContribution } from "./agents-preferences";
 import { AgentsTerminals } from "./agents-terminals";
@@ -26,6 +29,10 @@ function createAgentsWidget(parent: interfaces.Container): AgentsWidget {
 }
 
 export default new ContainerModule((bind) => {
+  bind(TerminalControls).toSelf().inSingletonScope();
+  bind(CommandContribution).toService(TerminalControls);
+  bind(KeybindingContribution).toService(TerminalControls);
+  bind(FrontendApplicationContribution).toService(TerminalControls);
   bind(AgentsModel).toSelf().inSingletonScope();
   bind(AgentsTerminals).toSelf().inSingletonScope();
   bind(AgentsService)

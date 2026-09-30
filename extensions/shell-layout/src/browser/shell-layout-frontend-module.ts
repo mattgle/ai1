@@ -1,5 +1,6 @@
 import { AIActivationService } from "@theia/ai-core/lib/browser/ai-activation-service";
-import { FrontendApplicationContribution } from "@theia/core/lib/browser";
+import { FrontendApplicationContribution, KeybindingContribution } from "@theia/core/lib/browser";
+import { CommandContribution } from "@theia/core/lib/common";
 import { PreferenceContribution } from "@theia/core/lib/common/preferences/preference-schema";
 import { ContainerModule } from "@theia/core/shared/inversify";
 import { PreferenceLayoutProvider } from "@theia/preferences/lib/browser/util/preference-layout";
@@ -8,10 +9,16 @@ import { AiFeaturesOffService } from "./ai-features-off-service";
 import { AiFreeLayoutProvider } from "./ai-free-layout-provider";
 import { HideAiPlaceholderContribution } from "./hide-ai-placeholder-contribution";
 import { ShellLayoutContribution } from "./shell-layout-contribution";
+import { TabNavigationContribution } from "./tab-navigation";
 
 export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
   bind(ShellLayoutContribution).toSelf().inSingletonScope();
   bind(FrontendApplicationContribution).toService(ShellLayoutContribution);
+
+  bind(TabNavigationContribution).toSelf().inSingletonScope();
+  bind(CommandContribution).toService(TabNavigationContribution);
+  bind(FrontendApplicationContribution).toService(TabNavigationContribution);
+  bind(KeybindingContribution).toService(TabNavigationContribution);
 
   bind(HideAiPlaceholderContribution).toSelf().inSingletonScope();
   bind(PreferenceContribution).toService(HideAiPlaceholderContribution);

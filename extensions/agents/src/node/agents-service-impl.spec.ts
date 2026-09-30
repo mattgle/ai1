@@ -100,8 +100,8 @@ describe("AgentsServiceImpl", () => {
     assert.deepStrictEqual(
       snapshot.groups.map((group) => [group.name, group.sessions.map((s) => `${s.id}:${s.status}`)]),
       [
-        ["beta", ["ses_b:done"]],
-        ["alpha", ["ses_a:working"]],
+        ["m/beta", ["ses_b:done"]],
+        ["m/alpha", ["ses_a:working"]],
       ],
     );
     assert.strictEqual(snapshot.groups[0].sessions[0].messageCount, 2);
@@ -132,8 +132,8 @@ describe("AgentsServiceImpl", () => {
     assert.deepStrictEqual(
       snapshot.groups.map((group) => [group.name, group.sessions.map((s) => `${s.id}:${s.status}`)]),
       [
-        ["beta", ["ses_b:done"]],
-        ["alpha", ["ses_a:working"]],
+        ["m/beta", ["ses_b:done"]],
+        ["m/alpha", ["ses_a:working"]],
       ],
     );
   });
@@ -260,7 +260,7 @@ describe("AgentsServiceImpl", () => {
       const started = Date.now();
       const snapshot = await timeoutService.load(["file:///m"]);
       const elapsed = Date.now() - started;
-      const alpha = snapshot.groups.find((g) => g.name === "alpha");
+      const alpha = snapshot.groups.find((g) => g.name === "m/alpha");
       assert.strictEqual(alpha?.sessions.length, SESSION_COUNT);
       // Every session ends up at 0: the ones that were actually attempted
       // time out (`.catch`-equivalent fallback), and the rest never get a
@@ -299,7 +299,7 @@ describe("AgentsServiceImpl", () => {
     }
     server.goneSessionIds.add("ses_mix_2");
     const snapshot = await service.load(["file:///m"]);
-    const alpha = snapshot.groups.find((g) => g.name === "alpha");
+    const alpha = snapshot.groups.find((g) => g.name === "m/alpha");
     assert.strictEqual(alpha?.sessions.length, 6);
     const byId = new Map(alpha!.sessions.map((s) => [s.id, s.messageCount]));
     assert.strictEqual(byId.get("ses_mix_2"), 0, "the 404'd session counts as 0");
@@ -437,7 +437,7 @@ describe("AgentsServiceImpl", () => {
     server.active.add("ses_b");
     server.holdSessionResponse = false;
     const snapshot = await service.load(["file:///m"]);
-    const beta = snapshot.groups.find((group) => group.name === "beta");
+    const beta = snapshot.groups.find((group) => group.name === "m/beta");
     assert.strictEqual(beta?.sessions[0].status, "working");
   });
 
@@ -610,8 +610,8 @@ describe("AgentsServiceImpl", () => {
     assert.deepStrictEqual(
       snapshot.groups.map((group) => [group.name, group.sessions.map((s) => `${s.id}:${s.status}`)]),
       [
-        ["beta", ["ses_b:done"]],
-        ["alpha", ["ses_a:blocked"]],
+        ["m/beta", ["ses_b:done"]],
+        ["m/alpha", ["ses_a:blocked"]],
       ],
     );
   });
@@ -626,8 +626,8 @@ describe("AgentsServiceImpl", () => {
     assert.deepStrictEqual(
       snapshot.groups.map((group) => [group.name, group.sessions.map((s) => `${s.id}:${s.status}`)]),
       [
-        ["beta", ["ses_b:blocked"]],
-        ["alpha", ["ses_a:working"]],
+        ["m/beta", ["ses_b:blocked"]],
+        ["m/alpha", ["ses_a:working"]],
       ],
     );
   });
@@ -665,6 +665,7 @@ describe("AgentsServiceImpl", () => {
       },
     ];
     const snapshot = await service.load([pathToFileURL(link).toString()]);
+    assert.deepStrictEqual(snapshot.workspaceRoots, [folder]);
     assert.deepStrictEqual(
       snapshot.groups.map((group) => group.sessions.map((s) => s.id)),
       [["ses_link"]],

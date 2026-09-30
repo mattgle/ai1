@@ -25,6 +25,7 @@ export class AgentsModel implements AgentsClient {
   protected readonly workspace!: WorkspaceService;
 
   protected readonly sessions = new Map<string, SessionSummary>();
+  protected workspaceRoots: string[] = [];
   protected readonly lastMessages = new Map<string, string>();
   protected readonly lastMessageOnce = new OncePerKey();
   protected readonly onDidChangeEmitter = new Emitter<void>();
@@ -80,7 +81,7 @@ export class AgentsModel implements AgentsClient {
   protected readonly lastEventSeq = new Map<string, number>();
 
   get groups(): SessionGroup[] {
-    return groupSessions([...this.sessions.values()]);
+    return groupSessions([...this.sessions.values()], this.workspaceRoots);
   }
 
   // Whether the first `load()` has completed at least once.
@@ -143,6 +144,7 @@ export class AgentsModel implements AgentsClient {
       this.onDidChangeEmitter.fire();
       return;
     }
+    this.workspaceRoots = snapshot.workspaceRoots;
     const incoming = snapshot.groups.flatMap((group) => group.sessions);
     // A full load replaces the whole map at once, so `mergeSnapshot` gives
     // it its own per-session diff, to raise the same `onDidChangeStatus`/

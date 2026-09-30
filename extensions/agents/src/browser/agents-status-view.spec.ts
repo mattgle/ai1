@@ -1,6 +1,12 @@
 import * as assert from "node:assert";
 import { renderToStaticMarkup } from "@theia/core/shared/react-dom/server";
-import { renderEmptyState, renderErrorState, renderSummary, SESSION_CAP_MESSAGE } from "./agents-status-view";
+import {
+  renderEmptyState,
+  renderErrorState,
+  renderSummary,
+  renderSessionStatus,
+  SESSION_CAP_MESSAGE,
+} from "./agents-status-view";
 
 // A minimal walk of a plain React element tree (no DOM, no renderer --
 // exactly what `renderErrorState` etc. return before anything renders
@@ -79,5 +85,18 @@ describe("renderSummary", () => {
     assert.ok(!markup.includes("Reconnecting"));
     assert.ok(!markup.includes(SESSION_CAP_MESSAGE));
     assert.ok(markup.includes("0 terminals open"));
+  });
+});
+
+describe("renderSessionStatus", () => {
+  it("uses labeled status dots instead of check and error glyphs", () => {
+    const done = renderToStaticMarkup(renderSessionStatus("done"));
+    const failed = renderToStaticMarkup(renderSessionStatus("failed"));
+    assert.ok(done.includes('aria-label="Done"'));
+    assert.ok(done.includes("ai1-agents-status-done"));
+    assert.ok(!done.includes("codicon"));
+    assert.ok(failed.includes('aria-label="Failed"'));
+    assert.ok(failed.includes("ai1-agents-status-failed"));
+    assert.ok(!failed.includes("codicon"));
   });
 });

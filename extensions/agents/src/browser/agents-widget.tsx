@@ -13,21 +13,12 @@ import { PreferenceService } from "@theia/core/lib/common/preferences";
 import { inject, injectable, postConstruct } from "@theia/core/shared/inversify";
 import * as React from "@theia/core/shared/react";
 import { Message } from "@theia/core/shared/@lumino/messaging";
-import { SessionStatus } from "../common/agents-protocol";
 import { cardThirdLine, oneLine } from "../common/card-text";
 import { clampVisiblePerGroup, DEFAULT_VISIBLE_PER_GROUP } from "../common/visible-per-group";
 import { AgentsModel } from "./agents-model";
-import { renderEmptyState, renderErrorState, renderSummary } from "./agents-status-view";
+import { renderEmptyState, renderErrorState, renderSummary, renderSessionStatus } from "./agents-status-view";
 import { VISIBLE_PER_GROUP } from "./agents-preferences";
 import { buildRoot, GroupNode, isGroupNode, isSessionNode, SessionNode } from "./agents-tree";
-
-const STATUS_ICON: Record<SessionStatus, string> = {
-  working: "sync",
-  blocked: "warning",
-  done: "check",
-  failed: "error",
-  idle: "circle-outline",
-};
 
 @injectable()
 export class AgentsWidget extends TreeWidget {
@@ -134,20 +125,15 @@ export class AgentsWidget extends TreeWidget {
     if (isGroupNode(node)) {
       return <div className={`${codicon("repo")} ai1-agents-group-icon`}></div>;
     }
-    if (isSessionNode(node)) {
-      const status = node.session.status;
-      // `codicon-modifier-spin`, not the `~spin` suffix, is the class that
-      // `codicon-modifiers.css` keys its spin animation on: `codicon("sync~spin")`
-      // makes one class, `codicon-sync~spin`, that no codicon rule matches, so
-      // the icon renders with no glyph and a 0×0 box.
-      const spin = status === "working" ? " codicon-modifier-spin" : "";
-      return (
-        <div
-          className={`${codicon(STATUS_ICON[status])}${spin} ai1-agents-status ai1-agents-status-${status}`}
-        ></div>
-      );
-    }
     return null;
+  }
+
+  protected override renderIndent(_node: TreeNode, _props: NodeProps): React.ReactNode {
+    return null;
+  }
+
+  protected override getPaddingLeft(node: TreeNode, props: NodeProps): number {
+    return isSessionNode(node) ? 18 : super.getPaddingLeft(node, props);
   }
 
   protected override renderCaption(node: TreeNode, _props: NodeProps): React.ReactNode {
@@ -175,8 +161,17 @@ export class AgentsWidget extends TreeWidget {
     void this.agents.ensureLastMessage(session.id);
     const last = this.agents.lastMessageOf(session.id);
     return (
-      <div className="ai1-agents-caption ai1-agents-card" title={session.title}>
-        <div className="ai1-agents-title">{oneLine(session.title, 80)}</div>
+      <div className="ai1-agents-caption ai1-agents-card">
+        <div className="ai1-agents-heading">
+          {renderSessionStatus(session.status)}
+          <div className="ai1-agents-title" title={session.title}>
+            {oneLine(session.title, 80)}
+          </div>
+          <div className="ai1-agents-tail ai1-agents-row-actions">
+            {this.renderAction("terminal", "Open terminal", () => this.onOpenSession(node))}
+            {this.renderAction("trash", "Delete session", () => this.onDeleteSession(node))}
+          </div>
+        </div>
         {last ? <div className="ai1-agents-last">{oneLine(last, 120)}</div> : null}
         <div className="ai1-agents-meta">
           {cardThirdLine(session.messageCount, session.updatedAt, session.model, Date.now())}
@@ -194,14 +189,6 @@ export class AgentsWidget extends TreeWidget {
         </div>
       );
     }
-    if (isSessionNode(node)) {
-      return (
-        <div className="ai1-agents-tail">
-          {this.renderAction("terminal", "Open terminal", () => this.onOpenSession(node))}
-          {this.renderAction("trash", "Delete session", () => this.onDeleteSession(node))}
-        </div>
-      );
-    }
     return null;
   }
 
@@ -210,7 +197,25 @@ export class AgentsWidget extends TreeWidget {
       event.stopPropagation();
       run();
     };
-    return <span className={`${codicon(icon)} ai1-agents-action`} title={title} onClick={onClick}></span>;
+    const stopActivationKey = (event: React.KeyboardEvent): void => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.stopPropagation();
+      }
+    };
+    return (
+      <button
+        type="button"
+        className={`ai1-agents-action${icon === "trash" ? " ai1-agents-action-delete" : ""}`}
+        title={title}
+        aria-label={title}
+        onClick={onClick}
+        onDoubleClick={(event) => event.stopPropagation()}
+        onKeyDownCapture={stopActivationKey}
+        onKeyUpCapture={stopActivationKey}
+      >
+        <span className={codicon(icon)} aria-hidden="true" />
+      </button>
+    );
   }
 
   // A single click on a card opens its terminal.
