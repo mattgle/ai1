@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Checks for updates to AI1 tools and bundled extensions",
-  "license": "EPL-2.0",
+  "license": "MIT",
   "files": [
     "lib",
     "src"

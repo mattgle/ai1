@@ -95,6 +95,31 @@ describe("AgentsServiceImpl", () => {
     }
   });
 
+  it("saves a new title and sends the updated summary without changing session state", async () => {
+    const before = await service.load(["file:///m"]);
+    const original = before.groups
+      .flatMap((group) => group.sessions)
+      .find((session) => session.id === "ses_a")!;
+    client.changed = [];
+    await service.renameSession("ses_a", "  Renamed session  ");
+    const updated = client.changed.find((session) => session.id === "ses_a")!;
+    assert.deepStrictEqual(updated, { ...original, title: "Renamed session" });
+    const after = await service.load(["file:///m"]);
+    assert.strictEqual(
+      after.groups.flatMap((group) => group.sessions).find((session) => session.id === "ses_a")?.title,
+      "Renamed session",
+    );
+  });
+
+  it("does not change local titles when rename fails or the name is empty", async () => {
+    await service.load(["file:///m"]);
+    client.changed = [];
+    await assert.rejects(service.renameSession("ses_a", "  "), /must not be empty/);
+    await assert.rejects(service.renameSession("ses_missing", "New name"), /404/);
+    assert.deepStrictEqual(client.changed, []);
+    assert.strictEqual(server.sessions[0].title, "A");
+  });
+
   it("loads the groups inside the workspace with their status", async () => {
     const snapshot = await service.load(["file:///m"]);
     assert.deepStrictEqual(

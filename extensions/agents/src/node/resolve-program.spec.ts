@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { resolveProgram } from "./resolve-program";
+import { notInstalledMessage } from "./opencode-client";
 
 describe("resolveProgram", () => {
   let dir: string;
@@ -28,7 +29,7 @@ describe("resolveProgram", () => {
 
   it("rejects with the install message when the program is not on PATH", () => {
     process.env.PATH = dir;
-    assert.throws(() => resolveProgram("tmux"), /tmux is not installed\. Install it with: brew install tmux/);
+    assert.throws(() => resolveProgram("tmux"), { message: notInstalledMessage("tmux") });
   });
 
   it("skips a file on PATH that is not executable", () => {
@@ -36,10 +37,7 @@ describe("resolveProgram", () => {
     fs.writeFileSync(file, "#!/bin/sh\n");
     fs.chmodSync(file, 0o644);
     process.env.PATH = dir;
-    assert.throws(
-      () => resolveProgram("opencode"),
-      /OpenCode is not installed\. Install it with: brew install anomalyco\/tap\/opencode-v2/,
-    );
+    assert.throws(() => resolveProgram("opencode"), { message: notInstalledMessage("opencode") });
   });
 
   it("skips a folder on PATH that happens to share the program's name", () => {
@@ -47,9 +45,6 @@ describe("resolveProgram", () => {
     fs.mkdirSync(folder);
     fs.chmodSync(folder, 0o755);
     process.env.PATH = dir;
-    assert.throws(
-      () => resolveProgram("opencode"),
-      /OpenCode is not installed\. Install it with: brew install anomalyco\/tap\/opencode-v2/,
-    );
+    assert.throws(() => resolveProgram("opencode"), { message: notInstalledMessage("opencode") });
   });
 });

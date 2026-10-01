@@ -1,8 +1,32 @@
 # AI1 future milestone: WSL2 with WSLg
 
 Date: 2026-09-30
-Status: future backlog; draft for owner review; not approved for implementation.
+Status: implementation starts with the compatibility probe. WSL support remains unverified.
 Extends: [AI1 design](2026-09-21-ai1-design.md).
+
+## Approved initial targets
+
+The owner selects these targets on 2026-09-30:
+
+- Ubuntu 26.04.1 on x64 inside WSL2 with WSLg, using the owner's existing PC.
+- A `.deb` package for the first Linux artifact.
+- An available Windows machine for actual WSL tests.
+- macOS app checks and owner feedback for regression testing.
+
+These choices authorize work on the first target. They do not prove support.
+The Windows version, installed distribution name, WSL versions, graphics path,
+and secure credential storage remain subject to the compatibility probe.
+Other distributions, arm64, and other package formats remain outside this first target.
+
+The owner replaces the earlier Ubuntu 24.04 choice with the installed Ubuntu
+26.04.1 distribution after the environment check. Do not require a separate
+distribution for this PC.
+
+The first plan is [the WSL compatibility probe](../plans/2026-09-30-ai1-wsl-compatibility-probe.md).
+
+The owner defers PC setup. Keep commands in [the setup guide](../../wsl-setup.md).
+Bounded portability source changes can be prepared and tested on macOS. This
+permission does not pass the first-probe security gates or approve a Linux release.
 
 ## Goal and status
 
@@ -39,18 +63,18 @@ that completed task. Make a new implementation plan only after owner review.
 These are requirements for the future support contract. They are not a claim
 that any distribution or CPU target passes today.
 
-| Item | Requirement |
-| --- | --- |
+| Item         | Requirement                                                                                                                                                |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Windows host | A Windows version with official WSLg support. The exact AI1 minimum remains an owner decision. Microsoft lists Windows 10 build 19044+ or Windows 11 [R1]. |
-| WSL | WSL2 with WSLg enabled and current supported WSL components. WSL1 does not meet the requirement. Record the tested WSL and WSLg versions. |
-| Distribution | One Linux distribution for the app, projects, and tools. The owner selects the first distribution and version. Do not claim all distributions. |
-| CPU | The owner selects x64, arm64, or both. Build and test each selected Linux architecture. Do not infer support from macOS arm64. |
-| User | A normal Linux user. Do not launch AI1 as root. |
-| Display | The WSLg X11 or Wayland environment. Prove one default display path before selecting it. Do not require a separate X server or a full Linux desktop. |
-| Projects | Linux paths in that distribution. Recommend `/home/<user>/code`. Mounted Windows drives have limited support as specified below. |
-| Runtime | The pinned Electron runtime ships with the app. Linux Git, tmux, and OpenCode v2 run in the distribution. |
-| Source build | Linux Node 24, npm, Python, and the selected distribution's C/C++ and native-library build prerequisites. Keep the lockfile and pinned Theia versions. |
-| Network | App services communicate within WSL. NAT is the initial validation mode. Validate mirrored mode separately if it is included in the support contract. |
+| WSL          | WSL2 with WSLg enabled and current supported WSL components. WSL1 does not meet the requirement. Record the tested WSL and WSLg versions.                  |
+| Distribution | One Linux distribution for the app, projects, and tools. The owner selects the first distribution and version. Do not claim all distributions.             |
+| CPU          | The owner selects x64, arm64, or both. Build and test each selected Linux architecture. Do not infer support from macOS arm64.                             |
+| User         | A normal Linux user. Do not launch AI1 as root.                                                                                                            |
+| Display      | The WSLg X11 or Wayland environment. Prove one default display path before selecting it. Do not require a separate X server or a full Linux desktop.       |
+| Projects     | Linux paths in that distribution. Recommend `/home/<user>/code`. Mounted Windows drives have limited support as specified below.                           |
+| Runtime      | The pinned Electron runtime ships with the app. Linux Git, tmux, and OpenCode v2 run in the distribution.                                                  |
+| Source build | Linux Node 24, npm, Python, and the selected distribution's C/C++ and native-library build prerequisites. Keep the lockfile and pinned Theia versions.     |
+| Network      | App services communicate within WSL. NAT is the initial validation mode. Validate mirrored mode separately if it is included in the support contract.      |
 
 ```text
 Windows desktop
@@ -75,22 +99,22 @@ has a separate lifetime from its running process.
 
 ## Scoped feature matrix
 
-| Feature | Future WSL scope | Required limit or proof |
-| --- | --- | --- |
-| Explorer, changes, diffs, search | Required | Linux case-sensitive paths, symlinks, Git status, rename and discard rules. Test discards only in disposable fixtures. |
-| TypeScript, ESLint, Material icons | Required | Bundled extensions load in the Linux extension host. Save fixes and go-to-definition work. |
-| OpenCode v2 | Required | Resolve a Linux executable. Read same-user Linux service state and credentials. Test service start and reconnect. |
-| Terminals and tmux | Required | PTY creation, resize, detach, reattach, shell PATH, and persistence after app close. |
-| Browser tabs and profiles | Required | Guest isolation, HTTPS, local server access, persistent login, history, downloads, popups, zoom, find, and profile deletion. |
-| Agent browser access and design mode | Required | Existing page-only authenticated CDP boundary stays intact. No IDE target becomes available. |
-| Ports view and Stop Server | Required | Inspect Linux processes only. Preserve workspace and owner checks. Never stop a Windows process. |
-| Keyboard and clipboard | Required | Control on Linux, Command on macOS. Test IDE, terminal, and guest focus separately. |
-| Update notices | Required | No Homebrew checks on Linux. Show supported sources or an explicit unavailable state. |
-| Automatic Linux tool installation or update | Not included in initial scope | Show manual guidance. A future updater needs a separate approved tool-source policy. |
-| Cookie import from external browsers | Not included in initial scope | Disable it with a platform explanation. Normal login inside an AI1 profile remains required. |
-| `/mnt/c` workspaces | Limited | Permit Linux paths but warn about performance and watcher limits. No performance promise or Windows executable support. |
-| Start menu and desktop launcher | Conditional | The owner selects whether packaging includes desktop integration. Shell launch remains required. |
-| Windows browser profile, keychain, and tools | Not supported | Do not read Windows credential stores or use Windows executables as a fallback. |
+| Feature                                      | Future WSL scope              | Required limit or proof                                                                                                      |
+| -------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Explorer, changes, diffs, search             | Required                      | Linux case-sensitive paths, symlinks, Git status, rename and discard rules. Test discards only in disposable fixtures.       |
+| TypeScript, ESLint, Material icons           | Required                      | Bundled extensions load in the Linux extension host. Save fixes and go-to-definition work.                                   |
+| OpenCode v2                                  | Required                      | Resolve a Linux executable. Read same-user Linux service state and credentials. Test service start and reconnect.            |
+| Terminals and tmux                           | Required                      | PTY creation, resize, detach, reattach, shell PATH, and persistence after app close.                                         |
+| Browser tabs and profiles                    | Required                      | Guest isolation, HTTPS, local server access, persistent login, history, downloads, popups, zoom, find, and profile deletion. |
+| Agent browser access and design mode         | Required                      | Existing page-only authenticated CDP boundary stays intact. No IDE target becomes available.                                 |
+| Ports view and Stop Server                   | Required                      | Inspect Linux processes only. Preserve workspace and owner checks. Never stop a Windows process.                             |
+| Keyboard and clipboard                       | Required                      | Control on Linux, Command on macOS. Test IDE, terminal, and guest focus separately.                                          |
+| Update notices                               | Required                      | No Homebrew checks on Linux. Show supported sources or an explicit unavailable state.                                        |
+| Automatic Linux tool installation or update  | Not included in initial scope | Show manual guidance. A future updater needs a separate approved tool-source policy.                                         |
+| Cookie import from external browsers         | Not included in initial scope | Disable it with a platform explanation. Normal login inside an AI1 profile remains required.                                 |
+| `/mnt/c` workspaces                          | Limited                       | Permit Linux paths but warn about performance and watcher limits. No performance promise or Windows executable support.      |
+| Start menu and desktop launcher              | Conditional                   | The owner selects whether packaging includes desktop integration. Shell launch remains required.                             |
+| Windows browser profile, keychain, and tools | Not supported                 | Do not read Windows credential stores or use Windows executables as a fallback.                                              |
 
 The macOS cookie import and Homebrew updater remain available on macOS.
 The owner must approve the WSL exclusions before implementation.
@@ -103,30 +127,30 @@ code prevents the stated behavior. It does not mean a WSL test fails.
 
 ### Confirmed platform gaps
 
-| Evidence | Confirmed gap | Required change |
-| --- | --- | --- |
-| `applications/electron/electron-builder.yml` | Only a macOS arm64 directory target exists. No Linux target or install contract exists. | Add the selected Linux targets without changing macOS signing rules. |
-| `scripts/package-mac.sh` | The script selects `--mac --arm64`, runs `codesign`, and installs with `ditto` into `/Applications`. It exports `/usr/bin/cc` and `/usr/bin/c++`. | Add a separate Linux package flow. Check Linux compiler and library prerequisites. Do not reuse macOS signing or install steps. Fixed compiler exports are a portability assumption, not proof that Linux compilation fails. |
-| `applications/electron/scripts/generate-app-icon.mjs` and `render-app-icons.swift` | Icon generation uses Swift/AppKit, `sips`, and `iconutil`. A Linux-only build cannot use those macOS tools. | Use reviewed PNG/SVG Linux assets or a portable generation step. Do not require a Mac to build Linux packages. |
-| `extensions/browser-pane/src/common/shortcuts.ts` | `shortcutFor` rejects Control and accepts Meta. A focused Linux guest cannot use the required Control shortcuts through this handler. | Select the primary modifier by platform. Match Theia bindings and preserve unhandled page input. |
-| `extensions/agents/src/node/opencode-client.ts` | Missing-program guidance gives Homebrew commands. | Give Linux guidance for the selected distribution and verified OpenCode v2 source. Never suggest an unverified package that installs OpenCode v1. |
-| `extensions/updater/src/node/updater-service.ts` | Tool checks and apply actions are macOS-only. `ai1RootFrom` also rejects non-macOS platforms. | Add Linux source-check behavior where safe. Report manual tool updates or unavailable sources. Do not call Homebrew or silently skip all update status. |
-| `extensions/browser-pane/src/electron-main/cookie-import.ts` | Source detection returns no profiles off macOS. Import uses `/usr/bin/security` and macOS Keychain decryption. | Explicitly gate UI and IPC on Linux. Do not present an empty list as successful platform support. |
+| Evidence                                                                           | Confirmed gap                                                                                                                                     | Required change                                                                                                                                                                                                              |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `applications/electron/electron-builder.yml`                                       | Only a macOS arm64 directory target exists. No Linux target or install contract exists.                                                           | Add the selected Linux targets without changing macOS signing rules.                                                                                                                                                         |
+| `scripts/package-mac.sh`                                                           | The script selects `--mac --arm64`, runs `codesign`, and installs with `ditto` into `/Applications`. It exports `/usr/bin/cc` and `/usr/bin/c++`. | Add a separate Linux package flow. Check Linux compiler and library prerequisites. Do not reuse macOS signing or install steps. Fixed compiler exports are a portability assumption, not proof that Linux compilation fails. |
+| `applications/electron/scripts/generate-app-icon.mjs` and `render-app-icons.swift` | Icon generation uses Swift/AppKit, `sips`, and `iconutil`. A Linux-only build cannot use those macOS tools.                                       | Use reviewed PNG/SVG Linux assets or a portable generation step. Do not require a Mac to build Linux packages.                                                                                                               |
+| `extensions/browser-pane/src/common/shortcuts.ts`                                  | `shortcutFor` rejects Control and accepts Meta. A focused Linux guest cannot use the required Control shortcuts through this handler.             | Select the primary modifier by platform. Match Theia bindings and preserve unhandled page input.                                                                                                                             |
+| `extensions/agents/src/node/opencode-client.ts`                                    | Missing-program guidance gives Homebrew commands.                                                                                                 | Give Linux guidance for the selected distribution and verified OpenCode v2 source. Never suggest an unverified package that installs OpenCode v1.                                                                            |
+| `extensions/updater/src/node/updater-service.ts`                                   | Tool checks and apply actions are macOS-only. `ai1RootFrom` also rejects non-macOS platforms.                                                     | Add Linux source-check behavior where safe. Report manual tool updates or unavailable sources. Do not call Homebrew or silently skip all update status.                                                                      |
+| `extensions/browser-pane/src/electron-main/cookie-import.ts`                       | Source detection returns no profiles off macOS. Import uses `/usr/bin/security` and macOS Keychain decryption.                                    | Explicitly gate UI and IPC on Linux. Do not present an empty list as successful platform support.                                                                                                                            |
 
 ### Existing behavior to preserve, with unverified Linux risks
 
-| Evidence | Current behavior | Linux proof or risk |
-| --- | --- | --- |
-| `extensions/agents/src/common/find-on-path.ts` and `src/node/resolve-program.ts` | Use Node path delimiters, absolute PATH entries, regular-file checks, and execute permissions. | This is Unix-compatible source, not a confirmed macOS blocker. Prove shell and launcher PATH behavior. Reject Windows executables or wrappers that delegate required tools to Windows. Do not reject all `/mnt` paths without a reason. |
-| `extensions/agents/src/node/tmux-runner.ts` | Uses `tmux new -A -s`, optional `-c`, and `tmux ls -F`. The list call resolves its name through PATH and merges stdout/stderr. | Test Linux output, missing tools, permission failures, and socket failures. Do not treat every failure as an empty session list. Keep user tmux sessions and configuration unchanged. |
-| `extensions/agents/src/node/opencode-client.ts` | Reads `XDG_STATE_HOME` or `~/.local/state/opencode/service.json`, with a legacy config fallback. | Preserve lookup order, stale-state handling, same-user process checks, and credential privacy. Test custom XDG paths and a service restart on a new URL. |
-| `extensions/browser-pane/src/node/ports-service-impl.ts` | Runs `lsof` field-output scans and `ps -o uid= -p`. Resolves workspace roots with real paths. Rescans port/workspace membership and checks UID before `SIGTERM`. | Verify Linux `lsof`, procps output, inaccessible cwd, IPv4/IPv6, and process races. Missing metadata must fail closed. Linux support must not weaken existing stop protections. |
-| `extensions/browser-pane/src/browser/browser-contribution.ts`, `extensions/agents/src/browser/agents-contribution.ts`, and shell layout bindings | Theia uses `ctrlcmd` bindings. | These bindings already express platform selection. Test guest forwarding and terminal conflicts rather than replacing them with Meta or Control everywhere. |
-| `applications/electron/scripts/ai1-electron-main.js` | Plugin and icon paths are relative to the app. Dock/appearance behavior is inside a `darwin` guard. | Keep the guard. Prove asset paths in Linux development and installed packages. No macOS Dock behavior is required in WSL. |
-| `extensions/browser-pane/src/electron-main/browser-main-contribution.ts` | Profile, history, zoom, and download stores use Electron `userData`. | Verify Linux location, profile isolation, file permissions, restart, and custom test user data. Do not assume every store belongs in `XDG_STATE_HOME`. |
-| `agent-address-server.ts`, `one-page-proxy.ts`, `guest-policies.ts`, and `theia-sender.ts` in browser-pane electron-main | Loopback address with secret path, page-only proxy, isolated guests, and trusted IPC sender guards. | Prove the same limits under WSL networking. Loopback is not a guarantee that Windows host processes cannot connect. |
-| `package-lock.json`, Electron app rebuild scripts, and root plugin pins | Native dependencies include `node-pty`, `native-keymap`, `keytar`, and platform-specific ripgrep packages. Builds use `theia rebuild:electron`. | Verify Linux architecture, Electron ABI, system libraries, executable permissions, and runtime loading. Inventory any SQLite native use in cookie tooling. WSLg does not guarantee a keyring or D-Bus desktop session. |
-| Changes-view file events and Theia filesystem dependencies | Linux filesystem support comes from Theia and its dependencies. | Measure watcher count, burst handling, external edits, and inotify limits. `/mnt/c` can differ in speed, permission, case, and notification behavior [R2]. |
+| Evidence                                                                                                                                         | Current behavior                                                                                                                                                 | Linux proof or risk                                                                                                                                                                                                                     |
+| ------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `extensions/agents/src/common/find-on-path.ts` and `src/node/resolve-program.ts`                                                                 | Use Node path delimiters, absolute PATH entries, regular-file checks, and execute permissions.                                                                   | This is Unix-compatible source, not a confirmed macOS blocker. Prove shell and launcher PATH behavior. Reject Windows executables or wrappers that delegate required tools to Windows. Do not reject all `/mnt` paths without a reason. |
+| `extensions/agents/src/node/tmux-runner.ts`                                                                                                      | Uses `tmux new -A -s`, optional `-c`, and `tmux ls -F`. The list call resolves its name through PATH and merges stdout/stderr.                                   | Test Linux output, missing tools, permission failures, and socket failures. Do not treat every failure as an empty session list. Keep user tmux sessions and configuration unchanged.                                                   |
+| `extensions/agents/src/node/opencode-client.ts`                                                                                                  | Reads `XDG_STATE_HOME` or `~/.local/state/opencode/service.json`, with a legacy config fallback.                                                                 | Preserve lookup order, stale-state handling, same-user process checks, and credential privacy. Test custom XDG paths and a service restart on a new URL.                                                                                |
+| `extensions/browser-pane/src/node/ports-service-impl.ts`                                                                                         | Runs `lsof` field-output scans and `ps -o uid= -p`. Resolves workspace roots with real paths. Rescans port/workspace membership and checks UID before `SIGTERM`. | Verify Linux `lsof`, procps output, inaccessible cwd, IPv4/IPv6, and process races. Missing metadata must fail closed. Linux support must not weaken existing stop protections.                                                         |
+| `extensions/browser-pane/src/browser/browser-contribution.ts`, `extensions/agents/src/browser/agents-contribution.ts`, and shell layout bindings | Theia uses `ctrlcmd` bindings.                                                                                                                                   | These bindings already express platform selection. Test guest forwarding and terminal conflicts rather than replacing them with Meta or Control everywhere.                                                                             |
+| `applications/electron/scripts/ai1-electron-main.js`                                                                                             | Plugin and icon paths are relative to the app. Dock/appearance behavior is inside a `darwin` guard.                                                              | Keep the guard. Prove asset paths in Linux development and installed packages. No macOS Dock behavior is required in WSL.                                                                                                               |
+| `extensions/browser-pane/src/electron-main/browser-main-contribution.ts`                                                                         | Profile, history, zoom, and download stores use Electron `userData`.                                                                                             | Verify Linux location, profile isolation, file permissions, restart, and custom test user data. Do not assume every store belongs in `XDG_STATE_HOME`.                                                                                  |
+| `agent-address-server.ts`, `one-page-proxy.ts`, `guest-policies.ts`, and `theia-sender.ts` in browser-pane electron-main                         | Loopback address with secret path, page-only proxy, isolated guests, and trusted IPC sender guards.                                                              | Prove the same limits under WSL networking. Loopback is not a guarantee that Windows host processes cannot connect.                                                                                                                     |
+| `package-lock.json`, Electron app rebuild scripts, and root plugin pins                                                                          | Native dependencies include `node-pty`, `native-keymap`, `keytar`, and platform-specific ripgrep packages. Builds use `theia rebuild:electron`.                  | Verify Linux architecture, Electron ABI, system libraries, executable permissions, and runtime loading. Inventory any SQLite native use in cookie tooling. WSLg does not guarantee a keyring or D-Bus desktop session.                  |
+| Changes-view file events and Theia filesystem dependencies                                                                                       | Linux filesystem support comes from Theia and its dependencies.                                                                                                  | Measure watcher count, burst handling, external edits, and inotify limits. `/mnt/c` can differ in speed, permission, case, and notification behavior [R2].                                                                              |
 
 ## Prerequisites and install flow
 
@@ -166,21 +190,21 @@ configuration, document it. Do not modify shell files or global PATH silently.
 
 ## Platform behavior and errors
 
-| Condition | Required behavior |
-| --- | --- |
-| WSL1 or missing WSLg display | Stop the unsupported launch with a clear requirement and official help URL. If Electron exits before UI creation, write the error to stderr. Do not guess WSLg health from one environment variable. |
-| Missing runtime library or wrong architecture | Identify the missing library or architecture from safe diagnostics. Give the selected distribution's remedy. Do not recommend `--no-sandbox`. |
-| Root launch | Reject the supported launch path. Explain that AI1 requires a normal Linux user. |
-| Missing Git, tmux, OpenCode, `lsof`, or `ps` | Name the missing Linux tool and affected feature. Give verified guidance. Keep independent features available. |
-| OpenCode service absent, stale, or unauthorized | Keep existing start/retry behavior. Identify the Linux service file when useful. Never print its password. Test restart and changed-port recovery rather than assuming it works. |
-| tmux socket denied or command fails | Show the command failure separately from no sessions. Do not remove or reset the user's tmux server. |
-| Unknown port owner or cwd | Show available scan data if safe. Disable Stop Server for the uncertain row. Do not escalate privileges. |
-| Browser connection, certificate, or proxy failure | Use the existing browser error and retry behavior. Keep certificate exceptions explicit and scoped. Do not turn off TLS verification. |
-| Mounted Windows workspace | Show a non-blocking location warning once per selected workspace. Recommend Linux storage. Do not move files or change mount settings. |
-| Watch limit reached or watcher unavailable | Report the error and retain manual refresh. Give verified, optional host guidance. Do not change kernel limits or enable broad polling silently. |
-| Linux update source unavailable | Show installed version if known and manual guidance. Do not report "up to date" without a successful comparison. |
-| Cookie import on Linux | Explain that external browser cookie import is not supported. Offer normal login in the selected AI1 profile. Reject unsupported import IPC even if a caller bypasses the UI. |
-| WSL stops | Explain process lifetime limits in help. On next launch, recover saved app state and reconnect or start tools safely. Do not promise a live shell survives. |
+| Condition                                         | Required behavior                                                                                                                                                                                    |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| WSL1 or missing WSLg display                      | Stop the unsupported launch with a clear requirement and official help URL. If Electron exits before UI creation, write the error to stderr. Do not guess WSLg health from one environment variable. |
+| Missing runtime library or wrong architecture     | Identify the missing library or architecture from safe diagnostics. Give the selected distribution's remedy. Do not recommend `--no-sandbox`.                                                        |
+| Root launch                                       | Reject the supported launch path. Explain that AI1 requires a normal Linux user.                                                                                                                     |
+| Missing Git, tmux, OpenCode, `lsof`, or `ps`      | Name the missing Linux tool and affected feature. Give verified guidance. Keep independent features available.                                                                                       |
+| OpenCode service absent, stale, or unauthorized   | Keep existing start/retry behavior. Identify the Linux service file when useful. Never print its password. Test restart and changed-port recovery rather than assuming it works.                     |
+| tmux socket denied or command fails               | Show the command failure separately from no sessions. Do not remove or reset the user's tmux server.                                                                                                 |
+| Unknown port owner or cwd                         | Show available scan data if safe. Disable Stop Server for the uncertain row. Do not escalate privileges.                                                                                             |
+| Browser connection, certificate, or proxy failure | Use the existing browser error and retry behavior. Keep certificate exceptions explicit and scoped. Do not turn off TLS verification.                                                                |
+| Mounted Windows workspace                         | Show a non-blocking location warning once per selected workspace. Recommend Linux storage. Do not move files or change mount settings.                                                               |
+| Watch limit reached or watcher unavailable        | Report the error and retain manual refresh. Give verified, optional host guidance. Do not change kernel limits or enable broad polling silently.                                                     |
+| Linux update source unavailable                   | Show installed version if known and manual guidance. Do not report "up to date" without a successful comparison.                                                                                     |
+| Cookie import on Linux                            | Explain that external browser cookie import is not supported. Offer normal login in the selected AI1 profile. Reject unsupported import IPC even if a caller bypasses the UI.                        |
+| WSL stops                                         | Explain process lifetime limits in help. On next launch, recover saved app state and reconnect or start tools safely. Do not promise a live shell survives.                                          |
 
 ### Files, settings, and XDG locations
 
@@ -302,16 +326,16 @@ Record commit, artifact checksum, host build, WSL/WSLg versions, distribution,
 kernel, CPU, GPU driver, display path, network mode, and workspace location.
 Record failures as failures or exclusions. Do not mark an unrun row as passed.
 
-| Layer | Checks | Required evidence |
-| --- | --- | --- |
-| Pure/unit tests | Platform modifiers; prerequisite messages; updater capabilities; XDG lookup; Linux `lsof`/`ps` fixtures; stop safety; unsupported import IPC | Linux and macOS test output with positive and negative cases. |
-| Linux build/package | Clean dependency install, native rebuild, production package, native load, plugins/assets | Logs and artifact manifest for each supported architecture. |
-| Hidden Linux end-to-end | Editor, changes, terminals, browser, profiles, downloads, design mode, update state | Isolated test output; no leaked test processes or real user data changes. |
-| Actual WSLg happy path | Shell launch, chosen desktop launch, display, keyboard, clipboard, local server, OpenCode, tmux | Repeatable manual run below on each support target. |
-| Actual WSLg security | Sandbox, IPC, CDP target limits, host localhost clients, Stop Server denial | Sanitized positive/negative results. No tokens in evidence. |
-| Actual WSLg failure path | Missing tools/display; bad permissions; closed server; service restart; wrong architecture; keyring absent | Useful errors and unaffected independent features. |
-| Storage/performance | `/home` baseline, optional `/mnt/c` comparison, external edits, burst changes, watch limits | Counts and measured latency/CPU. No unsupported performance claim. |
-| macOS regression | Existing package, icon generation, Command shortcuts, cookie import, Homebrew updates | Existing gates and selected smoke checks still pass. |
+| Layer                    | Checks                                                                                                                                       | Required evidence                                                         |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Pure/unit tests          | Platform modifiers; prerequisite messages; updater capabilities; XDG lookup; Linux `lsof`/`ps` fixtures; stop safety; unsupported import IPC | Linux and macOS test output with positive and negative cases.             |
+| Linux build/package      | Clean dependency install, native rebuild, production package, native load, plugins/assets                                                    | Logs and artifact manifest for each supported architecture.               |
+| Hidden Linux end-to-end  | Editor, changes, terminals, browser, profiles, downloads, design mode, update state                                                          | Isolated test output; no leaked test processes or real user data changes. |
+| Actual WSLg happy path   | Shell launch, chosen desktop launch, display, keyboard, clipboard, local server, OpenCode, tmux                                              | Repeatable manual run below on each support target.                       |
+| Actual WSLg security     | Sandbox, IPC, CDP target limits, host localhost clients, Stop Server denial                                                                  | Sanitized positive/negative results. No tokens in evidence.               |
+| Actual WSLg failure path | Missing tools/display; bad permissions; closed server; service restart; wrong architecture; keyring absent                                   | Useful errors and unaffected independent features.                        |
+| Storage/performance      | `/home` baseline, optional `/mnt/c` comparison, external edits, burst changes, watch limits                                                  | Counts and measured latency/CPU. No unsupported performance claim.        |
+| macOS regression         | Existing package, icon generation, Command shortcuts, cookie import, Homebrew updates                                                        | Existing gates and selected smoke checks still pass.                      |
 
 ### Repeatable actual WSL manual checks
 
@@ -416,8 +440,8 @@ The milestone is complete only when all of these are true:
 
 ## Implementation slices, in dependency order
 
-Each slice needs its own reviewed plan and tests. No implementation starts
-from this draft without approval.
+Each slice needs its own reviewed plan and tests. The owner approves work on
+the initial target above. Resolve probe failures before dependent slices start.
 
 1. **Support decisions and compatibility probe.** Resolve target distribution,
    CPU, host minimum, formats, and test machine. On actual WSLg, prove the pinned
@@ -466,25 +490,22 @@ from this draft without approval.
 
 ## Open decisions for the owner
 
-These questions block the relevant implementation plan. They do not block adding
-the work to the backlog.
+These questions block the relevant later slices. Distribution, CPU, and package
+format are selected in the approved initial targets above.
 
-1. Which distribution and exact version form the first support target?
-2. Which CPU targets are required: Linux x64, arm64, or both?
-3. Is Windows 11 the AI1 minimum, or is Windows 10 build 19044+ required too?
-4. Which artifact/install formats are required? Is a per-user shell launch
-   sufficient, or must the first release include Start menu integration?
-5. Does the owner approve manual Linux tool updates and no external cookie import
+1. Is Windows 11 the AI1 minimum, or is Windows 10 build 19044+ required too?
+2. Must the first `.deb` release include Start menu integration?
+3. Does the owner approve manual Linux tool updates and no external cookie import
    for the first milestone? Which OpenCode v2 install source is supported?
-6. Does the owner require `/mnt/c` correctness beyond the stated limited mode?
+4. Does the owner require `/mnt/c` correctness beyond the stated limited mode?
    What representative project size and refresh target must `/home` support?
-7. Must mirrored networking, corporate proxy/VPN, and Windows-host development
+5. Must mirrored networking, corporate proxy/VPN, and Windows-host development
    servers be supported, or only same-distribution servers with NAT first?
-8. Which actual Windows/WSLg machine and GPU are available for validation?
+6. What are the versions and GPU of the available Windows/WSLg machine?
    Who approves visible manual GUI tests and any distribution restart?
-9. If secure keyring persistence needs a Linux keyring service, is that an
+7. If secure keyring persistence needs a Linux keyring service, is that an
    acceptable prerequisite? No plaintext fallback is implied.
-10. What release visibility, artifact retention, and CI runner model are required?
+8. What release visibility, artifact retention, and CI runner model are required?
 
 ## Official references
 

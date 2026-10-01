@@ -2,6 +2,7 @@
   "private": true,
   "name": "ai1",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "AI1 (All In 1): a personal IDE for work with coding agents across a meta-repo",
   "engines": {
     "node": ">=24"
@@ -21,6 +22,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm test --workspaces --if-present",
     "test:e2e": "npm run test:e2e --workspace e2e",
+    "scan:secrets": "node scripts/scan-secrets.mjs",
+    "test:release-checks": "node --test scripts/scan-secrets.spec.mjs scripts/setup-linux.spec.mjs scripts/linux-build-check.spec.mjs scripts/linux-builder-config.spec.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,js,mjs,json,md,yml}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,json,md,yml}\""
   },
@@ -35,12 +38,14 @@
   },
   "theiaPluginsDir": "applications/electron/plugins",
   "theiaPlugins": {
+    "vscode.media-preview": "https://open-vsx.org/api/vscode/media-preview/1.95.3/file/vscode.media-preview-1.95.3.vsix",
     "vscode.typescript": "https://open-vsx.org/api/vscode/typescript/1.95.3/file/vscode.typescript-1.95.3.vsix",
     "vscode.typescript-language-features": "https://open-vsx.org/api/vscode/typescript-language-features/1.95.3/file/vscode.typescript-language-features-1.95.3.vsix",
     "vscode.javascript": "https://open-vsx.org/api/vscode/javascript/1.95.3/file/vscode.javascript-1.95.3.vsix",
     "vscode.json": "https://open-vsx.org/api/vscode/json/1.95.3/file/vscode.json-1.95.3.vsix",
     "vscode.json-language-features": "https://open-vsx.org/api/vscode/json-language-features/1.95.3/file/vscode.json-language-features-1.95.3.vsix",
     "vscode.css": "https://open-vsx.org/api/vscode/css/1.95.3/file/vscode.css-1.95.3.vsix",
+    "vscode.scss": "https://open-vsx.org/api/vscode/scss/1.95.3/file/vscode.scss-1.95.3.vsix",
     "vscode.css-language-features": "https://open-vsx.org/api/vscode/css-language-features/1.95.3/file/vscode.css-language-features-1.95.3.vsix",
     "vscode.html": "https://open-vsx.org/api/vscode/html/1.95.3/file/vscode.html-1.95.3.vsix",
     "vscode.html-language-features": "https://open-vsx.org/api/vscode/html-language-features/1.95.3/file/vscode.html-language-features-1.95.3.vsix",

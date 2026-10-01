@@ -1,0 +1,9 @@
+.terminal-container {
+  box-sizing: border-box;
+  padding: 2px;
+  background: var(--ai1-terminal-background, var(--theia-terminal-background));
+}
+
+#theia-main-content-panel .terminal-container.lm-Widget.lm-DockPanel-widget {
+  background: var(--ai1-terminal-background, var(--theia-terminal-background));
+}

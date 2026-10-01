@@ -98,7 +98,22 @@ const MAX_SESSIONS = 200;
 // resolution (`resolve-program.ts`), so both paths give the same wording.
 // The owner's OpenCode is the v2 formula of a third-party tap, confirmed
 // with `brew`: the plain "opencode" formula installs the old 1.x line.
-export function notInstalledMessage(program: string): string {
+export function notInstalledMessage(program: string, platform: NodeJS.Platform = process.platform): string {
+  if (platform === "linux") {
+    if (program === "opencode") {
+      return "OpenCode v2 is not installed or is not on Linux PATH. Use the owner-approved Linux v2 install source. Do not use Windows OpenCode or an unverified v1 package.";
+    }
+    const packages: Record<string, string> = { git: "git", tmux: "tmux", lsof: "lsof", ps: "procps" };
+    const packageName = Object.prototype.hasOwnProperty.call(packages, program)
+      ? packages[program]
+      : undefined;
+    return packageName
+      ? `${program} is not installed or is not on Linux PATH. On Ubuntu, install the ${packageName} package by hand.`
+      : "The required program is not installed or is not on Linux PATH. Install the Linux tool by hand.";
+  }
+  if (platform !== "darwin") {
+    return "The required program is not installed or is not on PATH. This platform has no approved install instructions.";
+  }
   if (program === "opencode") {
     return "OpenCode is not installed. Install it with: brew install anomalyco/tap/opencode-v2";
   }
@@ -398,6 +413,14 @@ export class OpenCodeClient {
 
   async deleteSession(id: string): Promise<void> {
     await this.request("DELETE", `/api/session/${id}`);
+  }
+
+  async renameSession(id: string, title: string): Promise<void> {
+    const name = title.trim();
+    if (!name) {
+      throw new Error("Session name must not be empty.");
+    }
+    await this.request("PATCH", `/api/session/${encodeURIComponent(id)}`, { title: name });
   }
 
   async sendPrompt(id: string, text: string, files: PromptFileAttachment[] = []): Promise<void> {

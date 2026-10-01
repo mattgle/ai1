@@ -1,6 +1,7 @@
 {
   "name": "ai1-material-icons",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "description": "Material file icons of AI1, from the pinned material-icon-theme npm package",
   "keywords": [

@@ -1,4 +1,4 @@
-export type UpdateSource = "homebrew" | "open-vsx" | "git";
+export type UpdateSource = "homebrew" | "open-vsx" | "git" | "manual";
 
 export interface UpdateRecord {
   id: string;

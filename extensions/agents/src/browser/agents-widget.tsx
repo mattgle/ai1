@@ -20,6 +20,8 @@ import { renderEmptyState, renderErrorState, renderSummary, renderSessionStatus 
 import { VISIBLE_PER_GROUP } from "./agents-preferences";
 import { buildRoot, GroupNode, isGroupNode, isSessionNode, SessionNode } from "./agents-tree";
 
+export const SESSION_CONTEXT_MENU = ["ai1-agents-session-context-menu"];
+
 @injectable()
 export class AgentsWidget extends TreeWidget {
   static readonly ID = "ai1-agents";
@@ -46,7 +48,7 @@ export class AgentsWidget extends TreeWidget {
     @inject(TreeModel) model: TreeModel,
     @inject(ContextMenuRenderer) contextMenuRenderer: ContextMenuRenderer,
   ) {
-    super(props, model, contextMenuRenderer);
+    super({ ...props, contextMenuPath: SESSION_CONTEXT_MENU }, model, contextMenuRenderer);
   }
 
   @postConstruct()
@@ -83,6 +85,22 @@ export class AgentsWidget extends TreeWidget {
       },
       this.visiblePerGroup,
     );
+  }
+
+  protected override handleContextMenuEvent(
+    node: TreeNode | undefined,
+    event: React.MouseEvent<HTMLElement>,
+  ): void {
+    if (isSessionNode(node)) {
+      super.handleContextMenuEvent(node, event);
+    } else {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }
+
+  protected override toContextMenuArgs(node: TreeNode): SessionNode[] | undefined {
+    return isSessionNode(node) ? [node] : undefined;
   }
 
   protected override onAfterShow(message: Message): void {

@@ -249,7 +249,25 @@ export class ChangesWidget extends TreeWidget {
       event.stopPropagation();
       run();
     };
-    return <span className={`${codicon(icon)} ai1-changes-action`} title={title} onClick={onClick}></span>;
+    const stopActivationKey = (event: React.KeyboardEvent): void => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.stopPropagation();
+      }
+    };
+    return (
+      <button
+        type="button"
+        className="ai1-changes-action"
+        title={title}
+        aria-label={title}
+        onClick={onClick}
+        onDoubleClick={(event) => event.stopPropagation()}
+        onKeyDownCapture={stopActivationKey}
+        onKeyUpCapture={stopActivationKey}
+      >
+        <span className={codicon(icon)} aria-hidden="true" />
+      </button>
+    );
   }
 
   // The base class opens a node on a double click. A file row opens its diff on a single click.

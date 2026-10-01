@@ -7,6 +7,31 @@ import { DatabaseSync } from "node:sqlite";
 import { decryptChromiumCookie, detectCookieImportSources, importCookiesToProfile } from "./cookie-import";
 
 describe("cookie import", () => {
+  it("rejects Linux and Windows import before it reads data or writes cookies", async () => {
+    for (const platform of ["linux", "win32"] as const) {
+      let accessed = false;
+      await assert.rejects(
+        importCookiesToProfile(
+          { family: "chrome", browserName: "Chrome", profileName: "Default", profileDirectory: "../outside" },
+          "missing",
+          [],
+          () => {
+            accessed = true;
+            return "unused";
+          },
+          {
+            set: async () => {
+              accessed = true;
+            },
+          },
+          "/missing-home",
+          platform,
+        ),
+        /supported on macOS only/,
+      );
+      assert.equal(accessed, false);
+    }
+  });
   let root: string;
 
   beforeEach(() => {
@@ -54,7 +79,9 @@ describe("cookie import", () => {
         { family: "arc", profileName: "Test Profile", profileDirectory: "Profile 1" },
       ],
     );
-    assert.deepStrictEqual(detectCookieImportSources(root, "linux"), []);
+    for (const platform of ["linux", "win32"] as const) {
+      assert.throws(() => detectCookieImportSources(root, platform), /supported on macOS only/);
+    }
   });
 
   it("decrypts Chromium v10 cookies and refuses unsupported or invalid ciphertext", () => {
@@ -96,6 +123,7 @@ describe("cookie import", () => {
       },
       { set: async (cookie) => void cookieWrites.push({ ...cookie }) },
       root,
+      "darwin",
     );
 
     assert.equal(result.imported, 2);
@@ -124,6 +152,7 @@ describe("cookie import", () => {
         () => "unused",
         { set: async () => undefined },
         root,
+        "darwin",
       ),
       /target browser profile does not exist/,
     );

@@ -74,11 +74,18 @@ test.beforeAll(async () => {
       ...process.env,
       THEIA_CONFIG_DIR: path.join(root, "config"),
       XDG_STATE_HOME: state,
+      TMUX_TMPDIR: root,
+      TMUX: "",
     },
   });
   const page = await electronApp.firstWindow();
   await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1280, 900));
   app = new TheiaApp(page, new TheiaWorkspace(), true);
+  await electronApp.evaluate(({ Menu }) => {
+    Menu.prototype.popup = function () {
+      (globalThis as typeof globalThis & { sessionMenu?: Electron.Menu }).sessionMenu = this;
+    };
+  });
   await app.waitForShellAndInitialized();
   if (!(await page.locator("#ai1-agents").isVisible())) {
     await clickTab(page.locator("#shell-tab-ai1-agents"));
@@ -95,6 +102,72 @@ test.afterAll(async () => {
   await electronApp?.close();
   await server?.stop();
   await removeTempDir(root);
+});
+
+test("Session context menus rename the clicked row and keep delete confirmation", async () => {
+  const page = app.page;
+  const row = page.locator("#ai1-agents .theia-TreeNode", { hasText: "Monorail" });
+  await expect(page.locator("#theia-main-content-panel .xterm")).toHaveCount(0);
+  await row.click({ button: "right" });
+  const menuLabels = () =>
+    electronApp.evaluate(() =>
+      (globalThis as typeof globalThis & { sessionMenu?: Electron.Menu }).sessionMenu?.items.map(
+        (item) => item.label,
+      ),
+    );
+  const choose = async (label: string) => {
+    await electronApp.evaluate(({ BrowserWindow }, name) => {
+      const menu = (globalThis as typeof globalThis & { sessionMenu?: Electron.Menu }).sessionMenu!;
+      const item = menu.items.find((entry) => entry.label === name)!;
+      item.click(undefined, BrowserWindow.getAllWindows()[0], undefined);
+    }, label);
+  };
+  await expect.poll(menuLabels).toEqual(["Rename Session", "Open Terminal", "", "Delete Session"]);
+  await expect(page.locator("#theia-main-content-panel .xterm")).toHaveCount(0);
+  await choose("Rename Session");
+  const input = page.locator(".dialogBlock input");
+  await expect(input).toHaveValue("Monorail");
+  await input.fill("   ");
+  await expect(page.getByRole("button", { name: "Rename", exact: true })).toBeDisabled();
+  await input.fill("Cancelled name");
+  await page.keyboard.press("Escape");
+  expect(server.requests.some((request) => request.startsWith("PATCH"))).toBe(false);
+  await electronApp.evaluate(() => {
+    (globalThis as typeof globalThis & { sessionMenu?: Electron.Menu }).sessionMenu = undefined;
+  });
+  await row.click({ button: "right" });
+  await expect.poll(menuLabels).toContain("Rename Session");
+  await choose("Rename Session");
+  await input.fill("  Renamed Monorail  ");
+  await page.getByRole("button", { name: "Rename", exact: true }).click();
+  const renamed = page.locator("#ai1-agents .theia-TreeNode", { hasText: "Renamed Monorail" });
+  await expect(renamed).toBeVisible();
+  expect(server.sessions.find((session) => session.id === "layout_0")?.title).toBe("Renamed Monorail");
+  expect(server.sessions.find((session) => session.id === "layout_1")?.title).toBe("Staking Site");
+  await electronApp.evaluate(() => {
+    (globalThis as typeof globalThis & { sessionMenu?: Electron.Menu }).sessionMenu = undefined;
+  });
+  await renamed.click({ button: "right" });
+  await expect.poll(menuLabels).toContain("Delete Session");
+  await choose("Delete Session");
+  await expect(page.locator(".dialogBlock")).toContainText("Renamed Monorail");
+  await page.keyboard.press("Escape");
+  expect(server.requests.some((request) => request.startsWith("DELETE"))).toBe(false);
+});
+
+test("Session context menus do not appear on directory rows", async () => {
+  await electronApp.evaluate(() => {
+    (globalThis as typeof globalThis & { sessionMenu?: Electron.Menu }).sessionMenu = undefined;
+  });
+  const group = app.page.locator("#ai1-agents .ai1-agents-group").first();
+  await group.click({ button: "right" });
+  await expect
+    .poll(() =>
+      electronApp.evaluate(() =>
+        Boolean((globalThis as typeof globalThis & { sessionMenu?: Electron.Menu }).sessionMenu),
+      ),
+    )
+    .toBe(false);
 });
 
 test("Agents rows align status markers with titles and keep controls clear of the scrollbar", async () => {
@@ -217,4 +290,31 @@ test("Agents keeps the open directory first with separate collapsible path group
   await api.locator(".theia-ExpansionToggle").click();
   await expect(panel.locator(".ai1-agents-card")).toHaveCount(24);
   await expect(names.first()).toHaveText("workspace");
+});
+
+test("Open Terminal in the context menu opens the clicked session", async () => {
+  await electronApp.evaluate(() => {
+    (globalThis as typeof globalThis & { sessionMenu?: Electron.Menu }).sessionMenu = undefined;
+  });
+  const row = app.page.locator("#ai1-agents .theia-TreeNode", { hasText: "Renamed Monorail" });
+  await row.click({ button: "right" });
+  await expect
+    .poll(() =>
+      electronApp.evaluate(() =>
+        (globalThis as typeof globalThis & { sessionMenu?: Electron.Menu }).sessionMenu?.items.map(
+          (item) => item.label,
+        ),
+      ),
+    )
+    .toContain("Open Terminal");
+  await electronApp.evaluate(({ BrowserWindow }) => {
+    const menu = (globalThis as typeof globalThis & { sessionMenu?: Electron.Menu }).sessionMenu!;
+    menu.items
+      .find((item) => item.label === "Open Terminal")!
+      .click(undefined, BrowserWindow.getAllWindows()[0], undefined);
+  });
+  await expect(app.page.locator("#theia-main-content-panel .xterm")).toHaveCount(1);
+  await expect(
+    app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "Renamed Monorail" }),
+  ).toBeVisible();
 });

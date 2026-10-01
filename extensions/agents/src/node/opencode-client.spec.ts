@@ -64,6 +64,29 @@ describe("OpenCodeClient", () => {
     assert.strictEqual(truncated, false);
   });
 
+  it("renames a session through the title update API", async () => {
+    await client.renameSession("ses_a", "  New session name  ");
+    assert.strictEqual(server.sessions[0].title, "New session name");
+    assert.ok(server.requests.includes("PATCH /api/session/ses_a"));
+    assert.strictEqual(
+      (await client.listSessions()).sessions.find((session) => session.id === "ses_a")?.title,
+      "New session name",
+    );
+  });
+
+  it("rejects empty names without sending a request", async () => {
+    await assert.rejects(client.renameSession("ses_a", " \n "), /must not be empty/);
+    assert.strictEqual(server.requests.length, 0);
+  });
+
+  it("reports a missing session without changing other titles", async () => {
+    await assert.rejects(client.renameSession("ses_missing", "New name"), /404/);
+    assert.deepStrictEqual(
+      server.sessions.map((session) => session.title),
+      ["A", "B"],
+    );
+  });
+
   it("reads the active ids and the pending permission request ids, grouped by session and scoped by directory", async () => {
     server.active.add("ses_a");
     server.pending.add("ses_b");

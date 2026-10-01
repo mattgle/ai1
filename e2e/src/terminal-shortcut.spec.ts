@@ -80,8 +80,13 @@ async function chooseRepository(): Promise<void> {
   await expect(app.page.locator(".quick-input-widget")).toBeHidden();
 }
 
-test("Command-T opens persistent terminals in the focused split and panel", async () => {
+test("Command-T always opens a center terminal from empty, editor, terminal, and side-panel focus", async () => {
   const page = app.page;
+  await page.keyboard.press("Meta+t");
+  await chooseRepository();
+  await expect(
+    page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "sh · workspace" }),
+  ).toHaveCount(1);
   await page.locator("#files .theia-TreeNode", { hasText: "terminal-test.txt" }).dblclick();
   await expect(page.locator("#theia-main-content-panel .monaco-editor:visible")).toHaveCount(1);
   await app.quickCommandPalette.type("Split Editor Right");
@@ -93,19 +98,32 @@ test("Command-T opens persistent terminals in the focused split and panel", asyn
     await clickTab(bars.nth(index).locator(".lm-TabBar-tab", { hasText: "terminal-test.txt" }));
     await page.keyboard.press("Meta+t");
     await chooseRepository();
-    await expect(bars.nth(index).locator(".lm-TabBar-tab", { hasText: "sh · workspace" })).toHaveCount(1);
+    await expect(bars.nth(index).locator(".lm-TabBar-tab", { hasText: "sh · workspace" })).toHaveCount(
+      index === 0 ? 2 : 1,
+    );
     await expect(page.locator(".xterm-helper-textarea:focus")).toHaveCount(1);
   }
 
   await page.keyboard.press("Meta+t");
   await chooseRepository();
   await expect(bars.nth(1).locator(".lm-TabBar-tab", { hasText: "sh · workspace" })).toHaveCount(2);
-  await expect(bars.nth(0).locator(".lm-TabBar-tab", { hasText: "sh · workspace" })).toHaveCount(1);
+  await expect(bars.nth(0).locator(".lm-TabBar-tab", { hasText: "sh · workspace" })).toHaveCount(2);
 
   await clickTab(page.locator("#shell-tab-ai1-agents"));
+  await page.locator("#ai1-agents").focus();
   await page.keyboard.press("Meta+t");
   await chooseRepository();
-  await expect(page.locator("#theia-right-side-panel .xterm-helper-textarea")).toBeFocused();
+  await expect(
+    page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "sh · workspace" }),
+  ).toHaveCount(5);
+  await expect(page.locator("#theia-right-side-panel .xterm")).toHaveCount(0);
+  await page.locator("#files").focus();
+  await page.keyboard.press("Meta+t");
+  await chooseRepository();
+  await expect(
+    page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "sh · workspace" }),
+  ).toHaveCount(6);
+  await expect(page.locator("#theia-left-side-panel .xterm")).toHaveCount(0);
   await expect
     .poll(
       () =>
@@ -113,13 +131,75 @@ test("Command-T opens persistent terminals in the focused split and panel", asyn
           .trim()
           .split("\n").length,
     )
-    .toBe(4);
+    .toBe(6);
   const directories = execFileSync(tmux, ["-S", socket, "list-sessions", "-F", "#{session_path}"], {
     encoding: "utf8",
   })
     .trim()
     .split("\n");
   expect(directories.every((directory) => directory === path.join(root, "workspace"))).toBe(true);
+});
+
+test("Terminal appearance matches the local Ghostty font, palette, and padding", async () => {
+  const page = app.page;
+  await clickTab(
+    page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "sh · workspace" }).first(),
+  );
+  const terminal = page.locator("#theia-main-content-panel .terminal-container:visible").first();
+  await expect(terminal).toHaveCSS("background-color", "rgb(38, 36, 39)");
+  await expect(terminal).toHaveCSS("padding", "2px");
+  const measure = terminal.locator(".xterm-char-measure-element");
+  await expect(measure).toHaveCSS("font-size", "12px");
+  await expect(measure).toHaveCSS("font-family", /JetBrainsMono Nerd Font/);
+  const colors = await terminal.evaluate((node) => {
+    const span = document.createElement("span");
+    node.appendChild(span);
+    const values = ["foreground", "ansiRed", "ansiGreen", "ansiBlue", "ansiBrightMagenta"].map((name) => {
+      span.style.color = `var(--theia-terminal-${name})`;
+      return getComputedStyle(span).color;
+    });
+    span.remove();
+    return values;
+  });
+  expect(colors).toEqual([
+    "rgb(252, 252, 250)",
+    "rgb(255, 102, 109)",
+    "rgb(179, 224, 58)",
+    "rgb(0, 205, 232)",
+    "rgb(176, 163, 235)",
+  ]);
+  const input = terminal.locator(".xterm-helper-textarea");
+  await input.click();
+  await input.fill(
+    "printf '\\033[31mRed  \\033[32mGreen  \\033[34mBlue  \\033[35mPurple\\033[0m\\nGhostty-style terminal\\n'",
+  );
+  await input.press("Enter");
+  await expect
+    .poll(() => execFileSync(tmux, ["-S", socket, "capture-pane", "-p", "-t", "ai1-1"], { encoding: "utf8" }))
+    .toContain("Ghostty-style terminal");
+  await terminal.screenshot({ path: test.info().outputPath("ghostty-terminal.png") });
+  const settings = path.join(root, "config", "settings.json");
+  fs.mkdirSync(path.dirname(settings), { recursive: true });
+  fs.writeFileSync(
+    settings,
+    JSON.stringify({
+      "workbench.colorTheme": "light",
+      "terminal.integrated.fontSize": 20,
+      "ai1.terminal.colorOverrides": { background: "#112233" },
+    }),
+  );
+  await expect(page.locator("body")).toHaveClass(/theia-light/);
+  await expect(terminal).toHaveCSS("background-color", "rgb(17, 34, 51)");
+  await expect(measure).toHaveCSS("font-size", "20px");
+  fs.writeFileSync(
+    settings,
+    JSON.stringify({ "workbench.colorTheme": "light", "ai1.terminal.appearance": "theme" }),
+  );
+  await expect(terminal).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  fs.writeFileSync(settings, "{}");
+  await expect(page.locator("body")).toHaveClass(/theia-dark/);
+  await expect(terminal).toHaveCSS("background-color", "rgb(38, 36, 39)");
+  await expect(measure).toHaveCSS("font-size", "12px");
 });
 
 test("Command-T from a browser page opens the terminal beside that browser", async () => {
@@ -344,7 +424,9 @@ test("Command-Backspace sends Ghostty's Control-U input in Bash and Zsh", async 
     runTmux(["send-keys", "-t", "ai1-1", "-l", `discard ${command}`]);
     runTmux(["send-keys", "-t", "ai1-1", "-N", String(command.length), "Left"]);
     await expect
-      .poll(() => runTmux(["capture-pane", "-p", "-t", "ai1-1"]).trim().split("\n").slice(-5).join("\n"))
+      .poll(() =>
+        runTmux(["capture-pane", "-J", "-S", "-100", "-p", "-t", "ai1-1"]).replace(/\r?\n/g, "").trim(),
+      )
       .toContain("discard printf");
     await page.keyboard.press("Meta+Backspace");
     await page.keyboard.press("Enter");

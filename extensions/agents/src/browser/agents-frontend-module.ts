@@ -18,7 +18,12 @@ import { AgentsPreferenceContribution } from "./agents-preferences";
 import { AgentsTerminals } from "./agents-terminals";
 import { AgentsWidget } from "./agents-widget";
 import { BlockedNotifier } from "./blocked-notifier";
+import { TerminalWidget } from "@theia/terminal/lib/browser/base/terminal-widget";
+import { PersistentTerminalWidget } from "./persistent-terminal-widget";
+import { TerminalThemeService } from "@theia/terminal/lib/browser/terminal-theme-service";
+import { GhosttyTerminalTheme } from "./ghostty-terminal-theme";
 import "../../src/browser/style/agents.css";
+import "../../src/browser/style/terminal-appearance.css";
 
 function createAgentsWidget(parent: interfaces.Container): AgentsWidget {
   const child = createTreeContainer(parent, {
@@ -28,7 +33,10 @@ function createAgentsWidget(parent: interfaces.Container): AgentsWidget {
   return child.get(AgentsWidget);
 }
 
-export default new ContainerModule((bind) => {
+export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
+  rebind(TerminalWidget).to(PersistentTerminalWidget).inTransientScope();
+  rebind(TerminalThemeService).to(GhosttyTerminalTheme).inSingletonScope();
+  bind(FrontendApplicationContribution).toService(TerminalThemeService);
   bind(TerminalControls).toSelf().inSingletonScope();
   bind(CommandContribution).toService(TerminalControls);
   bind(KeybindingContribution).toService(TerminalControls);

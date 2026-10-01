@@ -138,7 +138,7 @@ function parseExtensionPins(root: string): ExtensionPin[] {
 }
 
 function ai1RootFrom(cwd: string, platform: NodeJS.Platform): string | undefined {
-  if (platform !== "darwin") {
+  if (platform !== "darwin" && platform !== "linux") {
     return undefined;
   }
   let candidate = path.resolve(cwd);
@@ -211,6 +211,17 @@ export class UpdaterServiceImpl {
   }
 
   protected async checkHomebrewTools(): Promise<UpdateRecord[]> {
+    if (this.platform === "linux") {
+      return HOME_BREW_NAMES.map((name, index) => ({
+        id: index === 0 ? "opencode" : "tmux",
+        name,
+        source: "manual",
+        updateAvailable: false,
+        canApply: false,
+        error:
+          "Linux tool update status is not available. Check the installed Linux version and update by hand through the owner-approved source.",
+      }));
+    }
     if (this.platform !== "darwin") {
       return HOME_BREW_FORMULAE.map((id, index) => ({
         id,
@@ -323,6 +334,19 @@ export class UpdaterServiceImpl {
   }
 
   protected async checkAi1(): Promise<UpdateRecord[]> {
+    if (this.platform === "linux") {
+      return [
+        {
+          id: "ai1",
+          name: "AI1",
+          source: "git",
+          updateAvailable: false,
+          canApply: false,
+          error:
+            "Linux Git update checks are not verified. Check the source checkout by hand. AI1 does not build or install an update.",
+        },
+      ];
+    }
     const root = ai1RootFrom(this.cwd, this.platform);
     if (!root) {
       return [

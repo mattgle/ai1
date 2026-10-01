@@ -9,6 +9,8 @@ import {
 import { Command, CommandContribution, CommandRegistry, MessageService } from "@theia/core/lib/common";
 import { QuickInputButton, QuickPickItem, QuickPickService } from "@theia/core/lib/common/quick-pick-service";
 import { inject, injectable } from "@theia/core/shared/inversify";
+import { isOSX } from "@theia/core/lib/common/os";
+import { COOKIE_IMPORT_UNSUPPORTED } from "../common/cookie-import";
 import { dayLabel, HistoryEntry } from "../common/history";
 import { DEFAULT_PROFILE_ID, Profile } from "../common/profiles";
 import { BrowserShortcut } from "../common/shortcuts";
@@ -375,6 +377,10 @@ export class BrowserContribution
   }
 
   protected async importCookiesIntoProfile(): Promise<void> {
+    if (!isOSX) {
+      await this.messages.info(COOKIE_IMPORT_UNSUPPORTED);
+      return;
+    }
     const sources = await browserApi().listCookieImportSources();
     if (sources.length === 0) {
       await this.messages.info("AI1 did not find Chrome, Arc, or Brave profiles on this Mac.");

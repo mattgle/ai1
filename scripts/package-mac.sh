@@ -25,6 +25,7 @@ npm exec --workspace applications/electron -- electron-builder --config electron
 APP="applications/electron/dist/mac-arm64/AI1.app"
 codesign --force --deep --sign - "$APP"
 codesign --verify --deep --strict "$APP"
+AI1_PACKAGED_RESOURCES="$PWD/$APP/Contents/Resources/app" npm run test:e2e --workspace e2e -- language-resources.spec.ts
 echo "Packaged: $APP"
 
 if [ "${1:-}" = "--install" ]; then

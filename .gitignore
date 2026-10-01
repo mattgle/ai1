@@ -15,3 +15,8 @@ applications/electron/resources/material-icons
 applications/electron/webpack.config.js
 e2e/test-results
 e2e/playwright-report
+.env
+.env.*
+!.env.example
+*.pem
+*.key

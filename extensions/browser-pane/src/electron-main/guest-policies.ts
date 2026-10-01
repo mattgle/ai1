@@ -184,12 +184,16 @@ export class GuestPolicies {
     });
   }
 
+  protected shortcutPlatform(): string {
+    return process.platform;
+  }
+
   protected onInput(contents: WebContents, event: { preventDefault(): void }, input: ShortcutInput): void {
     // The page of a connected agent gets all keys unchanged.
     if (input.type !== "keyDown" || this.agentConnected(contents.id)) {
       return;
     }
-    const shortcut = shortcutFor(input, this.findOpenGuests.has(contents.id));
+    const shortcut = shortcutFor(input, this.findOpenGuests.has(contents.id), this.shortcutPlatform());
     // A page that is not a browser tab (for example a popup window) keeps
     // its keys.
     const entry = this.registry.entry(contents.id);

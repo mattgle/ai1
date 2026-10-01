@@ -1,6 +1,7 @@
 {
   "name": "ai1-e2e",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "description": "End-to-end smoke tests of AI1",
   "scripts": {

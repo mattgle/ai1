@@ -3,6 +3,7 @@
   "name": "ai1-electron",
   "productName": "AI1",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "AI1 desktop application",
   "main": "scripts/ai1-electron-main.js",
   "dependencies": {
@@ -65,6 +66,12 @@
           "editor.stickyScroll.enabled": true,
           "editor.enablePreview": false,
           "diffEditor.ignoreTrimWhitespace": false,
+          "problems.decorations.tabbar.enabled": false,
+          "terminal.integrated.fontFamily": "'JetBrainsMono Nerd Font', 'JetBrains Mono', Menlo, Consolas, monospace",
+          "terminal.integrated.fontSize": 12,
+          "terminal.integrated.lineHeight": 1,
+          "terminal.integrated.cursorStyle": "block",
+          "terminal.integrated.cursorBlinking": true,
           "security.workspace.trust.enabled": false,
           "ai1.agents.visibleSessionsPerGroup": 30,
           "ai1.agents.notifyOnBlocked": true

@@ -25,17 +25,25 @@ export interface ShortcutInput {
 }
 
 // The shortcut of a key input, or `undefined` for a key that the page must
-// get. Only for macOS: `meta` is ⌘. Escape is a shortcut only while the find
-// bar is open.
-export function shortcutFor(input: ShortcutInput, findOpen: boolean): BrowserShortcut | undefined {
-  if (input.type !== "keyDown" || input.control || input.alt) {
+// get. Escape is a shortcut only while the find bar is open.
+export function shortcutFor(
+  input: ShortcutInput,
+  findOpen: boolean,
+  platform: string,
+): BrowserShortcut | undefined {
+  if (platform !== "darwin" && platform !== "linux") {
+    return undefined;
+  }
+  const primary = platform === "darwin" ? input.meta : input.control;
+  const other = platform === "darwin" ? input.control : input.meta;
+  if (input.type !== "keyDown" || other || input.alt) {
     return undefined;
   }
   const key = input.key.toLowerCase();
-  if (!input.meta) {
+  if (!primary) {
     return key === "escape" && !input.shift && findOpen ? "closeFind" : undefined;
   }
-  // "+" needs Shift on many keyboards, so ⌘= and ⌘+ zoom in with or
+  // "+" needs Shift on many keyboards. The primary modifier and = or + zoom in with or
   // without Shift.
   if (key === "=" || key === "+") {
     return "zoomIn";

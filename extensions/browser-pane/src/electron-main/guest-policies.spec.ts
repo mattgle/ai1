@@ -71,6 +71,11 @@ class FakeContents {
 }
 
 class TestGuestPolicies extends GuestPolicies {
+  platform = "darwin";
+
+  protected override shortcutPlatform(): string {
+    return this.platform;
+  }
   readonly contents = new Map<number, FakeContents>();
   time = 0;
 
@@ -253,7 +258,16 @@ describe("GuestPolicies shortcuts", () => {
     const guest = new FakeContents(3, AI1_PATH);
     registry.register(3, "tab-1", WINDOW_ID);
     policies.attach(asContents(guest));
-    const press = (input: Partial<{ type: string; key: string; meta: boolean; shift: boolean }>) => {
+    const press = (
+      input: Partial<{
+        type: string;
+        key: string;
+        meta: boolean;
+        control: boolean;
+        shift: boolean;
+        alt: boolean;
+      }>,
+    ) => {
       let prevented = false;
       guest.emit(
         "before-input-event",
@@ -273,6 +287,26 @@ describe("GuestPolicies shortcuts", () => {
       shortcuts().map((sent) => sent.payload),
       [{ tabId: "tab-1", shortcut: "find" }],
     );
+  });
+
+  it("forwards Linux Control shortcuts without changing page input or agent input", () => {
+    const { policies, registry, press, shortcuts } = setup();
+    policies.platform = "linux";
+    assert.equal(press({ key: "f", meta: true }), false);
+    assert.equal(press({ key: "f", control: true, alt: true }), false);
+    assert.equal(press({ key: "f", control: true, meta: true }), false);
+    assert.equal(press({ key: "c", control: true }), false);
+    assert.equal(press({ key: "f", control: true }), true);
+    assert.deepStrictEqual(
+      shortcuts().map((sent) => sent.payload),
+      [{ tabId: "tab-1", shortcut: "find" }],
+    );
+    policies.setAgentConnectedCheck(() => true);
+    assert.equal(press({ key: "f", control: true }), false);
+    policies.setAgentConnectedCheck(() => false);
+    registry.forget(3);
+    assert.equal(press({ key: "f", control: true }), false);
+    assert.equal(shortcuts().length, 1);
   });
 
   it("does not stop other keys or a keyUp", () => {

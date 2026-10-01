@@ -1,6 +1,7 @@
 {
   "name": "ai1-changes-view",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "description": "The Changes view of AI1: repositories with uncommitted changes, their files, diffs, and discard",
   "keywords": [

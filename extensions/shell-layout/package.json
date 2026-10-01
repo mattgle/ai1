@@ -1,6 +1,7 @@
 {
   "name": "ai1-shell-layout",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "description": "Default layout and default preferences of AI1. It also turns the Theia AI features off.",
   "keywords": [
@@ -14,6 +15,7 @@
     "@theia/ai-core": "1.75.0",
     "@theia/core": "1.75.0",
     "@theia/navigator": "1.75.0",
+    "@theia/plugin-ext": "1.75.0",
     "@theia/preferences": "1.75.0",
     "@theia/scm": "1.75.0"
   },

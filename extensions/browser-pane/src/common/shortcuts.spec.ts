@@ -9,7 +9,7 @@ interface Keys {
   alt?: boolean;
 }
 
-function key(keyName: string, keys: Keys = {}, findOpen = false) {
+function key(keyName: string, keys: Keys = {}, findOpen = false, platform = "darwin") {
   return shortcutFor(
     {
       type: keys.type ?? "keyDown",
@@ -20,10 +20,49 @@ function key(keyName: string, keys: Keys = {}, findOpen = false) {
       alt: keys.alt ?? false,
     },
     findOpen,
+    platform,
   );
 }
 
 describe("shortcutFor", () => {
+  it("uses Control for Linux guest shortcuts", () => {
+    for (const [name, action] of [
+      ["b", "toggleExplorer"],
+      ["t", "newTerminal"],
+      ["f", "find"],
+      ["g", "findNext"],
+      ["=", "zoomIn"],
+      ["+", "zoomIn"],
+      ["-", "zoomOut"],
+      ["0", "zoomReset"],
+      ["l", "focusAddress"],
+    ]) {
+      assert.strictEqual(key(name, { control: true }, false, "linux"), action);
+      assert.strictEqual(key(name, { meta: true }, false, "linux"), undefined);
+      assert.strictEqual(key(name, { control: true, meta: true }, false, "linux"), undefined);
+      assert.strictEqual(key(name, { control: true, alt: true }, false, "linux"), undefined);
+      assert.strictEqual(key(name, {}, false, "linux"), undefined);
+    }
+    assert.strictEqual(key("G", { control: true, shift: true }, false, "linux"), "findPrevious");
+    assert.strictEqual(key("T", { control: true, shift: true }, false, "linux"), "reopenClosedTab");
+    assert.strictEqual(key("+", { control: true, shift: true }, false, "linux"), "zoomIn");
+    assert.strictEqual(key("f", { control: true, shift: true }, false, "linux"), undefined);
+    assert.strictEqual(key("f", { control: true, type: "keyUp" }, false, "linux"), undefined);
+    assert.strictEqual(key("c", { control: true }, false, "linux"), undefined);
+    assert.strictEqual(key("Escape", {}, true, "linux"), "closeFind");
+    assert.strictEqual(key("Escape", {}, false, "linux"), undefined);
+    assert.strictEqual(key("Escape", { control: true }, true, "linux"), undefined);
+    assert.strictEqual(key("Escape", { meta: true }, true, "linux"), undefined);
+    assert.strictEqual(key("Escape", { shift: true }, true, "linux"), undefined);
+  });
+
+  it("leaves keys unchanged on an unsupported platform", () => {
+    for (const platform of ["win32", "", "unknown"]) {
+      assert.strictEqual(key("f", { control: true }, false, platform), undefined);
+      assert.strictEqual(key("f", { meta: true }, false, platform), undefined);
+      assert.strictEqual(key("Escape", {}, true, platform), undefined);
+    }
+  });
   it("gives toggleExplorer for Command-B", () => {
     assert.strictEqual(key("b", { meta: true }), "toggleExplorer");
     assert.strictEqual(key("b", { meta: true, shift: true }), undefined);

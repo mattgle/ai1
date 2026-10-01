@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { session } from "@theia/core/electron-shared/electron";
 import {
   COOKIE_IMPORT_FAMILIES,
+  COOKIE_IMPORT_UNSUPPORTED,
   CookieImportFamily,
   CookieImportResult,
   CookieImportSource,
@@ -160,7 +161,7 @@ export function detectCookieImportSources(
   platform = process.platform,
 ): CookieImportSource[] {
   if (platform !== "darwin") {
-    return [];
+    throw new Error(COOKIE_IMPORT_UNSUPPORTED);
   }
   return browserDefinitions(home).flatMap((definition) =>
     discoverProfiles(definition.root).map((profile) => ({
@@ -299,7 +300,11 @@ export async function importCookiesToProfile(
   keychainPassword?: (service: string, account: string) => string,
   cookieStore?: CookieStore,
   home = os.homedir(),
+  platform: NodeJS.Platform = process.platform,
 ): Promise<CookieImportResult> {
+  if (platform !== "darwin") {
+    throw new Error(COOKIE_IMPORT_UNSUPPORTED);
+  }
   const target = profiles.find((profile) => profile.id === targetProfileId);
   if (!target) {
     throw new Error("The target browser profile does not exist.");

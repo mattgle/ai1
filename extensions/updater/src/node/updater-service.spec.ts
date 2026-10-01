@@ -5,6 +5,55 @@ import * as path from "node:path";
 import { CommandResult, UpdaterServiceImpl } from "./updater-service";
 
 describe("UpdaterServiceImpl", () => {
+  it("checks Linux extension pins but does not run unverified tool commands", async () => {
+    let commands = 0;
+    const service = new UpdaterServiceImpl({
+      cwd: root,
+      platform: "linux",
+      runCommand: async () => {
+        commands += 1;
+        throw new Error("No tool command is permitted in this test.");
+      },
+      fetchJson: async () => ({ version: "1.96.0" }),
+    });
+    const report = await service.checkForUpdates();
+    assert.equal(commands, 0);
+    assert.deepStrictEqual(
+      report.records.slice(0, 2).map((record) => ({
+        source: record.source,
+        canApply: record.canApply,
+        current: record.current,
+        available: record.available,
+      })),
+      [
+        { source: "manual", canApply: false, current: undefined, available: undefined },
+        { source: "manual", canApply: false, current: undefined, available: undefined },
+      ],
+    );
+    assert.ok(report.records[0].error?.includes("not available"));
+    assert.equal(report.records[2].updateAvailable, true);
+    assert.equal(report.records[2].canApply, false);
+    assert.ok(report.records[3].error?.includes("not verified"));
+  });
+
+  it("does not report Linux sources as current when source data is missing or invalid", async () => {
+    for (const response of [{}, { version: "invalid" }, null]) {
+      const service = new UpdaterServiceImpl({
+        cwd: root,
+        platform: "linux",
+        fetchJson: async () => response,
+      });
+      const report = await service.checkForUpdates();
+      assert.equal(report.records[2].updateAvailable, false);
+      assert.ok(report.records[2].error);
+    }
+    const service = new UpdaterServiceImpl({
+      cwd: path.join(root, "outside", "..", ".."),
+      platform: "linux",
+    });
+    const report = await service.checkForUpdates();
+    assert.ok(report.records[2].error?.includes("source checkout"));
+  });
   let root: string;
 
   beforeEach(() => {

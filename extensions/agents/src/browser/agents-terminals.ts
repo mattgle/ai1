@@ -8,9 +8,11 @@ import { IdentityMap } from "../common/identity-map";
 import { settleWithin } from "../common/settle-within";
 import { nextTmuxName } from "../common/tmux-list";
 import { AgentsModel } from "./agents-model";
+import { PersistentTerminalOptions, PersistentTerminalWidget } from "./persistent-terminal-widget";
+export { SHELL_TERMINAL_KIND } from "./persistent-terminal-widget";
+import { SHELL_TERMINAL_KIND } from "./persistent-terminal-widget";
 
 export const SESSION_TERMINAL_KIND = "ai1-session";
-export const SHELL_TERMINAL_KIND = "ai1-tmux";
 const CLOSE_LIMIT_MS = 1500;
 
 // Opens and tracks the terminal tabs of sessions and of persistent shells.
@@ -104,10 +106,18 @@ export class AgentsTerminals {
     await this.openTmux(name, directory, true, placement);
   }
 
-  // On start, each existing ai1-* tmux session gets its tab again. One
-  // session's failure does not stop the others.
+  // Keep restored tabs in their saved grid. Add a tab for an existing tmux
+  // session only when the saved layout does not contain it.
   async reopenPersistent(): Promise<void> {
+    for (const terminal of this.terminals.all) {
+      if (terminal instanceof PersistentTerminalWidget && terminal.tmuxName && !terminal.isDisposed) {
+        this.trackTmux(terminal.tmuxName, terminal, terminal.options.cwd?.toString());
+      }
+    }
     for (const session of await this.service.tmuxSessions()) {
+      if (this.byTmux.get(session.name)) {
+        continue;
+      }
       try {
         await this.openTmux(session.name, session.directory, false);
       } catch (error) {
@@ -122,7 +132,7 @@ export class AgentsTerminals {
     return !this.bySession.values().next().done || !this.byTmux.values().next().done;
   }
 
-  // Closes the back-end process of every tracked tab. The contribution calls
+  // Closes the back-end process of each transient session tab. The contribution calls
   // it from `onWillStop`, the only stop hook that Theia awaits before a
   // reload or a close (`DefaultWindowService.isSafeToShutDown`). A transient
   // tab does not do it by itself: `TerminalWidgetImpl.storeState` sets
@@ -132,9 +142,10 @@ export class AgentsTerminals {
   //
   // `isSafeToShutDown` has no time limit, and an RPC call to a dead back end
   // waits for a reconnect that never comes, so the wait has a limit here.
-  // Closing a tmux client does not kill its tmux session.
-  async closeAllBackends(): Promise<void> {
-    const all = [...this.bySession.values(), ...this.byTmux.values()];
+  // Persistent-shell widgets keep close-on-dispose enabled. Theia saves their
+  // layout first, then disposes them and closes their tmux clients.
+  async closeTransientSessionBackends(): Promise<void> {
+    const all = [...this.bySession.values()];
     await settleWithin(
       Promise.allSettled(all.map((terminal) => this.shellTerminalServer.close(terminal.terminalId))),
       CLOSE_LIMIT_MS,
@@ -148,7 +159,9 @@ export class AgentsTerminals {
     placement?: ApplicationShell.WidgetOptions,
   ): Promise<void> {
     const command = await this.service.tmuxCommand(name, directory);
-    const terminal = await this.terminals.newTerminal({
+    const options: PersistentTerminalOptions = {
+      id: `ai1-tmux-${name}`,
+      ai1TmuxName: name,
       title: `sh · ${directory ? directory.slice(directory.lastIndexOf("/") + 1) : name}`,
       useServerTitle: false,
       shellPath: command.program,
@@ -157,21 +170,28 @@ export class AgentsTerminals {
       destroyTermOnClose: true,
       kind: SHELL_TERMINAL_KIND,
       location: TerminalLocation.Editor,
-      // The shell lives in tmux, not in this tab: see the note on
-      // `openSession` above. Reopening asks tmux by name instead.
+      // The custom widget restores its grid position and starts a new tmux client.
       isTransient: true,
+    };
+    const terminal = await this.terminals.newTerminal(options);
+    this.trackTmux(name, terminal, directory);
+    await terminal.start();
+    await this.terminals.open(terminal, {
+      mode: activate ? "activate" : "open",
+      widgetOptions: placement,
     });
+  }
+
+  protected trackTmux(name: string, terminal: TerminalWidget, directory?: string): void {
+    if (this.byTmux.get(name) === terminal) {
+      return;
+    }
     this.byTmux.set(name, terminal);
     if (directory) {
       this.directories.set(terminal, directory);
     }
     terminal.onTerminalDidClose(() => this.byTmux.forgetIfSame(name, terminal));
     terminal.onDidDispose(() => this.byTmux.forgetIfSame(name, terminal));
-    await terminal.start();
-    await this.terminals.open(terminal, {
-      mode: activate ? "activate" : "open",
-      widgetOptions: placement,
-    });
   }
 
   // Only forgets `terminal` if it is still the current tab of `id`: a

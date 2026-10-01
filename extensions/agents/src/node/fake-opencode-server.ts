@@ -212,6 +212,19 @@ export class FakeOpenCodeServer {
       json(200, { data: Object.fromEntries([...this.active].map((id) => [id, { type: "running" }])) });
       return;
     }
+    if (method === "PATCH" && /^\/api\/session\/[^/]+$/.test(url.pathname)) {
+      const id = decodeURIComponent(url.pathname.split("/").pop()!);
+      const session = this.sessions.find((entry) => entry.id === id);
+      if (!session) {
+        json(404, { error: "Session not found" });
+        return;
+      }
+      const input = JSON.parse(body || "{}") as { title: string };
+      session.title = input.title;
+      response.writeHead(204);
+      response.end();
+      return;
+    }
     if (method === "GET" && url.pathname === "/api/permission/request") {
       // The live service scopes this list by the `x-opencode-directory`
       // header, with an exact match against each session's own directory

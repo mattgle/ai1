@@ -3,11 +3,13 @@ import { Command, CommandContribution, CommandRegistry } from "@theia/core/lib/c
 import { KeybindingRegistry } from "@theia/core/lib/browser/keybinding";
 import { inject, injectable } from "@theia/core/shared/inversify";
 import { FILE_NAVIGATOR_TOGGLE_COMMAND_ID } from "@theia/navigator/lib/browser/navigator-contribution";
-import { selectTabAtIndex } from "./tab-selection";
+import { selectPane } from "./pane-selection";
 
 export const TabNavigationCommands = {
-  SELECT_TAB_1: { id: "ai1.tabs.select1" },
-  SELECT_TAB_2: { id: "ai1.tabs.select2" },
+  SELECT_COLUMN_1: { id: "ai1.panes.column1" },
+  SELECT_COLUMN_2: { id: "ai1.panes.column2" },
+  SELECT_ROW_1: { id: "ai1.panes.row1" },
+  SELECT_ROW_2: { id: "ai1.panes.row2" },
 } satisfies Record<string, Command>;
 
 @injectable()
@@ -16,13 +18,27 @@ export class TabNavigationContribution implements CommandContribution, Keybindin
   protected readonly shell!: ApplicationShell;
 
   registerCommands(commands: CommandRegistry): void {
-    for (const [index, command] of [
-      TabNavigationCommands.SELECT_TAB_1,
-      TabNavigationCommands.SELECT_TAB_2,
-    ].entries()) {
+    for (const [command, axis, index] of [
+      [TabNavigationCommands.SELECT_COLUMN_1, "column", 0],
+      [TabNavigationCommands.SELECT_COLUMN_2, "column", 1],
+      [TabNavigationCommands.SELECT_ROW_1, "row", 0],
+      [TabNavigationCommands.SELECT_ROW_2, "row", 1],
+    ] as const) {
       commands.registerCommand(command, {
-        isEnabled: () => Boolean(this.shell.currentTabBar && this.shell.currentTabBar.titles.length > index),
-        execute: () => selectTabAtIndex(this.shell.currentTabBar, index),
+        execute: () => {
+          const panes = Array.from(this.shell.mainPanel.tabBars()).flatMap((bar) => {
+            const widget = bar.currentTitle?.owner;
+            const rect = bar.node.getBoundingClientRect();
+            return widget && rect.width > 0 && rect.height > 0
+              ? [{ id: widget.id, x: rect.x, y: rect.y }]
+              : [];
+          });
+          const target = selectPane(panes, this.shell.mainPanel.currentTitle?.owner.id, axis, index);
+          if (target) {
+            return this.shell.activateWidget(target);
+          }
+          return undefined;
+        },
       });
     }
   }
@@ -30,10 +46,10 @@ export class TabNavigationContribution implements CommandContribution, Keybindin
   registerKeybindings(keybindings: KeybindingRegistry): void {
     keybindings.registerKeybindings(
       { command: FILE_NAVIGATOR_TOGGLE_COMMAND_ID, keybinding: "ctrlcmd+b" },
-      { command: TabNavigationCommands.SELECT_TAB_1.id, keybinding: "ctrlcmd+1" },
-      { command: TabNavigationCommands.SELECT_TAB_2.id, keybinding: "ctrlcmd+2" },
-      { command: "workbench.action.focusFirstEditorGroup", keybinding: "ctrlcmd+shift+1" },
-      { command: "workbench.action.focusSecondEditorGroup", keybinding: "ctrlcmd+shift+2" },
+      { command: TabNavigationCommands.SELECT_COLUMN_1.id, keybinding: "ctrlcmd+1" },
+      { command: TabNavigationCommands.SELECT_COLUMN_2.id, keybinding: "ctrlcmd+2" },
+      { command: TabNavigationCommands.SELECT_ROW_1.id, keybinding: "ctrlcmd+shift+1" },
+      { command: TabNavigationCommands.SELECT_ROW_2.id, keybinding: "ctrlcmd+shift+2" },
     );
   }
 }

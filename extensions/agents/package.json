@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "The OpenCode sessions of the workspace, their status, and persistent terminals",
-  "license": "EPL-2.0",
+  "license": "MIT",
   "files": [
     "lib",
     "src"

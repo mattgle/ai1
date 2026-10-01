@@ -1,10 +1,12 @@
 import { Command, CommandRegistry, MessageService, QuickPickService } from "@theia/core";
+import { MenuModelRegistry } from "@theia/core/lib/common/menu";
 import {
   AbstractViewContribution,
   ApplicationShell,
   Badge,
   BadgeService,
   ConfirmDialog,
+  SingleTextInputDialog,
   FrontendApplicationContribution,
   KeybindingRegistry,
   OnWillStopAction,
@@ -23,14 +25,15 @@ import { AgentsService, SessionSummary } from "../common/agents-protocol";
 import { sessionBadge } from "../common/badge-decoration";
 import { AgentsModel } from "./agents-model";
 import { AgentsTerminals } from "./agents-terminals";
-import { SessionNode } from "./agents-tree";
-import { AgentsWidget } from "./agents-widget";
+import { isSessionNode, SessionNode } from "./agents-tree";
+import { AgentsWidget, SESSION_CONTEXT_MENU } from "./agents-widget";
 import { TerminalControls } from "./terminal-controls";
 
 export const AgentsCommands = {
   NEW_SESSION: { id: "ai1.agents.newSession", label: "New Session", category: "Agents" },
   OPEN_SESSION: { id: "ai1.agents.openSession", label: "Open Session", category: "Agents" },
   DELETE_SESSION: { id: "ai1.agents.deleteSession", label: "Delete Session", category: "Agents" },
+  RENAME_SESSION: { id: "ai1.agents.renameSession", label: "Rename Session", category: "Agents" },
   CLOSE_IDLE_TERMINALS: {
     id: "ai1.agents.closeIdleTerminals",
     label: "Close Idle Terminals",
@@ -209,8 +212,8 @@ export class AgentsContribution
     });
   }
 
-  // Closes the back-end process of every open session and persistent-shell
-  // tab before a reload or a close (see `AgentsTerminals.closeAllBackends`).
+  // Closes the back-end process of every open transient session
+  // tab before a reload or a close (see `AgentsTerminals.closeTransientSessionBackends`).
   // `action` always returns `true`: it never asks the user to confirm, it
   // only needs the time to run, and that time has a limit.
   //
@@ -226,7 +229,7 @@ export class AgentsContribution
     }
     return {
       action: async () => {
-        await this.terminals.closeAllBackends();
+        await this.terminals.closeTransientSessionBackends();
         return true;
       },
       reason: "AI1 agent terminals",
@@ -238,8 +241,19 @@ export class AgentsContribution
     super.registerCommands(commands);
     commands.registerCommand(AgentsCommands.REFRESH, { execute: () => this.refresh() });
     commands.registerCommand(AgentsCommands.NEW_SESSION, { execute: () => this.newSession() });
-    commands.registerCommand(AgentsCommands.OPEN_SESSION, { execute: () => this.pickAndOpen() });
-    commands.registerCommand(AgentsCommands.DELETE_SESSION, { execute: () => this.pickAndDelete() });
+    commands.registerCommand(AgentsCommands.OPEN_SESSION, {
+      execute: (node?: SessionNode) =>
+        isSessionNode(node) ? this.openSessionTerminal(node) : this.pickAndOpen(),
+    });
+    commands.registerCommand(AgentsCommands.DELETE_SESSION, {
+      execute: (node?: SessionNode) =>
+        isSessionNode(node) ? this.deleteSession(node.session) : this.pickAndDelete(),
+    });
+    commands.registerCommand(AgentsCommands.RENAME_SESSION, {
+      isEnabled: (node?: SessionNode) => isSessionNode(node),
+      isVisible: (node?: SessionNode) => isSessionNode(node),
+      execute: (node?: SessionNode) => (isSessionNode(node) ? this.renameSession(node.session) : undefined),
+    });
     commands.registerCommand(AgentsCommands.CLOSE_IDLE_TERMINALS, {
       execute: () => this.closeIdleTerminals(),
     });
@@ -285,6 +299,42 @@ export class AgentsContribution
         when: "terminalFocus",
       },
     );
+  }
+
+  override registerMenus(menus: MenuModelRegistry): void {
+    super.registerMenus(menus);
+    menus.registerMenuAction([...SESSION_CONTEXT_MENU, "1-session"], {
+      commandId: AgentsCommands.RENAME_SESSION.id,
+      label: "Rename Session",
+      order: "0",
+    });
+    menus.registerMenuAction([...SESSION_CONTEXT_MENU, "1-session"], {
+      commandId: AgentsCommands.OPEN_SESSION.id,
+      label: "Open Terminal",
+      order: "1",
+    });
+    menus.registerMenuAction([...SESSION_CONTEXT_MENU, "2-delete"], {
+      commandId: AgentsCommands.DELETE_SESSION.id,
+      label: "Delete Session",
+      order: "0",
+    });
+  }
+
+  protected async renameSession(session: SessionSummary): Promise<void> {
+    const title = await new SingleTextInputDialog({
+      title: "Rename Session",
+      initialValue: session.title,
+      confirmButtonLabel: "Rename",
+      validate: (value) => (value.trim() ? "" : "Enter a session name."),
+    }).open();
+    if (title === undefined || title.trim() === session.title) {
+      return;
+    }
+    try {
+      await this.service.renameSession(session.id, title.trim());
+    } catch (error) {
+      this.messages.error(`Rename failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   registerToolbarItems(toolbar: TabBarToolbarRegistry): void {
@@ -387,9 +437,10 @@ export class AgentsContribution
 
   protected async newPersistentTerminal(widget?: Widget): Promise<void> {
     this.terminalControls.restoreZoom();
-    const ref = widget ?? this.shell.currentTabBar?.currentTitle?.owner;
+    const ref =
+      widget && this.shell.getAreaFor(widget) === "main" ? widget : this.shell.mainPanel.currentTitle?.owner;
     const placement: ApplicationShell.WidgetOptions = {
-      area: (ref && this.shell.getAreaFor(ref)) || "main",
+      area: "main",
       ref,
       mode: "tab-after",
     };

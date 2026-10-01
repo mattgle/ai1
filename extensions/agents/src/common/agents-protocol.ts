@@ -54,6 +54,7 @@ export interface AgentsService {
   lastMessage(id: string): Promise<string | undefined>;
   createSession(directory: string, title?: string): Promise<SessionSummary>;
   deleteSession(id: string): Promise<void>;
+  renameSession(id: string, title: string): Promise<void>;
   sendPrompt(id: string, text: string, files?: { uri: string; name?: string }[]): Promise<void>;
   // The command line of the interface process for a session terminal.
   sessionCommand(id: string, directory: string): Promise<{ program: string; args: string[] }>;

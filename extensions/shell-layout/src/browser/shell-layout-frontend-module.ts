@@ -10,8 +10,11 @@ import { AiFreeLayoutProvider } from "./ai-free-layout-provider";
 import { HideAiPlaceholderContribution } from "./hide-ai-placeholder-contribution";
 import { ShellLayoutContribution } from "./shell-layout-contribution";
 import { TabNavigationContribution } from "./tab-navigation";
+import { PluginCustomEditorRegistry } from "@theia/plugin-ext/lib/main/browser/custom-editors/plugin-custom-editor-registry";
+import { ImageEditorRegistry } from "./image-editor-registry";
 
 export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
+  rebind(PluginCustomEditorRegistry).to(ImageEditorRegistry).inSingletonScope();
   bind(ShellLayoutContribution).toSelf().inSingletonScope();
   bind(FrontendApplicationContribution).toService(ShellLayoutContribution);
 

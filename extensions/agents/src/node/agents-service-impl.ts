@@ -356,6 +356,19 @@ export class AgentsServiceImpl implements AgentsService {
     }
   }
 
+  async renameSession(id: string, title: string): Promise<void> {
+    const name = title.trim();
+    if (!name) {
+      throw new Error("Session name must not be empty.");
+    }
+    await (await this.hub.apiClient()).renameSession(id, name);
+    const tracked = this.tracked.get(id);
+    if (tracked) {
+      tracked.raw = { ...tracked.raw, title: name };
+      this.notifyChanged(this.summary(tracked));
+    }
+  }
+
   async sendPrompt(id: string, text: string, files: { uri: string; name?: string }[] = []): Promise<void> {
     if (!this.tracked.has(id)) {
       throw new Error("This agent session is not available in this workspace.");

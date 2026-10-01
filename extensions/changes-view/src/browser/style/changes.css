@@ -7,7 +7,14 @@
 }
 
 .ai1-changes .ai1-changes-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.ai1-changes .theia-TreeNodeContent {
+  min-width: 0;
 }
 
 .ai1-changes .ai1-changes-repo .ai1-changes-name {
@@ -31,15 +38,37 @@
   align-items: center;
   gap: 4px;
   padding-right: 8px;
+  flex-shrink: 0;
 }
 
 .ai1-changes .ai1-changes-action {
   display: none;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
   cursor: pointer;
 }
 
-.ai1-changes .theia-TreeNode:hover .ai1-changes-action {
-  display: inline-block;
+.ai1-changes .theia-TreeNode:hover .ai1-changes-action,
+.ai1-changes .theia-TreeNode:focus-within .ai1-changes-action,
+.ai1-changes.theia-Tree:focus .theia-mod-focus .ai1-changes-action {
+  display: inline-flex;
+}
+
+.ai1-changes .ai1-changes-action:hover {
+  background: var(--theia-toolbar-hoverBackground, rgba(127, 127, 127, 0.2));
+}
+
+.ai1-changes .ai1-changes-action:focus-visible {
+  outline: 1px solid var(--theia-focusBorder);
+  outline-offset: -1px;
 }
 
 .ai1-changes .ai1-changes-badge {

@@ -10,7 +10,11 @@ files:
   - scripts
   - lib
   - src-gen
-  - plugins
+  - from: plugins
+    to: plugins
+    filter:
+      - "**/*"
+      - "!**/*.map"
   - resources
   - "!**/*.map"
 mac:
