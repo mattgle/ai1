@@ -1,8 +1,9 @@
 # Public-release review
 
-Date: 2026-09-30. Status: in progress. This is a release review, not a security
-certification. The owner approves public source publication. App distribution
-still requires the runtime, security, and notice checks below.
+Initial review: 2026-09-30. Public source publication: 2026-10-01.
+Status: source is public; app release checks remain in progress. This review is
+not a security certification. App distribution still requires the runtime,
+security, and notice checks below.
 
 ## Secret scan
 
@@ -47,9 +48,17 @@ targeted text checks as a complete privacy review.
 
 The owner requests removal of personal author metadata before source publication.
 The publication copy uses the GitHub handle and GitHub no-reply address for
-author and committer metadata. The rewrite runs in an isolated mirror. A final
-scan and a content comparison must pass before the rewritten branches are pushed.
-Third-party copyright notices remain unchanged.
+author and committer metadata. The rewrite runs in an isolated mirror. All 117
+commit trees keep the same content. The final secret scans pass, and a check of
+871 reachable file objects finds no known personal data. GitHub author and
+committer metadata checks pass on all uploaded commits. Third-party copyright
+notices remain unchanged.
+
+The original repo remains private as a backup. A separate repo receives only
+the clean history and becomes public. This avoids publication of the old commit
+objects through the original repo's cache. The public repo does not resolve the
+old private main commit. Existing users should use a fresh clone of the public
+repo rather than merging old private history into it.
 
 ## Dependency security
 
@@ -102,12 +111,11 @@ lint, type checks, formatting, and whitespace checks pass. The lockfile license
 metadata update changes no dependency version, source URL, or integrity hash.
 These checks do not validate Linux runtime behavior or clear the audit findings.
 
-- Complete the manual privacy and ownership review.
+- Continue privacy and ownership checks before each future release.
 - Review the security findings and compatible fixes.
 - Build a complete distribution notice manifest from the actual app contents.
 - Confirm public maintainer metadata and a private security-report channel.
 - Test native Omarchy runtime, sandbox, Wayland, terminal input, and keyring.
 - Test installation, launcher, upgrade, rollback, and removal.
-- Review and commit the intended public files.
-- Publish the approved source after final privacy checks. App release publication
-  needs separate approval and remains blocked by the open checks above.
+- App release publication needs separate approval and remains blocked by the
+  open checks above. Public source publication is complete.

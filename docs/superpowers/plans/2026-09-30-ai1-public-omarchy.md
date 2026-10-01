@@ -69,3 +69,16 @@ The next review stage adds `npm run scan:secrets` and
 release-check tests, lint, types, and formatting pass. AI1 package license fields
 match MIT. The lockfile update changes no dependency versions. The dependency
 security findings and final distribution notice manifest remain open.
+
+## Source publication: 2026-10-01
+
+The original repo remains private as a backup. A new public `mattgle/ai1` repo
+contains the reviewed source changes and the rewritten branch histories.
+All 117 commit trees preserve their content. Author and committer metadata use
+the GitHub handle and no-reply address. A final secret scan passes, and GitHub
+metadata checks confirm the clean identities on all uploaded commits.
+
+The public main branch includes the revised README and the experimental Omarchy
+setup prompt. The local checkout tracks the clean public main branch. Old local
+history remains separate and must not be pushed or merged into the public repo.
+The app release, Linux runtime, dependency security, and notice gates remain open.
