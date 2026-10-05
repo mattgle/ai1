@@ -45,7 +45,7 @@
     "rebuild": "theia rebuild:electron --cacheRoot ../..",
     "copy:icons": "node scripts/copy-material-icons.mjs",
     "build": "npm run copy:icons && npm run rebuild && theia build --mode development",
-    "build:production": "npm run copy:icons && npm run rebuild && theia build --mode production",
+    "build:production": "node ../../scripts/prepare-license-assets.mjs && npm run copy:icons && npm run rebuild && theia build --mode production",
     "start": "theia start",
     "watch": "npm run rebuild && theia build --watch --mode development"
   },

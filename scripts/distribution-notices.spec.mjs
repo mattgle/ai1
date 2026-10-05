@@ -11,6 +11,7 @@ test("all checked-in license supplements preserve their reviewed source bytes", 
   const resources = new URL("../applications/electron/resources/third-party/", import.meta.url);
   const config = JSON.parse(fs.readFileSync(new URL("supplements.json", resources), "utf8"));
   for (const [id, source] of Object.entries(config.sources)) {
+    if (source.download === true) continue;
     const actual = createHash("sha256")
       .update(fs.readFileSync(new URL(source.text, resources)))
       .digest("hex");

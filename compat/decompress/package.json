@@ -6,7 +6,8 @@
   "description": "CommonJS compatibility for the maintained archive extractor used by Theia.",
   "main": "index.cjs",
   "files": [
-    "index.cjs"
+    "index.cjs",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=24"

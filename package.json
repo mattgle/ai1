@@ -15,6 +15,7 @@
     "e2e"
   ],
   "scripts": {
+    "prepare:license-assets": "node scripts/prepare-license-assets.mjs",
     "postinstall": "theia check:theia-version",
     "download:plugins": "theia download:plugins",
     "build": "npm run build --workspaces --if-present",
@@ -27,7 +28,7 @@
     "scan:secrets": "node scripts/scan-secrets.mjs",
     "test:archive-security": "node --test scripts/archive-security.spec.mjs",
     "test:dependency-security": "node --test scripts/dependency-security.spec.mjs scripts/dompurify-build-plugin.spec.mjs",
-    "test:release-checks": "node --test scripts/scan-secrets.spec.mjs scripts/setup-linux.spec.mjs scripts/linux-build-check.spec.mjs scripts/linux-builder-config.spec.mjs scripts/prepare-arch-package.spec.mjs scripts/distribution-notices.spec.mjs scripts/review-theia-source.spec.mjs scripts/build-input-report.spec.mjs",
+    "test:release-checks": "node --test scripts/scan-secrets.spec.mjs scripts/setup-linux.spec.mjs scripts/linux-build-check.spec.mjs scripts/linux-builder-config.spec.mjs scripts/prepare-arch-package.spec.mjs scripts/distribution-notices.spec.mjs scripts/review-theia-source.spec.mjs scripts/build-input-report.spec.mjs scripts/prepare-license-assets.spec.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml}\""
   },

@@ -1,6 +1,110 @@
 {
   "schemaVersion": 1,
   "sources": {
+    "agent-base": {
+      "license": "MIT",
+      "text": "generated/agent-base/LICENSE-README.txt",
+      "sha256": "f1425c3b72330fe4fb2aa5a2fb152e939bdf534692a32b5f0b38f74147b98556",
+      "revision": "c4b8ea2e1a11bae023bb09b708050a50418204e9",
+      "url": "https://raw.githubusercontent.com/TooTallNate/node-agent-base/c4b8ea2e1a11bae023bb09b708050a50418204e9/README.md",
+      "download": true
+    },
+    "http-proxy-agent-4": {
+      "license": "MIT",
+      "text": "generated/http-proxy-agent-4/LICENSE-README.txt",
+      "sha256": "ca0b65367e78e9c255a1c9883eb7ec30aae491d76e1c6815b865563106d21dff",
+      "revision": "d41fd2093cc0ef2314fd5a6fd42a5eb36d728c08",
+      "url": "https://raw.githubusercontent.com/TooTallNate/node-http-proxy-agent/d41fd2093cc0ef2314fd5a6fd42a5eb36d728c08/README.md",
+      "download": true
+    },
+    "http-proxy-agent-5": {
+      "license": "MIT",
+      "text": "generated/http-proxy-agent-5/LICENSE-README.txt",
+      "sha256": "ca0b65367e78e9c255a1c9883eb7ec30aae491d76e1c6815b865563106d21dff",
+      "revision": "5368fa899134a9b0d7d49cc6917c1eecabe7aeb0",
+      "url": "https://raw.githubusercontent.com/TooTallNate/node-http-proxy-agent/5368fa899134a9b0d7d49cc6917c1eecabe7aeb0/README.md",
+      "download": true
+    },
+    "https-proxy-agent": {
+      "license": "MIT",
+      "text": "generated/https-proxy-agent/LICENSE-README.txt",
+      "sha256": "32f0856d2c43df7d05cca960fdee84e1e38ab545bd7b2186433dfa41aa90a712",
+      "revision": "d0d80cc0482f20495aa8595f802e1a9f3b1b3409",
+      "url": "https://raw.githubusercontent.com/TooTallNate/node-https-proxy-agent/d0d80cc0482f20495aa8595f802e1a9f3b1b3409/README.md",
+      "download": true
+    },
+    "socks-proxy-agent": {
+      "license": "MIT",
+      "text": "generated/socks-proxy-agent/LICENSE-README.txt",
+      "sha256": "a40a0b044056ed5617fbbe044154ed38ebce913072737aa3bd912a62d1126de5",
+      "revision": "d1cb60f45bcdc2bef8dbe374d5d3972beaed74e4",
+      "url": "https://raw.githubusercontent.com/TooTallNate/node-socks-proxy-agent/d1cb60f45bcdc2bef8dbe374d5d3972beaed74e4/README.md",
+      "download": true
+    },
+    "cookie-signature": {
+      "license": "MIT",
+      "text": "generated/cookie-signature/LICENSE-README.txt",
+      "sha256": "1621ed10d0b2f865eb8608e0474a356cf7a9737a384b6593b61b30a9f6e50366",
+      "revision": "432ea0c14fbdd8d24354820faff2c6f6d2426757",
+      "url": "https://raw.githubusercontent.com/visionmedia/node-cookie-signature/432ea0c14fbdd8d24354820faff2c6f6d2426757/Readme.md",
+      "download": true
+    },
+    "ignore": {
+      "license": "MIT",
+      "text": "generated/ignore/LICENSE.txt",
+      "sha256": "9c94db23dc4b1e9aaee5d195668b916afc71efed54af226b66cf0ccc4389c1c0",
+      "revision": "d01ef8d91497a771b5e3adf52b2ed19248a7c625",
+      "url": "https://raw.githubusercontent.com/kaelzhang/node-ignore/d01ef8d91497a771b5e3adf52b2ed19248a7c625/LICENSE-MIT",
+      "download": true
+    },
+    "type-fest-mit": {
+      "license": "(MIT OR CC0-1.0)",
+      "text": "generated/type-fest/LICENSE-MIT.txt",
+      "sha256": "5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3",
+      "revision": "d07df21f8b79e35ad8411cb9ceb8b5cb8f40f9d4",
+      "url": "https://raw.githubusercontent.com/sindresorhus/type-fest/d07df21f8b79e35ad8411cb9ceb8b5cb8f40f9d4/license-mit",
+      "download": true
+    },
+    "type-fest-cc0": {
+      "license": "(MIT OR CC0-1.0)",
+      "text": "generated/type-fest/LICENSE-CC0.txt",
+      "sha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
+      "revision": "d07df21f8b79e35ad8411cb9ceb8b5cb8f40f9d4",
+      "url": "https://raw.githubusercontent.com/sindresorhus/type-fest/d07df21f8b79e35ad8411cb9ceb8b5cb8f40f9d4/license-cc0",
+      "download": true
+    },
+    "slash": {
+      "license": "MIT",
+      "text": "generated/slash/LICENSE.txt",
+      "sha256": "6fb9754611c20f6649f68805e8c990e83261f29316e29de9e6cedae607b8634c",
+      "revision": "c801dd4568ad9380b534067eabe88942394f82ff",
+      "url": "https://raw.githubusercontent.com/sindresorhus/slash/c801dd4568ad9380b534067eabe88942394f82ff/license",
+      "download": true
+    },
+    "markdown-it-anchor": {
+      "license": "Unlicense",
+      "text": "generated/markdown-it-anchor/LICENSE.txt",
+      "sha256": "7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c",
+      "revision": "174c1369cd91682c7ba76f08a09077fe1e09ef57",
+      "url": "https://raw.githubusercontent.com/valeriangalliat/markdown-it-anchor/174c1369cd91682c7ba76f08a09077fe1e09ef57/UNLICENSE",
+      "download": true
+    },
+    "typescript": {
+      "license": "Apache-2.0",
+      "text": "typescript/LICENSE.txt",
+      "sha256": "a7d00bfd54525bc694b6e32f64c7ebcf5e6b7ae3657be5cc12767bce74654a47",
+      "revision": "d48a5cf89a62a62d6c6ed53ffa18f070d9458b85",
+      "url": "https://raw.githubusercontent.com/microsoft/TypeScript/d48a5cf89a62a62d6c6ed53ffa18f070d9458b85/LICENSE.txt",
+      "download": true
+    },
+    "typescript-third-party": {
+      "license": "Apache-2.0",
+      "text": "typescript/NOTICE-TypeScript.txt",
+      "sha256": "1af3c68039c57e539422da82a4faada506ce6d0ea6f90e0b699d02dbcdb7a90c",
+      "revision": "d48a5cf89a62a62d6c6ed53ffa18f070d9458b85",
+      "url": "https://raw.githubusercontent.com/microsoft/TypeScript/d48a5cf89a62a62d6c6ed53ffa18f070d9458b85/ThirdPartyNoticeText.txt",
+      "download": true
+    },
     "theia-notice": {
       "license": "EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0",
       "text": "theia/NOTICE.md",
@@ -59,6 +163,17 @@
     }
   },
   "packages": [
+    { "name": "agent-base", "version": "6.0.2", "source": "agent-base" },
+    { "name": "http-proxy-agent", "version": "4.0.1", "source": "http-proxy-agent-4" },
+    { "name": "http-proxy-agent", "version": "5.0.0", "source": "http-proxy-agent-5" },
+    { "name": "https-proxy-agent", "version": "5.0.1", "source": "https-proxy-agent" },
+    { "name": "socks-proxy-agent", "version": "5.0.1", "source": "socks-proxy-agent" },
+    { "name": "cookie-signature", "version": "1.0.7", "source": "cookie-signature" },
+    { "name": "ignore", "version": "3.3.10", "source": "ignore" },
+    { "name": "type-fest", "version": "2.19.0", "source": "type-fest-mit" },
+    { "name": "slash", "version": "1.0.0", "source": "slash" },
+    { "name": "markdown-it-anchor", "version": "9.2.1", "source": "markdown-it-anchor" },
+    { "name": "typescript", "version": "5.6.3", "source": "typescript" },
     { "name": "@tokenizer/token", "version": "0.3.0", "source": "tokenizer-token" },
     { "name": "@theia/ai-core", "version": "1.75.0", "source": "theia" },
     { "name": "@theia/ai-core-ui", "version": "1.75.0", "source": "theia" },

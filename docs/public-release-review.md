@@ -15,6 +15,45 @@ the state before this approval.
 
 ## Secret scan
 
+### Pinned notice assets: 2026-10-05
+
+Source commit `dec015f` is on `feat/release-readiness` in the public repository.
+The branch does not merge to `main`. No binary publication or app installation
+occurs.
+
+The production build prepares 13 pinned public notice assets. Each download
+uses an immutable source commit and an expected SHA-256 hash. Preparation
+preserves the complete upstream bytes, including TypeScript's CRLF endings.
+Existing verified assets permit offline builds. A changed existing file,
+escaping path, external parent link, dangling link, or hash mismatch stops
+preparation. Atomic file creation does not replace an existing destination.
+The tests use fixtures and do not need network access.
+
+The evidence maps exact package names, versions, and license metadata for
+TypeScript 5.6.3, Slash 1.0.0, Markdown Anchor 9.2.1, Type Fest 2.19.0,
+Ignore 3.3.10, Agent Base 6.0.2, HTTP Proxy Agent 4.0.1 and 5.0.0,
+HTTPS Proxy Agent 5.0.1, SOCKS Proxy Agent 5.0.1, and Cookie Signature 1.0.7.
+The proxy and cookie notice assets preserve complete upstream README files
+with their copyright and MIT terms. Type Fest includes both offered license
+texts. TypeScript includes its license and separate third-party notice.
+The AI1 archive adapter now includes the unchanged project MIT license.
+
+The local macOS bundle has 563 notice files and 11 unresolved entries, down
+from 24. All 13 prepared asset hashes and all 20 generated output hashes match
+the packaged bytes. All 38 release checks, six language checks, and 11 combined
+packaged evidence, sanitizer, and Changes settings tests pass. Lint and types
+pass. A passing settings test does not resolve the earlier startup timeout.
+
+The remaining inventory entries are the native MessagePack extraction module,
+Once 1.1.2, East Asian Width 0.2.0, Fast URI's benchmark package, Font Awesome
+4.7.0, IMurmurHash 0.1.4, Resolve Package Path 4.0.3, Use Composed Ref 1.4.0,
+and the CSS, HTML, and JSON extension servers. Once, East Asian Width,
+Resolve Package Path, and Use Composed Ref do not have verified complete
+license text at the checked release commits. Do not use a newer release's
+license text or a different package's parent license to clear these entries.
+Native libraries, fonts, copied code, extension inputs, and source duties
+remain separate release checks. Notice counts do not establish compliance.
+
 Gitleaks 8.30.1 scans all locally reachable Git refs with `--log-opts=--all`.
 A second scan covers a copy of tracked and untracked non-ignored source files.
 Both scans use full redaction. Build output and installed dependencies are not

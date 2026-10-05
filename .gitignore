@@ -7,6 +7,8 @@ gen-webpack.config.js
 gen-webpack.node.config.js
 applications/electron/gen-esbuild.*.mjs
 applications/electron/resources/release/build-inputs.json
+applications/electron/resources/third-party/typescript/
+applications/electron/resources/third-party/generated/
 *.log
 *.tsbuildinfo
 .DS_Store
