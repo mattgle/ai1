@@ -1,0 +1,15 @@
+Eclipse Theia 1.75.0 source code is available under the Eclipse Public
+License 2.0. See LICENSE-EPL in this directory.
+
+Get the upstream source at this exact revision:
+https://github.com/eclipse-theia/theia/tree/52f32db6e32d1f88dbbbbde08c8a01ad75c53e11
+
+Download the source archive:
+https://github.com/eclipse-theia/theia/archive/52f32db6e32d1f88dbbbbde08c8a01ad75c53e11.tar.gz
+
+The upstream source keeps its original licenses and copyright notices.
+This statement does not change those licenses.
+
+This local release candidate does not complete the source-duty review.
+Before distribution, verify all modified Theia source and build inputs.
+Include any required modified source and its license notices.

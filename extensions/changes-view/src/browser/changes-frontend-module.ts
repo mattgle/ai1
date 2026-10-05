@@ -9,10 +9,12 @@ import {
 import { ServiceConnectionProvider } from "@theia/core/lib/browser/messaging/service-connection-provider";
 import { TabBarToolbarContribution } from "@theia/core/lib/browser/shell/tab-bar-toolbar";
 import { ResourceResolver } from "@theia/core/lib/common/resource";
+import { PreferenceContribution } from "@theia/core/lib/common/preferences/preference-schema";
 import { ContainerModule, interfaces } from "@theia/core/shared/inversify";
 import { CHANGES_SERVICE_PATH, ChangesService } from "../common/changes-protocol";
 import { ChangesContribution } from "./changes-contribution";
 import { ChangesWidget } from "./changes-widget";
+import { ChangesPreferenceContribution } from "./changes-preferences";
 import { HeadResourceResolver } from "./head-resource-resolver";
 
 function createChangesWidget(parent: interfaces.Container): ChangesWidget {
@@ -24,6 +26,8 @@ function createChangesWidget(parent: interfaces.Container): ChangesWidget {
 }
 
 export default new ContainerModule((bind) => {
+  bind(ChangesPreferenceContribution).toSelf().inSingletonScope();
+  bind(PreferenceContribution).toService(ChangesPreferenceContribution);
   bind(ChangesService)
     .toDynamicValue((context) =>
       ServiceConnectionProvider.createProxy<ChangesService>(context.container, CHANGES_SERVICE_PATH),

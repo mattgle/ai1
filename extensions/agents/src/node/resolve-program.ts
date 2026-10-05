@@ -27,7 +27,7 @@ function isExecutableFile(candidate: string): boolean {
 // program's own arguments as its own arguments; the shell exits at once.
 // Resolving the absolute path here keeps `shellPath` a real, executable
 // file, so Theia's own check accepts it.
-export function resolveProgram(name: "opencode" | "tmux"): string {
+export function resolveProgram(name: "opencode" | "tmux" | "node"): string {
   const found = findOnPath(name, process.env.PATH, isExecutableFile);
   if (!found) {
     throw new Error(notInstalledMessage(name));

@@ -13,7 +13,6 @@ export default [
       "**/plugins/**",
       "**/gen-webpack*.js",
       "**/webpack.config.js",
-      "**/esbuild.mjs",
       "**/gen-esbuild*.mjs",
       "**/test-results/**",
       "**/playwright-report/**",
@@ -28,7 +27,7 @@ export default [
     },
   },
   {
-    files: ["**/*.js", "**/*.mjs"],
+    files: ["**/*.js", "**/*.mjs", "**/*.cjs"],
     languageOptions: {
       globals: {
         require: "readonly",

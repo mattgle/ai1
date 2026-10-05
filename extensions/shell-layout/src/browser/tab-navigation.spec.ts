@@ -1,48 +1,46 @@
 import * as assert from "node:assert";
 import { selectTabAtIndex } from "./tab-selection";
-import { selectPane } from "./pane-selection";
+import { selectPanel } from "./pane-selection";
 
-describe("pane selection", () => {
-  const panes = [
+describe("panel selection", () => {
+  const panels = [
     { id: "bottom-right", x: 500, y: 400 },
-    { id: "top", x: 0, y: 0 },
+    { id: "top-left", x: 0, y: 0 },
     { id: "bottom-left", x: 0, y: 400 },
+    { id: "top-right", x: 500, y: 1 },
   ];
 
-  it("selects top and bottom rows instead of flat editor groups", () => {
-    assert.equal(selectPane(panes, "bottom-right", "row", 0), "top");
-    assert.equal(selectPane(panes, "top", "row", 1), "bottom-left");
+  it("numbers panels left to right, then top to bottom", () => {
+    assert.deepEqual(
+      [0, 1, 2, 3].map((index) => selectPanel(panels, index)),
+      ["top-left", "top-right", "bottom-left", "bottom-right"],
+    );
   });
 
-  it("selects columns only within the current row", () => {
-    assert.equal(selectPane(panes, "bottom-left", "column", 1), "bottom-right");
-    assert.equal(selectPane(panes, "bottom-right", "column", 0), "bottom-left");
-    assert.equal(selectPane(panes, "top", "column", 1), undefined);
+  it("does not change the input order", () => {
+    const before = [...panels];
+    selectPanel(panels, 0);
+    assert.deepEqual(panels, before);
   });
 
-  it("keeps the column when both rows have that column", () => {
-    const grid = [...panes, { id: "top-right", x: 500, y: 0 }];
-    assert.equal(selectPane(grid, "bottom-right", "row", 0), "top-right");
-  });
-
-  it("handles empty layouts, missing focus, and invalid indexes", () => {
-    assert.equal(selectPane([], undefined, "row", 0), undefined);
-    assert.equal(selectPane(panes, undefined, "column", 0), "top");
-    assert.equal(selectPane(panes, "top", "row", 2), undefined);
-    assert.equal(selectPane(panes, "top", "row", -1), undefined);
+  it("handles empty layouts, missing panels, and invalid indexes", () => {
+    assert.equal(selectPanel([], 0), undefined);
+    assert.equal(selectPanel(panels, 4), undefined);
+    assert.equal(selectPanel(panels, -1), undefined);
+    assert.equal(selectPanel(panels, 0.5), undefined);
   });
 });
 
 describe("selectTabAtIndex", () => {
   it("activates the requested tab in the current tab bar", () => {
     const tabBar = { titles: [{}, {}, {}], currentIndex: 0 };
-    assert.equal(selectTabAtIndex(tabBar as never, 1), true);
+    assert.equal(selectTabAtIndex(tabBar, 1), true);
     assert.equal(tabBar.currentIndex, 1);
   });
 
   it("does nothing when the tab bar does not have that tab", () => {
     const tabBar = { titles: [{}], currentIndex: 0 };
-    assert.equal(selectTabAtIndex(tabBar as never, 1), false);
+    assert.equal(selectTabAtIndex(tabBar, 1), false);
     assert.equal(tabBar.currentIndex, 0);
   });
 

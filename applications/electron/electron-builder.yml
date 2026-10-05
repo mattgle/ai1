@@ -1,8 +1,9 @@
 appId: dev.ai1.app
 productName: AI1
-electronVersion: 42.8.1
+electronVersion: 42.11.8
 asar: false
 npmRebuild: false
+afterPack: ./scripts/distribution-notices.cjs
 directories:
   output: dist
 files:

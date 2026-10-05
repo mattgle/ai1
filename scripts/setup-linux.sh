@@ -35,6 +35,7 @@ npm ci
 npm run lint
 npm run typecheck
 npm test
+npm run test:archive-security
 bash scripts/package-linux.sh --dir
 echo "Test app directory: applications/electron/dist/linux-unpacked"
 echo "This build is not an installation. See docs/omarchy-setup.md for runtime checks."

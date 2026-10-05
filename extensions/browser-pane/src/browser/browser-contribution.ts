@@ -201,7 +201,10 @@ export class BrowserContribution
     // exists, so it does not depend on a current browser tab, unlike the
     // shortcuts that act on the current tab.
     registry.registerCommand(BrowserCommands.REOPEN_CLOSED_TAB, {
-      execute: () => this.tabs.reopenClosed(),
+      execute: () =>
+        registry.isEnabled("ai1.tabs.reopenClosedBatch")
+          ? registry.executeCommand("ai1.tabs.reopenClosedBatch")
+          : this.tabs.reopenClosed(),
     });
     for (const { command, shortcut } of SHORTCUT_COMMANDS) {
       registry.registerCommand(command, {
@@ -212,6 +215,8 @@ export class BrowserContribution
   }
 
   registerKeybindings(keybindings: KeybindingRegistry): void {
+    if (isOSX)
+      keybindings.registerKeybinding({ command: BrowserCommands.NEW_TAB.id, keybinding: "meta+ctrl+b" });
     for (const { command, keybindings: keys, when } of SHORTCUT_COMMANDS) {
       for (const keybinding of keys) {
         keybindings.registerKeybinding({ command: command.id, keybinding, when });

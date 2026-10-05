@@ -1,4 +1,5 @@
-const IGNORED_FOLDERS = ["/.git/", "/node_modules/", "/dist/", "/out/", "/build/", "/coverage/"];
+export const IGNORED_DIRECTORY_NAMES = new Set([".git", "node_modules", "dist", "out", "build", "coverage"]);
+const IGNORED_FOLDERS = [...IGNORED_DIRECTORY_NAMES].map((name) => `/${name}/`);
 const IGNORED_EXTENSIONS = [".tsbuildinfo", ".log", ".swp", ".swo"];
 const IGNORED_NAMES = ["/.DS_Store", "/Thumbs.db"];
 
@@ -12,4 +13,18 @@ export function shouldIgnorePath(fsPath: string): boolean {
     IGNORED_EXTENSIONS.some((extension) => fsPath.endsWith(extension)) ||
     IGNORED_NAMES.some((name) => fsPath.endsWith(name))
   );
+}
+
+export function shouldRefreshPath(fsPath: string): boolean {
+  const git = fsPath.lastIndexOf("/.git/");
+  if (git >= 0) {
+    const relative = fsPath.slice(git + "/.git/".length);
+    return (
+      relative === "index" ||
+      relative === "HEAD" ||
+      relative === "packed-refs" ||
+      (relative.startsWith("refs/") && !relative.endsWith(".lock"))
+    );
+  }
+  return !shouldIgnorePath(fsPath);
 }

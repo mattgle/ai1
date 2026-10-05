@@ -17,7 +17,7 @@ const fileName = "YieldCalculator.module.scss";
 test.beforeAll(async () => {
   root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ai1-changes-layout-")));
   const workspace = path.join(root, "workspace");
-  const repository = path.join(workspace, "governance");
+  const repository = path.join(workspace, "railgun", "reloaded", "governance");
   const folder = path.join(repository, "src", "pages", "Admin", "YieldCalculator");
   const state = path.join(root, "state");
   fs.mkdirSync(folder, { recursive: true });
@@ -66,10 +66,17 @@ test.beforeAll(async () => {
     path.join(state, "opencode", "service.json"),
     JSON.stringify({ url: server.baseUrl, password: server.password }),
   );
-  const application = path.resolve(__dirname, "../../applications/electron");
+  const application =
+    process.env.AI1_PACKAGED_RESOURCES ?? path.resolve(__dirname, "../../applications/electron");
+  fs.mkdirSync(path.join(root, "config"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "config/settings.json"),
+    JSON.stringify({ "ai1.welcome.startup": "never" }),
+  );
   electronApp = await electron.launch({
+    executablePath: process.env.AI1_E2E_EXECUTABLE,
     args: [
-      application,
+      ...(process.env.AI1_E2E_EXECUTABLE ? [] : [application]),
       "--no-sandbox",
       "--no-cluster",
       `--app-project-path=${application}`,
@@ -105,6 +112,16 @@ test.afterAll(async () => {
   await removeTempDir(root);
 });
 
+test("Changes finds a deep repository and refreshes after a nested file save", async () => {
+  const view = app.page.locator("#ai1-changes");
+  await expect(view.locator(".ai1-changes-repo .ai1-changes-name")).toHaveText("railgun/reloaded/governance");
+  const added = path.join(root, "workspace", "railgun", "reloaded", "governance", "new-nested-file.ts");
+  fs.writeFileSync(added, "export const nested = true;\n");
+  await expect(view.locator(".ai1-changes-file", { hasText: "new-nested-file.ts" })).toBeVisible();
+  fs.unlinkSync(added);
+  await expect(view.locator(".ai1-changes-file")).toHaveCount(2);
+});
+
 test("Changes hover actions do not overlap a long file name", async () => {
   const row = app.page.locator("#ai1-changes .theia-TreeNode", { hasText: fileName });
   await row.hover();
@@ -119,6 +136,69 @@ test("Changes hover actions do not overlap a long file name", async () => {
     "title",
     `src/pages/Admin/YieldCalculator/${fileName}`,
   );
+});
+
+test("Changes rows keep their height and position when actions appear", async () => {
+  const rows = app.page.locator("#ai1-changes .theia-TreeNode");
+  const row = rows.filter({ hasText: fileName });
+  await app.page.mouse.move(0, 0);
+  const measure = () =>
+    rows.evaluateAll((nodes) =>
+      nodes.map((node) => {
+        const rect = node.getBoundingClientRect();
+        return { top: rect.top, height: rect.height };
+      }),
+    );
+  const before = await measure();
+  await row.hover();
+  const action = row.getByRole("button", { name: "Open File", exact: true });
+  await expect(action).toBeVisible();
+  expect(await measure()).toEqual(before);
+  await action.focus();
+  await app.page.mouse.move(0, 0);
+  await expect(action).toBeVisible();
+  expect(await measure()).toEqual(before);
+  await app.page.locator("#theia-main-content-panel").click();
+  if (process.env.AI1_CHANGES_SCREENSHOT) {
+    await app.page.mouse.move(0, 0);
+    await app.page.screenshot({ path: process.env.AI1_CHANGES_SCREENSHOT });
+  }
+});
+
+test("Explorer uses rounded activity and file selection without an edge marker", async () => {
+  const activity = app.page.locator("#shell-tab-explorer-view-container");
+  if (!(await activity.getAttribute("class"))?.includes("lm-mod-current")) await clickTab(activity);
+  await expect(activity).toHaveClass(/lm-mod-current/);
+  await expect(activity).toHaveCSS("box-shadow", "none");
+  const selection = await activity.evaluate((node) => {
+    const style = getComputedStyle(node, "::before");
+    return {
+      width: style.width,
+      height: style.height,
+      radius: style.borderRadius,
+      background: style.backgroundColor,
+    };
+  });
+  expect(selection).toEqual({
+    width: "32px",
+    height: "32px",
+    radius: "4px",
+    background: "rgba(255, 255, 255, 0.13)",
+  });
+  const row = app.page.locator("#files .theia-TreeNode", { hasText: "tsconfig.json" });
+  await row.click();
+  await expect(row).toHaveClass(/theia-mod-selected/);
+  await expect(row).toHaveCSS("border-radius", "4px");
+  await expect(row).toHaveCSS("margin-left", "4px");
+  await expect(row).toHaveCSS("margin-right", "4px");
+  const height = (await row.boundingBox())!.height;
+  await app.page.locator("#theia-main-content-panel").click();
+  await expect(row).toHaveClass(/theia-mod-selected/);
+  expect((await row.boundingBox())!.height).toBe(height);
+  if (process.env.AI1_SELECTION_SCREENSHOT) {
+    await app.page.mouse.move(0, 0);
+    await app.page.screenshot({ path: process.env.AI1_SELECTION_SCREENSHOT });
+  }
 });
 
 test("Diff tabs use the file-type icon instead of a split-panel icon", async () => {
@@ -228,4 +308,59 @@ test("Problem tabs keep the file icon clear while retaining the problem count", 
       await tab.screenshot({ path: test.info().outputPath(`problem-tab-${theme}-${count}.png`) });
     }
   }
+});
+
+test("Changes Control-click zooms the diff or working file without hiding side panels", async () => {
+  const page = app.page;
+  const row = page.locator("#ai1-changes .theia-TreeNode", { hasText: "routes.ts" });
+  await row.hover();
+  await row.getByRole("button", { name: "Open File", exact: true }).click();
+  await app.quickCommandPalette.type("Split Editor Right");
+  await page.locator(".quick-input-widget .monaco-list-row", { hasText: "Split Editor Right" }).click();
+  await expect(page.locator("#theia-main-content-panel .lm-TabBar")).toHaveCount(2);
+  const layout = () =>
+    page.locator("#theia-main-content-panel .lm-TabBar").evaluateAll((bars) =>
+      bars
+        .map((bar) => {
+          const rect = bar.getBoundingClientRect();
+          return {
+            x: Math.round(rect.x),
+            y: Math.round(rect.y),
+            width: Math.round(rect.width),
+            tabs: Array.from(bar.querySelectorAll(".lm-TabBar-tab")).map((tab) => tab.id),
+          };
+        })
+        .sort((a, b) => a.y - b.y || a.x - b.x),
+    );
+  const sideBounds = await page.locator("#theia-right-side-panel").boundingBox();
+  await row.locator(".ai1-changes-caption").click({ modifiers: ["Control"] });
+  await expect(page.locator("#theia-main-content-panel .lm-TabBar:visible")).toHaveCount(1);
+  await expect(page.locator("#theia-main-content-panel .lm-TabBar-tab.lm-mod-current")).toContainText(
+    "routes.ts (HEAD ↔ Working)",
+  );
+  await expect(page.locator("#theia-main-content-panel .monaco-diff-editor:visible")).toHaveCount(1);
+  expect(await page.locator("#theia-right-side-panel").boundingBox()).toEqual(sideBounds);
+  await row.locator(".ai1-changes-caption").click({ modifiers: ["Control"] });
+  await expect(page.locator("#theia-main-content-panel .lm-TabBar:visible")).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#theia-main-content-panel .lm-TabBar")).toHaveCount(2);
+  const beforeFile = await layout();
+  await row.hover();
+  await row.getByRole("button", { name: "Open File", exact: true }).click({ modifiers: ["Control"] });
+  await expect(page.locator("#theia-main-content-panel .lm-TabBar:visible")).toHaveCount(1);
+  await expect(page.locator("#theia-main-content-panel .lm-TabBar-tab.lm-mod-current")).toHaveText(
+    /routes\.ts/,
+  );
+  await expect(page.locator("#theia-main-content-panel .lm-TabBar-tab.lm-mod-current")).not.toContainText(
+    "HEAD ↔ Working",
+  );
+  await expect(page.locator("#theia-main-content-panel .monaco-diff-editor:visible")).toHaveCount(0);
+  expect(await page.locator("#theia-right-side-panel").boundingBox()).toEqual(sideBounds);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await expect.poll(layout).toEqual(beforeFile);
+  await row.locator(".ai1-changes-caption").click();
+  await expect(page.locator("#theia-main-content-panel .lm-TabBar:visible")).toHaveCount(2);
+  await expect(page.locator("#theia-main-content-panel .monaco-diff-editor:visible")).toHaveCount(1);
 });

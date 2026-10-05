@@ -147,7 +147,7 @@ test("a session tab and a persistent tab survive a restart correctly", async () 
     await card.click();
     await expect(
       start1.app.page.locator("#theia-main-content-panel .lm-TabBar-tab", {
-        hasText: "OC · ai1-e2e-restart-session",
+        hasText: "sh · ai1-e2e-restart-session",
       }),
     ).toBeVisible();
 
@@ -160,8 +160,10 @@ test("a session tab and a persistent tab survive a restart correctly", async () 
       start1.app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "sh · dirty-repo" }),
     ).toBeVisible();
 
-    await expect.poll(() => listAi1TmuxSessions().length).toBe(preexistingTmuxSessions.length + 1);
-    tmuxName = listAi1TmuxSessions().find((name) => !preexistingTmuxSessions.includes(name));
+    await expect.poll(() => listAi1TmuxSessions().length).toBe(preexistingTmuxSessions.length + 2);
+    tmuxName = listAi1TmuxSessions()
+      .filter((name) => !preexistingTmuxSessions.includes(name))
+      .at(-1);
     if (!tmuxName) {
       throw new Error("the persistent terminal did not create a new ai1-* tmux session");
     }
@@ -181,9 +183,9 @@ test("a session tab and a persistent tab survive a restart correctly", async () 
     ).toHaveCount(1);
     await expect(
       start2.app.page.locator("#theia-main-content-panel .lm-TabBar-tab", {
-        hasText: "OC · ai1-e2e-restart-session",
+        hasText: "sh · ai1-e2e-restart-session",
       }),
-    ).toHaveCount(0);
+    ).toHaveCount(1);
 
     await activateAndType(start2.app, "sh · dirty-repo", "echo AI1_RESTART_MARKER_2");
     await expect

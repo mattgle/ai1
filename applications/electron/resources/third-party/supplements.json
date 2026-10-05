@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "sources": {
+    "theia-notice": {
+      "license": "EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0",
+      "text": "theia/NOTICE.md",
+      "sha256": "9911a1d6c0777777f94c100c1760f85a313f7fe15b95c4a66e552a74b60a7d5d",
+      "revision": "52f32db6e32d1f88dbbbbde08c8a01ad75c53e11",
+      "url": "https://raw.githubusercontent.com/eclipse-theia/theia/52f32db6e32d1f88dbbbbde08c8a01ad75c53e11/NOTICE.md"
+    },
+    "theia-mit": {
+      "license": "MIT",
+      "text": "theia/LICENSE-MIT.txt",
+      "sha256": "cfca8e97a3cb58c3a8004c4642dfec191b09d3e76a322c232d0b7edf3d66aa7c",
+      "revision": "52f32db6e32d1f88dbbbbde08c8a01ad75c53e11",
+      "url": "https://raw.githubusercontent.com/eclipse-theia/theia/52f32db6e32d1f88dbbbbde08c8a01ad75c53e11/LICENSE-MIT.txt"
+    },
+    "theia-vscode": {
+      "license": "MIT",
+      "text": "theia/LICENSE-vscode.txt",
+      "sha256": "39e379a27a642e8146a3c1a089fa96cf8221d2233a7f5821e33a91da7dacfc3b",
+      "revision": "52f32db6e32d1f88dbbbbde08c8a01ad75c53e11",
+      "url": "https://raw.githubusercontent.com/eclipse-theia/theia/52f32db6e32d1f88dbbbbde08c8a01ad75c53e11/LICENSE-vscode.txt"
+    },
+    "tokenizer-token": {
+      "license": "MIT",
+      "text": "tokenizer/LICENSE-README.txt",
+      "sha256": "844148fa5d91a03c6ada823a207f43aabdcd4c79d73ceb2276571127787c9228",
+      "revision": "e068a455370090f44c757946b8571bb3fb1f117e",
+      "url": "https://raw.githubusercontent.com/Borewit/tokenizer-token/e068a455370090f44c757946b8571bb3fb1f117e/README.md"
+    },
+    "theia": {
+      "license": "EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0",
+      "text": "theia/LICENSE-EPL",
+      "sha256": "8c349f80764d0648e645f41ef23772a70c995a0924b5235f735f4a3d09df127c",
+      "revision": "52f32db6e32d1f88dbbbbde08c8a01ad75c53e11",
+      "url": "https://raw.githubusercontent.com/eclipse-theia/theia/52f32db6e32d1f88dbbbbde08c8a01ad75c53e11/LICENSE-EPL"
+    },
+    "theia-legacy-expression": {
+      "license": "EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0",
+      "text": "theia/LICENSE-EPL",
+      "sha256": "8c349f80764d0648e645f41ef23772a70c995a0924b5235f735f4a3d09df127c",
+      "revision": "52f32db6e32d1f88dbbbbde08c8a01ad75c53e11",
+      "url": "https://raw.githubusercontent.com/eclipse-theia/theia/52f32db6e32d1f88dbbbbde08c8a01ad75c53e11/LICENSE-EPL"
+    },
+    "lumino": {
+      "license": "BSD-3-Clause",
+      "text": "lumino/LICENSE.txt",
+      "sha256": "b0da99e8c73e7fdad117622971e6d16379fd01b5d0b60589de7133b6fec59422",
+      "revision": "cd6ece2592679988eb65689773978583596cd06f",
+      "url": "https://raw.githubusercontent.com/jupyterlab/lumino/cd6ece2592679988eb65689773978583596cd06f/LICENSE"
+    },
+    "lumino-widgets": {
+      "license": "BSD-3-Clause",
+      "text": "lumino/LICENSE.txt",
+      "sha256": "b0da99e8c73e7fdad117622971e6d16379fd01b5d0b60589de7133b6fec59422",
+      "revision": "1cc7050687224764b0f6309962079409e8698d46",
+      "url": "https://raw.githubusercontent.com/jupyterlab/lumino/1cc7050687224764b0f6309962079409e8698d46/LICENSE"
+    }
+  },
+  "packages": [
+    { "name": "@tokenizer/token", "version": "0.3.0", "source": "tokenizer-token" },
+    { "name": "@theia/ai-core", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/ai-core-ui", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/ai-mcp", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/application-package", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/bulk-edit", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/callhierarchy", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/console", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/core", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/debug", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/editor", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/editor-preview", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/electron", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/file-search", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/filesystem", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/keymaps", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/markers", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/messages", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/monaco", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/navigator", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/notebook", "version": "1.75.0", "source": "theia-legacy-expression" },
+    { "name": "@theia/outline-view", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/output", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/ovsx-client", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/plugin", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/plugin-ext", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/plugin-ext-vscode", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/plugin-utils", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/preferences", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/process", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/request", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/scm", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/search-in-workspace", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/task", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/terminal", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/test", "version": "1.75.0", "source": "theia-legacy-expression" },
+    { "name": "@theia/timeline", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/typehierarchy", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/userstorage", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/variable-resolver", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/vsx-registry", "version": "1.75.0", "source": "theia" },
+    { "name": "@theia/workspace", "version": "1.75.0", "source": "theia" },
+    { "name": "@lumino/algorithm", "version": "2.0.5", "source": "lumino" },
+    { "name": "@lumino/collections", "version": "2.0.5", "source": "lumino" },
+    { "name": "@lumino/commands", "version": "2.3.4", "source": "lumino" },
+    { "name": "@lumino/coreutils", "version": "2.2.3", "source": "lumino" },
+    { "name": "@lumino/disposable", "version": "2.1.6", "source": "lumino" },
+    { "name": "@lumino/domutils", "version": "2.0.5", "source": "lumino" },
+    { "name": "@lumino/dragdrop", "version": "2.1.9", "source": "lumino" },
+    { "name": "@lumino/keyboard", "version": "2.0.5", "source": "lumino" },
+    { "name": "@lumino/messaging", "version": "2.0.5", "source": "lumino" },
+    { "name": "@lumino/properties", "version": "2.0.5", "source": "lumino" },
+    { "name": "@lumino/signaling", "version": "2.1.6", "source": "lumino" },
+    { "name": "@lumino/virtualdom", "version": "2.0.5", "source": "lumino" },
+    { "name": "@lumino/widgets", "version": "2.7.5", "source": "lumino-widgets" }
+  ]
+}

@@ -5,29 +5,94 @@ import { injectable } from "@theia/core/shared/inversify";
 import { ChangesService, FileChangeEntry, RepoChanges } from "../common/changes-protocol";
 import { discardPlan } from "../common/git-status";
 import { parseStatusV2 } from "../common/status-v2";
+import { IGNORED_DIRECTORY_NAMES } from "../common/refresh-filter";
+import { normalizeScanDepth } from "../common/repository-scan-depth";
 import { readGit, runGit } from "./git-runner";
 import { resolveInsideRepo } from "./repo-path";
 
 interface RepoCandidate {
   name: string;
   path: string;
-  // Whether this candidate's own directory entry is a symbolic link, from
-  // `Dirent.isSymbolicLink()`. Undefined for the "workspace root is itself a
-  // repository" case, where there is no sibling to dedupe against.
+  realPath?: string;
+  // True when the repository entry is a symbolic link.
   isLink?: boolean;
+}
+
+const SCAN_CONCURRENCY = 8;
+
+interface ScanState {
+  candidates: RepoCandidate[];
+  repos: Map<string, RepoChanges>;
+}
+
+function containsPath(parent: string, child: string): boolean {
+  const relative = path.relative(parent, child);
+  return (
+    relative === "" ||
+    (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))
+  );
+}
+
+async function canonicalPath(file: string): Promise<string> {
+  const real = await fs.promises.realpath(file).catch(() => undefined);
+  if (real) return real;
+  const parent = path.dirname(file);
+  if (parent === file) return file;
+  return path.join(await canonicalPath(parent), path.basename(file));
 }
 
 @injectable()
 export class ChangesServiceImpl implements ChangesService {
-  async scan(workspaceRootUris: string[]): Promise<RepoChanges[]> {
-    const candidates = (
-      await Promise.all(workspaceRootUris.map((uri) => this.findRepos(fileURLToPath(uri))))
-    ).flat();
-    // All repositories in parallel: the total time is the time of the slowest one.
-    const scanned = await Promise.all(candidates.map((candidate) => this.scanRepo(candidate)));
-    return scanned
-      .filter((repo): repo is RepoChanges => repo !== undefined)
-      .sort((a, b) => a.name.localeCompare(b.name));
+  protected cachedScan?: { key: string; state: Promise<ScanState> };
+
+  async scan(workspaceRootUris: string[], maxDepth?: number, changedUris?: string[]): Promise<RepoChanges[]> {
+    const roots = workspaceRootUris.map((uri) => fileURLToPath(uri));
+    const depth = normalizeScanDepth(maxDepth);
+    const key = JSON.stringify([roots, depth]);
+    const previous = this.cachedScan?.key === key ? this.cachedScan.state : undefined;
+    const state = (previous?.catch(() => undefined) ?? Promise.resolve(undefined)).then(async (cached) => {
+      const full = changedUris === undefined || changedUris === null || !cached;
+      const candidates = full
+        ? await this.dedupeByRealPath(
+            (await Promise.all(roots.map((root) => this.findRepos(root, depth)))).flat(),
+          )
+        : cached.candidates;
+      const repos = full ? new Map<string, RepoChanges>() : new Map(cached.repos);
+      const paths = await Promise.all(
+        (
+          changedUris?.flatMap((uri) => {
+            try {
+              return [fileURLToPath(uri)];
+            } catch {
+              return [];
+            }
+          }) ?? []
+        ).map(canonicalPath),
+      );
+      const affected = full
+        ? candidates
+        : candidates.filter((candidate) =>
+            paths.some(
+              (changed) =>
+                containsPath(candidate.realPath ?? candidate.path, changed) ||
+                containsPath(changed, candidate.realPath ?? candidate.path),
+            ),
+          );
+      for (let offset = 0; offset < affected.length; offset += SCAN_CONCURRENCY) {
+        const scanned = await Promise.all(
+          affected
+            .slice(offset, offset + SCAN_CONCURRENCY)
+            .map(async (candidate) => ({ candidate, repo: await this.scanRepo(candidate) })),
+        );
+        for (const { candidate, repo } of scanned) {
+          if (repo) repos.set(candidate.path, repo);
+          else repos.delete(candidate.path);
+        }
+      }
+      return { candidates, repos };
+    });
+    this.cachedScan = { key, state };
+    return [...(await state).repos.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
 
   async readHead(repoRootUri: string, filePath: string): Promise<string> {
@@ -80,33 +145,52 @@ export class ChangesServiceImpl implements ChangesService {
     await runGit(repoPath, ["clean", "-fd"]);
   }
 
-  // A workspace root is one repository, or a folder whose direct children are repositories.
-  protected async findRepos(root: string): Promise<RepoCandidate[]> {
-    if (fs.existsSync(path.join(root, ".git"))) {
-      return [{ name: path.basename(root), path: root }];
-    }
-    let entries: fs.Dirent[];
-    try {
-      entries = await fs.promises.readdir(root, { withFileTypes: true });
-    } catch {
-      return [];
-    }
-    const candidates = (
-      await Promise.all(
-        entries.map(async (entry): Promise<RepoCandidate | undefined> => {
-          const childPath = path.join(root, entry.name);
-          const isLink = entry.isSymbolicLink();
-          // Dirent.isDirectory() is false for a symbolic link, even one that
-          // points at a directory, so a symbolic-link sibling repository needs
-          // a stat that follows the link.
-          const isDirectory = entry.isDirectory() || (isLink && (await this.statIsDirectory(childPath)));
-          return isDirectory && fs.existsSync(path.join(childPath, ".git"))
-            ? { name: entry.name, path: childPath, isLink }
-            : undefined;
+  // Search each directory level, including folders inside a repository.
+  protected async findRepos(root: string, maxDepth: number): Promise<RepoCandidate[]> {
+    const pending = [{ directory: root, depth: 0 }];
+    const candidates: RepoCandidate[] = [];
+    let offset = 0;
+    while (offset < pending.length) {
+      const batch = pending.slice(offset, offset + SCAN_CONCURRENCY);
+      offset += batch.length;
+      const results = await Promise.all(
+        batch.map(async ({ directory, depth }) => {
+          const repos: RepoCandidate[] = [];
+          const folders: typeof pending = [];
+          const name = (repoPath: string): string =>
+            path.relative(root, repoPath).split(path.sep).join("/") || path.basename(root);
+          if (fs.existsSync(path.join(directory, ".git"))) {
+            repos.push({ name: name(directory), path: directory });
+          }
+          if (maxDepth >= 0 && depth >= maxDepth) return { repos, folders };
+          let entries: fs.Dirent[];
+          try {
+            entries = await fs.promises.readdir(directory, { withFileTypes: true });
+          } catch {
+            return { repos, folders };
+          }
+          for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+            if (IGNORED_DIRECTORY_NAMES.has(entry.name)) continue;
+            const childPath = path.join(directory, entry.name);
+            if (entry.isDirectory()) {
+              folders.push({ directory: childPath, depth: depth + 1 });
+            } else if (
+              entry.isSymbolicLink() &&
+              (await this.statIsDirectory(childPath)) &&
+              fs.existsSync(path.join(childPath, ".git"))
+            ) {
+              repos.push({ name: name(childPath), path: childPath, isLink: true });
+            }
+          }
+          return { repos, folders };
         }),
-      )
-    ).filter((candidate): candidate is RepoCandidate => candidate !== undefined);
-    return this.dedupeByRealPath(candidates);
+      );
+      for (const result of results) {
+        candidates.push(...result.repos);
+        pending.push(...result.folders);
+      }
+    }
+    return candidates;
   }
 
   protected async statIsDirectory(childPath: string): Promise<boolean> {
@@ -118,24 +202,23 @@ export class ChangesServiceImpl implements ChangesService {
     }
   }
 
-  // A symbolic-link sibling that points at another candidate in the same
-  // folder is the same repository found twice. Keep the entry whose own
-  // directory entry is not a link (the real name); if neither is (two links
-  // to the same target), keep the first one found.
+  // Repository links and overlapping workspace roots can produce duplicates.
+  // Keep the entry that is not a link. Otherwise, keep the first entry.
   //
   // This does not compare `candidate.path` with its resolved `realPath`: the
   // workspace root itself can be reached through a link that was never
   // resolved with `realpathSync` (on macOS, `/tmp` and `/var` are links), in
   // which case *no* candidate's own path ever equals its realpath, even the
-  // real, non-link sibling. `isLink` comes straight from the `Dirent` of each
-  // sibling, so it is correct regardless of how the root itself was reached.
+  // real, non-link entry. `isLink` comes from the repository directory entry,
+  // so it is correct regardless of how the workspace root is reached.
   protected async dedupeByRealPath(candidates: RepoCandidate[]): Promise<RepoCandidate[]> {
     const kept = new Map<string, RepoCandidate>();
     for (const candidate of candidates) {
-      const realPath = await fs.promises.realpath(candidate.path);
+      const realPath = await fs.promises.realpath(candidate.path).catch(() => undefined);
+      if (!realPath) continue;
       const existing = kept.get(realPath);
       if (!existing || (existing.isLink && !candidate.isLink)) {
-        kept.set(realPath, candidate);
+        kept.set(realPath, { ...candidate, realPath });
       }
     }
     return [...kept.values()];

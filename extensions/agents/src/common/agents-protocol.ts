@@ -50,6 +50,9 @@ export interface AgentsClient {
 }
 
 export interface AgentsService {
+  sessionInputAttention(ids: string[]): Promise<{ id: string; pending: boolean }[]>;
+  terminalAttention(names: string[]): Promise<{ name: string; token: string; status: SessionStatus }[]>;
+  terminalAttentionSetup(): Promise<{ hookPath: string; directory: string }>;
   load(workspaceRootUris: string[]): Promise<AgentsSnapshot>;
   lastMessage(id: string): Promise<string | undefined>;
   createSession(directory: string, title?: string): Promise<SessionSummary>;
@@ -58,6 +61,12 @@ export interface AgentsService {
   sendPrompt(id: string, text: string, files?: { uri: string; name?: string }[]): Promise<void>;
   // The command line of the interface process for a session terminal.
   sessionCommand(id: string, directory: string): Promise<{ program: string; args: string[] }>;
+  sessionShellCommand(
+    id: string,
+    directory: string,
+    name: string,
+  ): Promise<{ program: string; args: string[] }>;
+  sessionShellLinks(names: string[]): Promise<{ name: string; id?: string }[]>;
   // The command line of a new persistent shell. `directory` is omitted when
   // reattaching to an existing session with no particular directory in mind.
   tmuxCommand(name: string, directory?: string): Promise<{ program: string; args: string[] }>;

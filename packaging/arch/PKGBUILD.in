@@ -1,0 +1,22 @@
+# Maintainer: mattgle
+pkgname=ai1
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc='A workspace for coding agents'
+arch=('x86_64')
+url='https://github.com/mattgle/ai1'
+license=('MIT')
+depends=('glibc' 'gcc-libs' 'alsa-lib' 'gtk3' 'nss' 'libxss' 'libxtst' 'libnotify' 'libsecret' 'libxkbfile' 'libx11' 'libxkbcommon' 'at-spi2-core' 'libdrm' 'mesa' 'systemd-libs' 'tmux' 'nodejs>=24')
+options=('!strip')
+source=("ai1-${pkgver}-linux-x64.tar.gz" 'ai1' 'ai1.desktop' 'LICENSE')
+sha256sums=('@ARCHIVE_SHA@' '@LAUNCHER_SHA@' '@DESKTOP_SHA@' '@LICENSE_SHA@')
+
+package() {
+  install -d "${pkgdir}/opt/ai1"
+  cp -a "${srcdir}/ai1-${pkgver}/." "${pkgdir}/opt/ai1/"
+  install -d "${pkgdir}/usr/bin" "${pkgdir}/usr/share/applications" "${pkgdir}/usr/share/pixmaps" "${pkgdir}/usr/share/licenses/ai1"
+  install -m755 "${srcdir}/ai1" "${pkgdir}/usr/bin/ai1"
+  install -m644 "${srcdir}/ai1.desktop" "${pkgdir}/usr/share/applications/ai1.desktop"
+  install -m644 "${pkgdir}/opt/ai1/resources/app/resources/branding/icon-dark.png" "${pkgdir}/usr/share/pixmaps/ai1.png"
+  install -m644 "${srcdir}/LICENSE" "${pkgdir}/usr/share/licenses/ai1/LICENSE"
+}

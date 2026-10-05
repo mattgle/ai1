@@ -13,11 +13,13 @@
     "@theia/core": "1.75.0",
     "@theia/filesystem": "1.75.0",
     "@theia/terminal": "1.75.0",
-    "@theia/workspace": "1.75.0"
+    "@theia/workspace": "1.75.0",
+    "proper-lockfile": "4.1.2"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.0",
     "@types/node": "^20.0.0",
+    "@types/proper-lockfile": "4.1.4",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "mocha": "^10.0.0",

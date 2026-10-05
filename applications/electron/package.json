@@ -4,6 +4,7 @@
   "productName": "AI1",
   "version": "0.1.0",
   "license": "MIT",
+  "author": "mattgle",
   "description": "AI1 desktop application",
   "main": "scripts/ai1-electron-main.js",
   "dependencies": {
@@ -32,12 +33,13 @@
     "ai1-changes-view": "0.1.0",
     "ai1-material-icons": "0.1.0",
     "ai1-shell-layout": "0.1.0",
-    "ai1-updater": "0.1.0"
+    "ai1-updater": "0.1.0",
+    "dompurify": "3.4.16"
   },
   "devDependencies": {
     "@theia/cli": "1.75.0",
-    "electron": "42.8.1",
-    "electron-builder": "26.0.0"
+    "electron": "42.11.8",
+    "electron-builder": "26.15.3"
   },
   "scripts": {
     "rebuild": "theia rebuild:electron --cacheRoot ../..",
@@ -68,7 +70,7 @@
           "diffEditor.ignoreTrimWhitespace": false,
           "problems.decorations.tabbar.enabled": false,
           "terminal.integrated.fontFamily": "'JetBrainsMono Nerd Font', 'JetBrains Mono', Menlo, Consolas, monospace",
-          "terminal.integrated.fontSize": 12,
+          "terminal.integrated.fontSize": 13,
           "terminal.integrated.lineHeight": 1,
           "terminal.integrated.cursorStyle": "block",
           "terminal.integrated.cursorBlinking": true,

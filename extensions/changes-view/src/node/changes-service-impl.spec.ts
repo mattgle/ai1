@@ -33,6 +33,21 @@ function createOutsideFolder(): string {
   return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ai1-changes-outside-")));
 }
 
+class CountingChangesService extends ChangesServiceImpl {
+  discoveryCalls = 0;
+  scannedPaths: string[] = [];
+
+  protected override async findRepos(root: string, maxDepth: number) {
+    this.discoveryCalls++;
+    return super.findRepos(root, maxDepth);
+  }
+
+  protected override async scanRepo(candidate: { name: string; path: string }) {
+    this.scannedPaths.push(candidate.path);
+    return super.scanRepo(candidate);
+  }
+}
+
 describe("ChangesServiceImpl", () => {
   const service = new ChangesServiceImpl();
   let root: string;
@@ -60,6 +75,234 @@ describe("ChangesServiceImpl", () => {
     assert.deepStrictEqual(
       repos.map((repo) => repo.name),
       ["dirty-repo"],
+    );
+  });
+
+  it("reuses discovery and runs Git only for affected repositories", async () => {
+    const counted = new CountingChangesService();
+    await counted.scan([uriOf(root)]);
+    counted.discoveryCalls = 0;
+    counted.scannedPaths = [];
+    const edited = path.join(root, "clean-repo/index.ts");
+    fs.writeFileSync(edited, "export const value = 5;\n");
+
+    const repos = await counted.scan([uriOf(root)], -1, [uriOf(edited)]);
+
+    assert.strictEqual(counted.discoveryCalls, 0);
+    assert.deepStrictEqual(counted.scannedPaths, [path.join(root, "clean-repo")]);
+    assert.deepStrictEqual(
+      repos.map((repo) => repo.name),
+      ["clean-repo", "dirty-repo"],
+    );
+  });
+
+  it("a full refresh discovers added repositories and replaces the cached snapshot", async () => {
+    const counted = new CountingChangesService();
+    await counted.scan([uriOf(root)]);
+    const added = createRepo(root, "railgun/reloaded/new-project");
+    fs.writeFileSync(path.join(added, "index.ts"), "export const value = 5;\n");
+
+    const repos = await counted.scan([uriOf(root)]);
+
+    assert.strictEqual(counted.discoveryCalls, 2);
+    assert.ok(repos.some((repo) => repo.rootUri === uriOf(added)));
+  });
+
+  it("does no Git work for unrelated file events or an empty update", async () => {
+    const counted = new CountingChangesService();
+    const initial = await counted.scan([uriOf(root)]);
+    counted.discoveryCalls = 0;
+    counted.scannedPaths = [];
+
+    assert.deepStrictEqual(
+      await counted.scan([uriOf(root)], -1, [uriOf(path.join(root, "unrelated.txt"))]),
+      initial,
+    );
+    assert.deepStrictEqual(await counted.scan([uriOf(root)], -1, []), initial);
+    assert.deepStrictEqual(await counted.scan([uriOf(root)], -1, ["user-storage:/settings.json"]), initial);
+    assert.strictEqual(counted.discoveryCalls, 0);
+    assert.deepStrictEqual(counted.scannedPaths, []);
+  });
+
+  it("removes a cached group when its repository becomes clean", async () => {
+    const counted = new CountingChangesService();
+    await counted.scan([uriOf(root)]);
+    git(dirty, "restore", "index.ts");
+    fs.unlinkSync(path.join(dirty, "untracked.ts"));
+
+    assert.deepStrictEqual(await counted.scan([uriOf(root)], -1, [uriOf(dirty)]), []);
+  });
+
+  it("invalidates discovery when workspace roots or depth change", async () => {
+    const counted = new CountingChangesService();
+    await counted.scan([uriOf(root)]);
+    await counted.scan([uriOf(root)], 1, []);
+    await counted.scan([uriOf(dirty)], 0, []);
+
+    assert.strictEqual(counted.discoveryCalls, 3);
+  });
+
+  it("serializes cached updates so concurrent edits do not lose results", async () => {
+    const counted = new CountingChangesService();
+    await counted.scan([uriOf(root)]);
+    const clean = path.join(root, "clean-repo");
+    fs.writeFileSync(path.join(clean, "index.ts"), "export const value = 5;\n");
+    const updates = await Promise.all([
+      counted.scan([uriOf(root)], -1, [uriOf(dirty)]),
+      counted.scan([uriOf(root)], -1, [uriOf(clean)]),
+    ]);
+
+    assert.deepStrictEqual(
+      updates[1].map((repo) => repo.name),
+      ["clean-repo", "dirty-repo"],
+    );
+    assert.strictEqual(counted.discoveryCalls, 1);
+  });
+
+  it("updates a cached linked repository when an event uses its real path", async () => {
+    const outsideFolder = createOutsideFolder();
+    outsideFolders.push(outsideFolder);
+    const outsideRepo = createRepo(outsideFolder, "outside-repo");
+    const link = path.join(root, "linked-only");
+    fs.symlinkSync(outsideRepo, link);
+    const counted = new CountingChangesService();
+    await counted.scan([uriOf(root)]);
+    counted.scannedPaths = [];
+    const edited = path.join(outsideRepo, "index.ts");
+    fs.writeFileSync(edited, "export const value = 5;\n");
+
+    const repos = await counted.scan([uriOf(root)], -1, [uriOf(edited)]);
+
+    assert.deepStrictEqual(counted.scannedPaths, [link]);
+    assert.ok(repos.some((repo) => repo.name === "linked-only"));
+  });
+
+  it("finds changes in a repository below railgun/reloaded when the workspace is code", async () => {
+    const nested = createRepo(root, "railgun/reloaded/project");
+    fs.writeFileSync(path.join(nested, "index.ts"), "export const value = 4;\n");
+
+    const repos = await service.scan([uriOf(root)]);
+
+    const found = repos.find((repo) => repo.rootUri === uriOf(nested));
+    assert.ok(found, "Changes includes the nested repository");
+    assert.strictEqual(found.name, "railgun/reloaded/project");
+    assert.deepStrictEqual(found.files, [{ status: " M", path: "index.ts" }]);
+  });
+
+  it("limits repository discovery by depth from each workspace root", async () => {
+    const levelTwo = createRepo(root, "group/project");
+    const levelThree = createRepo(root, "railgun/reloaded/project");
+    for (const repo of [levelTwo, levelThree]) {
+      fs.writeFileSync(path.join(repo, "index.ts"), "export const value = 4;\n");
+    }
+
+    assert.deepStrictEqual(await service.scan([uriOf(root)], 0), []);
+    assert.deepStrictEqual(
+      (await service.scan([uriOf(root)], 1)).map((repo) => repo.name),
+      ["dirty-repo"],
+    );
+    assert.deepStrictEqual(
+      (await service.scan([uriOf(root)], 2)).map((repo) => repo.name),
+      ["dirty-repo", "group/project"],
+    );
+    assert.deepStrictEqual(
+      (await service.scan([uriOf(root)], 3)).map((repo) => repo.name),
+      ["dirty-repo", "group/project", "railgun/reloaded/project"],
+    );
+    assert.deepStrictEqual(await service.scan([uriOf(root)], -1), await service.scan([uriOf(root)]));
+  });
+
+  it("includes the root repository at depth zero but not its nested repositories", async () => {
+    const nested = createRepo(dirty, "packages/nested-project");
+    fs.writeFileSync(path.join(nested, "index.ts"), "export const value = 4;\n");
+
+    const repos = await service.scan([uriOf(dirty)], 0);
+
+    assert.deepStrictEqual(
+      repos.map((repo) => repo.rootUri),
+      [uriOf(dirty)],
+    );
+  });
+
+  it("finds nested repositories even when the workspace root is a Git repository", async () => {
+    const nested = createRepo(dirty, "packages/nested-project");
+    fs.writeFileSync(path.join(nested, "index.ts"), "export const value = 4;\n");
+
+    const repos = await service.scan([uriOf(dirty)]);
+
+    assert.ok(repos.some((repo) => repo.rootUri === uriOf(dirty)));
+    assert.ok(repos.some((repo) => repo.rootUri === uriOf(nested)));
+  });
+
+  it("searches multiple directory batches and distinguishes projects with the same leaf name", async () => {
+    for (let index = 0; index < 20; index++) {
+      fs.mkdirSync(path.join(root, `group-${String(index).padStart(2, "0")}`));
+    }
+    for (const group of ["group-00", "group-19"]) {
+      const nested = createRepo(root, `${group}/one/two/three/four/project`);
+      fs.writeFileSync(path.join(nested, "index.ts"), "export const value = 4;\n");
+    }
+
+    const repos = await service.scan([uriOf(root)]);
+
+    assert.deepStrictEqual(
+      repos.map((repo) => repo.name),
+      ["dirty-repo", "group-00/one/two/three/four/project", "group-19/one/two/three/four/project"],
+    );
+  });
+
+  it("skips dependency folders, Git internals, and build output during discovery", async () => {
+    for (const ignored of [".git", "node_modules", "dist", "out", "build", "coverage"]) {
+      const nested = createRepo(root, `railgun/${ignored}/hidden-project`);
+      fs.writeFileSync(path.join(nested, "index.ts"), "export const value = 4;\n");
+    }
+
+    const repos = await service.scan([uriOf(root)]);
+
+    assert.deepStrictEqual(
+      repos.map((repo) => repo.name),
+      ["dirty-repo"],
+    );
+  });
+
+  it("scans an explicitly opened repository inside an excluded folder", async () => {
+    const nested = createRepo(root, "build/project");
+    fs.writeFileSync(path.join(nested, "index.ts"), "export const value = 4;\n");
+
+    const repos = await service.scan([uriOf(nested)]);
+
+    assert.strictEqual(repos.length, 1);
+    assert.strictEqual(repos[0].rootUri, uriOf(nested));
+  });
+
+  it("returns one repository when workspace roots overlap", async () => {
+    const repos = await service.scan([uriOf(root), uriOf(dirty), uriOf(root)]);
+
+    assert.strictEqual(repos.length, 1);
+    assert.strictEqual(repos[0].rootUri, uriOf(dirty));
+  });
+
+  it("finds nested Git worktrees whose .git entry is a file", async () => {
+    const nested = path.join(root, "railgun/reloaded/worktree");
+    git(dirty, "worktree", "add", "--quiet", "-b", "nested-worktree", nested);
+    fs.writeFileSync(path.join(nested, "index.ts"), "export const value = 4;\n");
+
+    const repos = await service.scan([uriOf(root)]);
+
+    assert.ok(repos.some((repo) => repo.rootUri === uriOf(nested)));
+  });
+
+  it("does not follow linked container folders or fail on broken links", async () => {
+    const nested = createRepo(root, "railgun/reloaded/project");
+    fs.writeFileSync(path.join(nested, "index.ts"), "export const value = 4;\n");
+    fs.symlinkSync(root, path.join(root, "railgun/loop"));
+    fs.symlinkSync(path.join(root, "missing"), path.join(root, "broken"));
+
+    const repos = await service.scan([uriOf(root)]);
+
+    assert.deepStrictEqual(
+      repos.map((repo) => repo.name),
+      ["dirty-repo", "railgun/reloaded/project"],
     );
   });
 

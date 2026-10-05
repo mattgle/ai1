@@ -324,6 +324,11 @@ export class OpenCodeClient {
     return new Set(Object.keys(active.data));
   }
 
+  async pendingFormIds(id: string): Promise<string[]> {
+    const result = await this.get<{ data: { id: string }[] }>(`/api/session/${encodeURIComponent(id)}/form`);
+    return result.data.map((form) => form.id);
+  }
+
   // A second, independent check that one particular session is gone,
   // verified live 2026-09-23 (`GET /api/session/{id}` gives
   // `{ data: SessionRecord }` for a real session, and a 404

@@ -31,7 +31,9 @@ export interface RepoChanges {
 
 export interface ChangesService {
   // Returns the repositories that have uncommitted changes, sorted by name.
-  scan(workspaceRootUris: string[]): Promise<RepoChanges[]>;
+  // Without changedUris, discover and scan all repositories within maxDepth.
+  // With changedUris, update affected cached repositories and return the complete result.
+  scan(workspaceRootUris: string[], maxDepth?: number, changedUris?: string[]): Promise<RepoChanges[]>;
   // Returns the content of a file at HEAD. Returns an empty string when HEAD does not have the file.
   readHead(repoRootUri: string, path: string): Promise<string>;
   discardFile(repoRootUri: string, entry: FileChangeEntry): Promise<void>;

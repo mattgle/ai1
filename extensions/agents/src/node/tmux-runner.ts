@@ -28,3 +28,30 @@ export function tmuxNewCommand(name: string, directory?: string): { program: str
   }
   return { program: "tmux", args };
 }
+
+export function listSessionShellLinks(names: string[]): Promise<{ name: string; id?: string }[]> {
+  const requested = [...new Set(names.filter((name) => /^ai1-\d+$/.test(name)))].slice(0, 100);
+  if (!requested.length) return Promise.resolve([]);
+  return new Promise((resolve, reject) => {
+    execFile(
+      "tmux",
+      ["ls", "-F", "#{session_name}\t#{@ai1_agent_session}"],
+      { encoding: "utf8", timeout: 1500 },
+      (error, stdout, stderr) => {
+        if (error && !/no server running|failed to connect|no sessions/.test(stderr)) {
+          reject(error);
+          return;
+        }
+        const links = new Map(
+          stdout
+            .trim()
+            .split("\n")
+            .map((line) => line.split("\t"))
+            .filter((parts) => parts.length === 2)
+            .map(([name, id]) => [name, id]),
+        );
+        resolve(requested.map((name) => ({ name, id: links.get(name) || undefined })));
+      },
+    );
+  });
+}

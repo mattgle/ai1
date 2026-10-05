@@ -1,0 +1,111 @@
+import * as assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import * as path from "node:path";
+import { test } from "node:test";
+import { EventEmitter } from "node:events";
+
+const require = process.env.AI1_PACKAGED_RESOURCES
+  ? createRequire(path.resolve(process.env.AI1_PACKAGED_RESOURCES, "package.json"))
+  : createRequire(import.meta.url);
+const uri = require("fast-uri");
+const { Address4, Address6, AddressError } = require("ip-address");
+
+test("the installed proxy event helper settles connect and error events and removes listeners", async () => {
+  const once = require("@tootallnate/once");
+  for (const event of ["connect", "error"]) {
+    const emitter = new EventEmitter();
+    const pending = once(emitter, "connect");
+    const outcome = event === "error" ? assert.rejects(pending, /Fixture connection failure/) : pending;
+    emitter.emit(event, event === "error" ? new Error("Fixture connection failure") : "connected");
+    if (event === "connect") assert.equal(await outcome, "connected");
+    else await outcome;
+    assert.equal(emitter.listenerCount("connect"), 0);
+    assert.equal(emitter.listenerCount("error"), 0);
+  }
+});
+
+test("the core UUID caller hashes without a caller-provided buffer", () => {
+  const core = createRequire(require.resolve("@theia/core/package.json"));
+  const { v5 } = core("uuid");
+  const namespace = "4c90ee4f-d952-44b1-83ca-f04121ab8e05";
+  const result = v5("fixture", namespace);
+  assert.match(result, /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.equal(v5("fixture", namespace), result);
+});
+
+test("tooltip and trash UUID dependencies support their reviewed v4 caller", () => {
+  for (const name of ["react-tooltip", "trash"]) {
+    const caller = createRequire(require.resolve(`${name}/package.json`));
+    const { v4 } = caller("uuid");
+    assert.match(v4(), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  }
+});
+
+test(
+  "shared caches reject max-stale requests for security-zeroed cookie responses",
+  {
+    skip: Boolean(process.env.AI1_PACKAGED_RESOURCES),
+    todo:
+      createRequire(import.meta.url)("http-cache-semantics/package.json").version === "4.2.0"
+        ? "The npm release-age guard blocks the 4.3.0 update."
+        : false,
+  },
+  () => {
+    const CachePolicy = createRequire(import.meta.url)("http-cache-semantics");
+    const request = {
+      url: "https://example.invalid/resource",
+      method: "GET",
+      headers: { host: "example.invalid" },
+    };
+    const policy = new CachePolicy(request, {
+      status: 200,
+      headers: { "set-cookie": "fixture=value", "cache-control": "max-age=600" },
+    });
+    assert.equal(policy.maxAge(), 0);
+    assert.equal(
+      policy.satisfiesWithoutRevalidation({
+        ...request,
+        headers: { ...request.headers, "cache-control": "max-stale=999999" },
+      }),
+      false,
+    );
+    const publicPolicy = new CachePolicy(request, {
+      status: 200,
+      headers: { "cache-control": "public, max-age=600" },
+    });
+    assert.equal(publicPolicy.satisfiesWithoutRevalidation(request), true);
+  },
+);
+
+test("URI host normalization folds percent-encoded uppercase characters", () => {
+  assert.equal(uri.parse("//%41.com").host, "a.com");
+  assert.equal(uri.equal("//%41.com", "//a.com"), true);
+  assert.equal(uri.normalize("//%41.com"), uri.normalize("//a.com"));
+  assert.equal(uri.parse("https://example.com/path").host, "example.com");
+});
+
+test("subnet checks reject addresses from a different family", () => {
+  const v4 = new Address4("10.0.0.0/8");
+  const v6 = new Address6("2001:db8::/32");
+  assert.equal(new Address6("a00::1").isInSubnet(v4), false);
+  assert.equal(new Address4("32.1.13.184").isInSubnet(v6), false);
+  assert.equal(new Address6("a00::1").isHostInSubnet(v4), false);
+  assert.equal(new Address4("32.1.13.184").isHostInSubnet(v6), false);
+  assert.equal(new Address4("10.0.0.1").isInSubnet(v4), true);
+  assert.equal(new Address6("2001:db8::1").isInSubnet(v6), true);
+});
+
+test("IPv6 parsing rejects long input without an input-sized diagnostic", () => {
+  const input = "!".repeat(4096);
+  assert.throws(
+    () => new Address6(input),
+    (error) => {
+      assert.ok(error instanceof AddressError);
+      assert.equal(typeof error.parseMessage, "undefined");
+      assert.ok(error.message.length < 200);
+      return true;
+    },
+  );
+  assert.equal(Address6.isValid(input), false);
+  assert.equal(Address6.isValid("::1"), true);
+});

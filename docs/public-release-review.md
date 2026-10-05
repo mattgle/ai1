@@ -5,6 +5,14 @@ Status: source is public; app release checks remain in progress. This review is
 not a security certification. App distribution still requires the runtime,
 security, and notice checks below.
 
+## Source push approval: 2026-10-05
+
+The owner approves a source commit and push on `feat/release-readiness`.
+This approval does not include a merge to `main`, app installation, or binary
+publication. Security, license, source-duty, live-hook, startup reliability,
+and native Omarchy gates remain open. Earlier local-only records describe
+the state before this approval.
+
 ## Secret scan
 
 Gitleaks 8.30.1 scans all locally reachable Git refs with `--log-opts=--all`.
@@ -106,6 +114,35 @@ A dependency inventory alone is not a complete distribution notice manifest.
 
 ## Open release gates
 
+### Local dependency fixes: 2026-10-01
+
+The release-readiness branch replaces the legacy extractor with
+`@xhmikosr/decompress` 11.1.4 through a small CommonJS adapter. The adapter only
+loads the upstream extractor. Theia stays at 1.75.0. The override applies to
+Theia CLI and extension deployment. npm 11 or later is required.
+
+Regression tests reproduce escaping symlinks and outside hardlinks before the
+change. Both tests pass after the change. Valid archive extraction also passes.
+All three tests pass against the local macOS package dependencies.
+
+The builder moves to 26.15.3. Its old tar copies disappear. All remaining tar
+copies use 7.5.22. Electron dependency and builder pins use 42.11.8. The graph
+uses serialize-javascript 7.1.2 and patched brace-expansion copies. The current
+audit reports 48 findings: six low and 42 moderate. No high or critical finding
+remains in this audit. The remaining findings still need reachability review.
+An audit result does not prove that the app is secure.
+
+The local production build and macOS package pass. Eight Electron startup tests,
+six language-resource tests, 17 release checks, lint, types, and formatting pass.
+The Electron startup tests use `--no-sandbox`; they do not verify the sandbox.
+The React and React Native tests use small type fixtures. They prove nested
+module resolution and real missing-module diagnostics, not full framework
+compatibility or parity with the owner's project in VS Code.
+
+GitHub private vulnerability reporting is enabled. `SECURITY.md` gives the
+private report link. Maintainer metadata and final distribution notices remain
+open. No binary is published, and the installed app stays unchanged.
+
 The final local history and source scans pass. All 16 release-check script tests,
 lint, type checks, formatting, and whitespace checks pass. The lockfile license
 metadata update changes no dependency version, source URL, or integrity hash.
@@ -119,3 +156,252 @@ These checks do not validate Linux runtime behavior or clear the audit findings.
 - Test installation, launcher, upgrade, rollback, and removal.
 - App release publication needs separate approval and remains blocked by the
   open checks above. Public source publication is complete.
+
+### Local package preparation: 2026-10-02
+
+The app manifest uses `mattgle` as author. No personal email is added.
+The experimental Arch files use bundled Electron under `/opt/ai1` and a normal
+launcher. The isolated tests check checksums, staging, invalid binary rejection,
+and notice-gate rejection. No native `makepkg`, `namcap`, or pacman test is complete.
+See [Arch package preparation](arch-package.md).
+
+The macOS package now contains `resources/notices/manifest.json`, unchanged
+license-text copies, and AI1's MIT text. The inventory reads the actual app files.
+It finds 544 notice files. After legacy metadata parsing, 83 entries remain for
+review. Many Theia and Lumino packages have no package-level license file.
+Nested extension packages, fonts, native libraries, and source-offer duties still
+need review. Do not replace missing license texts with inferred boilerplate.
+
+The current audit remains at six low and 42 moderate findings. Runtime paths
+are recorded in [dependency security review](dependency-security-review.md).
+This is not an approval of those findings or a completed distribution review.
+
+The latest secret scans pass for local Git history and current source. The
+Explorer shortcut comparison requires one exact, file-scoped false-positive
+exception. The source check finds no known personal identifier. The 118 commits
+on the release branch and public `main` use the approved public identity.
+Historical local branches and private-backup refs still contain original
+identities. Keep those refs private. Do not publish them or merge them into
+the clean public history.
+
+### Continued security and notice review: 2026-10-03
+
+A fresh audit reports 66 package findings before further updates. This includes
+20 high findings from new `braces` and `http-cache-semantics` advisories. The older
+no-high result is historical, not a current release result.
+
+Compatible parser updates change only `fast-uri` 3.1.7 to 3.1.8 and `ip-address`
+10.7.0 to 10.7.2. Three small regression tests reproduce the old defects and pass
+after the updates. The current audit reports four low, 40 moderate, and 20 high
+findings. See [dependency security review](dependency-security-review.md).
+
+The notice inventory records parent license evidence only for internal module
+folders with an exact matching package name and version. It does not cross a
+`node_modules` boundary or use an unrelated parent's license. Two Socket.IO
+module folders use the shipped parent MIT text. Four unresolved records clear.
+The rebuilt app still has 544 notice files and 79 unresolved entries. Theia,
+Lumino, extension assets, fonts, native libraries, and source duties remain open.
+This change does not establish complete license compliance.
+
+The local macOS bundle builds and passes signature verification and all six
+language checks. All 763 workspace unit tests, three parser security tests,
+three archive checks, and 22 release checks pass. Native validation and separate
+publication approval remain required. The installed app stays unchanged.
+The three parser security tests also pass against the packaged dependencies.
+All 22 packaged Changes settings, folder-picker, appearance, tab-restore, and
+terminal shortcut tests pass after the rebuild.
+
+### DOMPurify runtime review: 2026-10-03
+
+The app uses DOMPurify 3.4.16 through an exact dependency and root override.
+Monaco's embedded 3.2.7 import also needs a build route; an npm override does
+not replace embedded code. The checked-in esbuild configuration routes that
+one file to a separate fixed sanitizer instance without changing upstream files.
+The old embedded file remains as unused dependency source in the payload.
+Review unused source and extension sanitizer copies separately.
+
+The detached-handler regression fails before the fix and passes after it.
+Normal core Markdown, Monaco Markdown and HTML, hook isolation, and a real
+TypeScript hover pass in the packaged app. Both generated frontends contain
+the fixed sanitizer and no 3.2.7 version assignment. The current audit reports
+four low, 38 moderate, and 20 high findings. It no longer lists DOMPurify.
+The notice inventory contains 543 notice files and 79 unresolved entries.
+This update does not clear binary distribution, native sandbox, or live-hook gates.
+
+Verification passes after the rebuild: 51 combined packaged UI tests, six language
+checks, 763 workspace unit tests, four dependency-security checks, three archive
+checks, and 22 release checks. Lint, types, formatting, and whitespace checks pass.
+The packaged UI run includes Changes, terminal appearance and shortcuts, batch
+restore, attention hooks, core Markdown, Monaco sanitization, and editor hovers.
+The installed app stays unchanged. No commit, push, or publication occurs.
+
+### Pinned Lumino notice evidence: 2026-10-05
+
+The 13 shipped Lumino packages lack package-level license files. Their exact
+release tags resolve to two source commits. The source package names, versions,
+and BSD-3-Clause license values match the shipped metadata. Both commits contain
+the same license bytes, including Jupyter and PhosphorJS copyright notices.
+
+The app includes the unchanged source text in
+`resources/third-party/lumino/LICENSE.txt`. Its SHA-256 is
+`b0da99e8c73e7fdad117622971e6d16379fd01b5d0b60589de7133b6fec59422`.
+`resources/third-party/supplements.json` maps each reviewed package version to
+an immutable source URL and commit. The notice generator checks text hashes,
+license values, and exact package names and versions. It rejects duplicate
+review entries, escaping paths and links, and generated notice output as a source.
+Unreviewed versions and license changes remain unresolved.
+
+The rebuilt package contains 544 notice files and 66 unresolved entries, down
+from 79. All 13 Lumino entries use their verified supplement. This clears their
+missing-text records only. Theia license and source duties, other dependencies,
+fonts, icons, native libraries, and extension assets still need review.
+
+Signature verification, six language checks, six packaged sanitizer and hover
+checks, 26 release checks, lint, and types pass. Four dependency-security tests
+pass. The shared-cache regression remains pending because npm's release-age
+guard blocks the candidate 4.3.0 update. The fresh audit reports four low,
+38 moderate, and 12 high findings with an unchanged lockfile. The release gate
+remains open. No app install, commit, push, or publication occurs.
+
+### Theia EPL text and source statement: 2026-10-05
+
+The Theia 1.75.0 release tag resolves to source commit
+`52f32db6e32d1f88dbbbbde08c8a01ad75c53e11`. All 41 shipped Theia packages
+with missing license texts match the names, versions, and license expressions
+in that commit. Package evidence comes from `packages` and `dev-packages`,
+not example applications. The notebook and test packages keep their original
+`GPL-2.0` expression. The other entries use `GPL-2.0-only`.
+
+The app includes the unchanged upstream `LICENSE-EPL`. Its SHA-256 is
+`8c349f80764d0648e645f41ef23772a70c995a0924b5235f735f4a3d09df127c`.
+The exact-version supplement map links each reviewed package to that text.
+This evidence covers the EPL option. It does not claim that all alternative
+license texts or copied third-party notices are present.
+
+The app also includes `resources/third-party/theia/SOURCE.txt`. It states that
+upstream source is available under EPL-2.0 and gives an immutable source link
+and archive URL. EPL section 3.1(a) requires source availability and an
+accompanying statement. Section 3.2 requires the license with source copies.
+Section 3.3 requires preservation of notices. These requirements remain
+separate from the missing-text inventory.
+
+The rebuilt inventory has 545 notice files and 25 unresolved entries.
+The 41 Theia missing-text records now use verified EPL evidence. This count
+does not clear the release gate. Before distribution:
+
+- Preserve the upstream release `NOTICE.md` and applicable copied-code notices.
+  The upstream notice contains historical dependency versions. It does not
+  replace an inventory of the actual app.
+- Compare shipped Theia source and generated runtime code with upstream.
+  Identify any modified works and provide their corresponding licensed source.
+- Review the Monaco sanitizer build route and all other build transformations.
+  The current upstream source link alone does not prove complete source coverage.
+- Verify that recipients can obtain the source for the exact distributed app.
+- Complete the remaining third-party, native-library, font, and icon reviews.
+
+The local bundle builds. Signature verification, six language checks, six
+packaged sanitizer checks, and 27 release checks pass. The packaged evidence
+check verifies all 41 mappings and the unchanged EPL hash. Lint, formatting,
+and whitespace checks pass. The installed app stays unchanged.
+No commit, push, or publication occurs.
+
+### Further five-part release review: 2026-10-05
+
+License evidence now includes the complete `@tokenizer/token` 0.3.0 README
+from its npm release commit. The README contains the MIT text and Borewit
+copyright notice. The exact package metadata matches that source commit.
+The app preserves all README bytes in a notice file and checks its SHA-256.
+The app also includes Theia's unchanged `LICENSE-MIT.txt` and
+`LICENSE-vscode.txt` from the pinned 1.75.0 release commit. Their source URLs
+and hashes appear in the evidence map. These texts do not clear the remaining
+upstream `NOTICE.md`, copied-code, or native-library duties.
+
+The rebuilt inventory has 548 notice files and 24 unresolved entries.
+A release regression now checks every checked-in supplement hash before
+packaging. Package-time hash checks remain in place.
+
+`scripts/review-theia-source.mjs` performs a read-only source comparison.
+It fetches published Theia archives from exact registry lockfile entries.
+It verifies SHA-512 integrity before reading archive contents in memory.
+It compares published `src` and `lib` files with matching payload paths.
+It rejects escaping file paths and links. It does not extract files to disk.
+
+The packaged run checks 41 Theia 1.75.0 packages. It finds 4,359 equal files,
+2,113 absent published files, and no changed files in the checked set.
+Absent files are not supplied by the payload; they are not modified files.
+The report does not cover added files, source maps, generated app bundles,
+or Monaco's different-version package. The sanitizer build route and complete
+corresponding-source coverage remain separate open checks.
+
+Repeat the source check with:
+
+```sh
+node scripts/review-theia-source.mjs <app-payload> package-lock.json
+```
+
+The fresh security audit remains at four low, 38 moderate, and 12 high findings.
+New dependency regressions check normal proxy event settlement and Theia's
+no-buffer UUID v5 caller. Neither check clears all affected callers.
+The cache fix remains inside the release-age waiting period.
+
+Isolated interactive agent startup sends no input, credentials, model prompt,
+or trust approval. It verifies no hook lifecycle event. Full live-hook checks
+remain open. See `docs/terminal-attention.md` for the exact limits.
+
+The local bundle builds and passes signature verification and six language
+checks. All 30 release checks pass. No installed app, global agent setting,
+trust decision, dependency version, or lockfile changes in this review.
+All work stays local and unpublished.
+
+The latest rebuild also passes 763 workspace unit tests, three archive-security
+checks, and seven dependency-security checks in both development and packaged
+resolution. The cache case remains a pending defect in development and is
+skipped in the packaged dependency run. Lint, types, formatting, whitespace,
+and both redacted secret scans pass. The source comparison repeats against
+the latest bundle without changed files in its checked set.
+
+The final source-check guards also reject an empty package inventory and
+package names that do not match their folders. All 31 release checks pass.
+
+The latest combined packaged UI run has 50 passes and one failure. Changes
+settings times out while waiting for the second app launch to create a window.
+The trace does not show a settings assertion failure. Cleanup also times out.
+A separate settings run passes in 19.5 seconds. Five further isolated runs
+all pass in 19.6–19.9 seconds. A repeat of the original combined suite passes
+all 51 tests in 2.7 minutes with the same bundle and test settings.
+The startup timeout does not reproduce in these follow-up runs. Its cause
+remains unknown. The passing rerun does not prove a fix or clear that risk.
+No app behavior, timeout, delay, or retry changes to hide the failure.
+
+### Upstream notice and bundle-input evidence: 2026-10-05
+
+The app now includes the complete unchanged Theia 1.75.0 `NOTICE.md` from
+commit `52f32db6e32d1f88dbbbbde08c8a01ad75c53e11`. Its SHA-256 is
+`9911a1d6c0777777f94c100c1760f85a313f7fe15b95c4a66e552a74b60a7d5d`.
+The evidence map and release tests check those bytes. Formatting tools exclude
+this upstream file to preserve it. Its historical dependency list does not
+replace the actual app inventory or complete copied-code notice review.
+
+The production build also records esbuild input and output metadata in
+`resources/release/build-inputs.json`. This generated file ships with the
+local bundle but stays out of source control. The checked-in report generator
+uses relative paths, including virtual native-module input names. It records
+dependency identities, byte contributions, external imports, and output hashes.
+The 20 reported output hashes match the actual packaged files. The report
+contains no local home-directory or temporary-directory paths.
+
+The report shows no contributing braces or HTTP-cache-semantics inputs in
+the recorded builds. It shows diff 5.2.2, UUID 7.0.3 and 8.3.2, once 1.1.2,
+and DOMPurify 3.4.16. See `docs/dependency-security-review.md` for the output
+paths and scope limits. This evidence does not clear dynamic loading, copied
+assets, external dependencies, source duties, or build-tool exposure.
+
+The rebuilt notice inventory has 549 notice files and 24 unresolved entries.
+Signature verification, six language checks, and 33 release checks pass.
+All work remains local. No app install, commit, push, or publication occurs.
+
+All nine combined packaged evidence, sanitizer, and Changes settings tests
+pass. The evidence tests verify every recorded output hash and the complete
+upstream notice hash. Lint, types, formatting, whitespace, and three archive
+checks pass. The earlier intermittent startup failure remains a separate
+documented risk; this passing settings run does not establish its cause.

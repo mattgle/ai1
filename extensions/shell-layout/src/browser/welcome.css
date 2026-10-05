@@ -1,0 +1,40 @@
+.ai1-welcome {
+  overflow: auto;
+  color: var(--theia-editor-foreground);
+  background: var(--theia-editor-background);
+}
+.ai1-welcome main {
+  max-width: 800px;
+  padding: 24px 32px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+.ai1-welcome li {
+  margin-bottom: 8px;
+}
+.ai1-welcome table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.ai1-welcome th,
+.ai1-welcome td {
+  text-align: left;
+  padding: 8px;
+  border-bottom: 1px solid var(--theia-panel-border);
+}
+.ai1-welcome button {
+  margin: 4px 8px 4px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--theia-button-border);
+  border-radius: 4px;
+  color: var(--theia-button-foreground);
+  background: var(--theia-button-background);
+  cursor: pointer;
+}
+.ai1-welcome button:hover {
+  background: var(--theia-button-hoverBackground);
+}
+.ai1-welcome button:focus-visible {
+  outline: 2px solid var(--theia-focusBorder);
+  outline-offset: 2px;
+}

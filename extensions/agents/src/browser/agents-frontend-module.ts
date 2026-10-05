@@ -11,7 +11,7 @@ import { PreferenceContribution } from "@theia/core/lib/common/preferences/prefe
 import { ContainerModule, interfaces } from "@theia/core/shared/inversify";
 import { AGENTS_SERVICE_PATH, AgentsClient, AgentsService } from "../common/agents-protocol";
 import { AgentsContribution } from "./agents-contribution";
-import { CommandContribution } from "@theia/core/lib/common";
+import { CommandContribution, MenuContribution } from "@theia/core/lib/common";
 import { TerminalControls } from "./terminal-controls";
 import { AgentsModel } from "./agents-model";
 import { AgentsPreferenceContribution } from "./agents-preferences";
@@ -22,8 +22,11 @@ import { TerminalWidget } from "@theia/terminal/lib/browser/base/terminal-widget
 import { PersistentTerminalWidget } from "./persistent-terminal-widget";
 import { TerminalThemeService } from "@theia/terminal/lib/browser/terminal-theme-service";
 import { GhosttyTerminalTheme } from "./ghostty-terminal-theme";
+import { TerminalAttentionContribution } from "./terminal-attention-contribution";
+import { TerminalAppearanceContribution } from "./terminal-appearance-contribution";
 import "../../src/browser/style/agents.css";
 import "../../src/browser/style/terminal-appearance.css";
+import "../../src/browser/style/terminal-attention.css";
 
 function createAgentsWidget(parent: interfaces.Container): AgentsWidget {
   const child = createTreeContainer(parent, {
@@ -41,8 +44,15 @@ export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
   bind(CommandContribution).toService(TerminalControls);
   bind(KeybindingContribution).toService(TerminalControls);
   bind(FrontendApplicationContribution).toService(TerminalControls);
+  bind(MenuContribution).toService(TerminalControls);
   bind(AgentsModel).toSelf().inSingletonScope();
   bind(AgentsTerminals).toSelf().inSingletonScope();
+  bind(TerminalAttentionContribution).toSelf().inSingletonScope();
+  bind(FrontendApplicationContribution).toService(TerminalAttentionContribution);
+  bind(CommandContribution).toService(TerminalAttentionContribution);
+  bind(TerminalAppearanceContribution).toSelf().inSingletonScope();
+  bind(CommandContribution).toService(TerminalAppearanceContribution);
+  bind(TabBarToolbarContribution).toService(TerminalAppearanceContribution);
   bind(AgentsService)
     .toDynamicValue((context) => {
       // The proxy's client forwards to the model. The model is resolved

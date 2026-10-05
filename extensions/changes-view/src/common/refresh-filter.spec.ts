@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import { shouldIgnorePath } from "./refresh-filter";
+import { shouldIgnorePath, shouldRefreshPath } from "./refresh-filter";
 
 describe("shouldIgnorePath", () => {
   it("ignores paths inside folders that change all the time", () => {
@@ -25,5 +25,14 @@ describe("shouldIgnorePath", () => {
 
   it("does not ignore a file whose name only contains an ignored folder name", () => {
     assert.strictEqual(shouldIgnorePath("/work/repo/src/distance.ts"), false);
+  });
+});
+
+describe("shouldRefreshPath", () => {
+  it("refreshes Git index and branch changes without Git lock or object noise", () => {
+    for (const file of ["index", "HEAD", "packed-refs", "refs/heads/main"])
+      assert.strictEqual(shouldRefreshPath(`/work/repo/.git/${file}`), true);
+    for (const file of ["index.lock", "objects/object", "refs/heads/main.lock", "logs/HEAD"])
+      assert.strictEqual(shouldRefreshPath(`/work/repo/.git/${file}`), false);
   });
 });

@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /opt/ai1/ai1 "$@"

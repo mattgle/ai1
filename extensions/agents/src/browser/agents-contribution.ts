@@ -1,4 +1,5 @@
-import { Command, CommandRegistry, MessageService, QuickPickService } from "@theia/core";
+import { Command, CommandRegistry, MessageService, QuickInputService, QuickPickService } from "@theia/core";
+import { isOSX } from "@theia/core/lib/common";
 import { MenuModelRegistry } from "@theia/core/lib/common/menu";
 import {
   AbstractViewContribution,
@@ -19,6 +20,7 @@ import {
 } from "@theia/core/lib/browser/shell/tab-bar-toolbar";
 import { inject, injectable } from "@theia/core/shared/inversify";
 import { FileService } from "@theia/filesystem/lib/browser/file-service";
+import { FileDialogService } from "@theia/filesystem/lib/browser/file-dialog/file-dialog-service";
 import { WorkspaceService } from "@theia/workspace/lib/browser/workspace-service";
 import { TerminalWidget } from "@theia/terminal/lib/browser/base/terminal-widget";
 import { AgentsService, SessionSummary } from "../common/agents-protocol";
@@ -83,6 +85,9 @@ export class AgentsContribution
   @inject(QuickPickService)
   protected readonly quickPick!: QuickPickService;
 
+  @inject(QuickInputService)
+  protected readonly quickInput!: QuickInputService;
+
   @inject(AgentsService)
   protected readonly service!: AgentsService;
 
@@ -91,6 +96,9 @@ export class AgentsContribution
 
   @inject(FileService)
   protected readonly files!: FileService;
+
+  @inject(FileDialogService)
+  protected readonly fileDialogs!: FileDialogService;
 
   @inject(BadgeService)
   protected readonly badges!: BadgeService;
@@ -239,6 +247,12 @@ export class AgentsContribution
 
   override registerCommands(commands: CommandRegistry): void {
     super.registerCommands(commands);
+    commands.registerCommand(
+      { id: "ai1.agents.focus", label: "Agents: Focus" },
+      {
+        execute: () => this.openView({ activate: true }),
+      },
+    );
     commands.registerCommand(AgentsCommands.REFRESH, { execute: () => this.refresh() });
     commands.registerCommand(AgentsCommands.NEW_SESSION, { execute: () => this.newSession() });
     commands.registerCommand(AgentsCommands.OPEN_SESSION, {
@@ -282,6 +296,10 @@ export class AgentsContribution
 
   override registerKeybindings(keybindings: KeybindingRegistry): void {
     super.registerKeybindings(keybindings);
+    keybindings.registerKeybinding({
+      command: "ai1.agents.focus",
+      keybinding: isOSX ? "meta+ctrl+a" : "ctrl+shift+a",
+    });
     keybindings.registerKeybinding({
       command: AgentsCommands.NEW_PERSISTENT_TERMINAL.id,
       keybinding: "ctrlcmd+t",
@@ -444,7 +462,7 @@ export class AgentsContribution
       ref,
       mode: "tab-after",
     };
-    const target = await this.pickRepository("New persistent terminal in", true);
+    const target = await this.pickTerminalDirectory();
     if (!target) {
       return;
     }
@@ -482,22 +500,106 @@ export class AgentsContribution
     }
   }
 
-  // The workspace roots and their direct child folders that hold a .git folder.
-  protected async pickRepository(
-    placeholder: string,
-    includeWorkspaceRoots = false,
-  ): Promise<string | undefined> {
+  protected async pickTerminalDirectory(): Promise<string | undefined> {
     const roots = await this.workspace.roots;
-    const candidates: { label: string; description: string; path: string }[] = [];
-    if (includeWorkspaceRoots) {
-      for (const root of roots) {
-        const rootPath = root.resource.path.fsPath();
-        candidates.push({ label: `./ · ${root.resource.path.base}`, description: rootPath, path: rootPath });
-      }
+    const candidates: { label: string; description: string; path?: string }[] = [];
+    const paths = new Set<string>();
+    const add = (label: string, directory: string): void => {
+      if (paths.has(directory)) return;
+      paths.add(directory);
+      candidates.push({ label, description: directory, path: directory });
+    };
+    for (const root of roots) {
+      add(`./ · ${root.resource.path.base}`, root.resource.path.fsPath());
     }
     for (const root of roots) {
+      const folder = await this.files.resolve(root.resource).catch(() => undefined);
+      const children = (folder?.children ?? [])
+        .filter((child) => child.isDirectory)
+        .sort((a, b) => a.name.localeCompare(b.name));
+      for (const child of children) add(child.name, child.resource.path.fsPath());
+    }
+    const browse = { label: "Browse…", description: "Select another folder", alwaysShow: true };
+    candidates.push(browse);
+    let revision = 0;
+    let closed = false;
+    const picked = await this.quickInput.showQuickPick(candidates, {
+      placeholder: "New persistent terminal in",
+      matchOnDescription: false,
+      matchOnDetail: false,
+      onDidHide: () => {
+        closed = true;
+        revision++;
+      },
+      onDidChangeValue: async (picker, value) => {
+        const request = ++revision;
+        const slash = value.lastIndexOf("/");
+        if (slash < 0) {
+          picker.items = candidates;
+          picker.busy = false;
+          picker.description = undefined;
+          return;
+        }
+        const prefix = value.slice(0, slash + 1);
+        picker.items = [];
+        picker.busy = true;
+        picker.description = "Browsing subfolders…";
+        const folders = await Promise.all(
+          roots.map(async (root) => {
+            const resource = root.resource.resolve(prefix);
+            return this.files.resolve(resource).catch(() => undefined);
+          }),
+        );
+        if (closed || request !== revision) return;
+        const items: typeof candidates = [];
+        const seen = new Set<string>();
+        for (const folder of folders) {
+          if (!folder?.isDirectory) continue;
+          const directory = folder.resource.path.fsPath();
+          if (!seen.has(directory)) {
+            seen.add(directory);
+            items.push({ label: prefix, description: directory, path: directory });
+          }
+          const children = (folder.children ?? [])
+            .filter((child) => child.isDirectory)
+            .sort((a, b) => a.name.localeCompare(b.name));
+          for (const child of children) {
+            const childPath = child.resource.path.fsPath();
+            if (seen.has(childPath)) continue;
+            seen.add(childPath);
+            items.push({ label: `${prefix}${child.name}`, description: childPath, path: childPath });
+          }
+        }
+        picker.items = [...items, browse];
+        picker.description = items.length ? undefined : "Folder not found. Edit the path or use Browse.";
+        picker.busy = false;
+      },
+    });
+    closed = true;
+    revision++;
+    if (!picked) return undefined;
+    if (picked.path) return picked.path;
+    const folder = roots[0] ? await this.files.resolve(roots[0].resource).catch(() => undefined) : undefined;
+    const selected = await this.fileDialogs.showOpenDialog(
+      {
+        title: "New persistent terminal in",
+        openLabel: "Open Terminal",
+        canSelectFiles: false,
+        canSelectFolders: true,
+        canSelectMany: false,
+      },
+      folder,
+    );
+    return selected?.path.fsPath();
+  }
+
+  // Agent creation keeps its existing Git repository choices.
+  protected async pickRepository(placeholder: string): Promise<string | undefined> {
+    const roots = await this.workspace.roots;
+    const candidates: { label: string; description: string; path: string }[] = [];
+    for (const root of roots) {
       const rootPath = root.resource.path.fsPath();
-      if (!includeWorkspaceRoots && (await this.files.exists(root.resource.resolve(".git")))) {
+      if (await this.files.exists(root.resource.resolve(".git"))) {
         candidates.push({ label: root.resource.path.base, description: rootPath, path: rootPath });
       }
       const children = await this.files.resolve(root.resource).catch(() => undefined);

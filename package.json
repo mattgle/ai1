@@ -5,10 +5,12 @@
   "license": "MIT",
   "description": "AI1 (All In 1): a personal IDE for work with coding agents across a meta-repo",
   "engines": {
-    "node": ">=24"
+    "node": ">=24",
+    "npm": ">=11"
   },
   "workspaces": [
     "extensions/*",
+    "compat/*",
     "applications/*",
     "e2e"
   ],
@@ -23,9 +25,11 @@
     "test": "npm test --workspaces --if-present",
     "test:e2e": "npm run test:e2e --workspace e2e",
     "scan:secrets": "node scripts/scan-secrets.mjs",
-    "test:release-checks": "node --test scripts/scan-secrets.spec.mjs scripts/setup-linux.spec.mjs scripts/linux-build-check.spec.mjs scripts/linux-builder-config.spec.mjs",
-    "format": "prettier --write \"**/*.{ts,tsx,js,mjs,json,md,yml}\"",
-    "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,json,md,yml}\""
+    "test:archive-security": "node --test scripts/archive-security.spec.mjs",
+    "test:dependency-security": "node --test scripts/dependency-security.spec.mjs scripts/dompurify-build-plugin.spec.mjs",
+    "test:release-checks": "node --test scripts/scan-secrets.spec.mjs scripts/setup-linux.spec.mjs scripts/linux-build-check.spec.mjs scripts/linux-builder-config.spec.mjs scripts/prepare-arch-package.spec.mjs scripts/distribution-notices.spec.mjs scripts/review-theia-source.spec.mjs scripts/build-input-report.spec.mjs",
+    "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml}\""
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
@@ -33,8 +37,32 @@
     "eslint": "^9.0.0",
     "eslint-config-prettier": "^9.0.0",
     "prettier": "^3.0.0",
+    "tar-stream": "3.2.1",
     "typescript": "~5.4.5",
     "typescript-eslint": "^8.0.0"
+  },
+  "dependencies": {
+    "decompress": "file:compat/decompress"
+  },
+  "overrides": {
+    "decompress": "$decompress",
+    "electron": "42.11.8",
+    "dompurify": "3.4.16",
+    "serialize-javascript": "7.1.2"
+  },
+  "allowScripts": {
+    "@parcel/watcher": true,
+    "@theia/ffmpeg": true,
+    "drivelist": true,
+    "electron": true,
+    "esbuild": true,
+    "fsevents": true,
+    "keytar": true,
+    "msgpackr-extract": true,
+    "native-keymap": true,
+    "node-pty": true,
+    "electron-winstaller": false,
+    "puppeteer": false
   },
   "theiaPluginsDir": "applications/electron/plugins",
   "theiaPlugins": {

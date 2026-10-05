@@ -64,22 +64,34 @@ export function runLinuxBuildCheck(mode, root) {
   });
   if (targetError) throw new Error(targetError);
   const commands = [
-    [npmPath, ["--version"]],
     ["python3", ["--version"]],
     ["cc", ["--version"]],
     ["c++", ["--version"]],
     ["make", ["--version"]],
     ["pkg-config", ["--exists", "libsecret-1", "x11", "xkbfile"]],
   ];
+  const npmVersion = spawnSync(npmPath, ["--version"], { timeout: 30_000, encoding: "utf8" });
+  if (
+    npmVersion.error ||
+    npmVersion.status !== 0 ||
+    !/^\d+\.\d+\.\d+\s*$/.test(npmVersion.stdout) ||
+    Number(npmVersion.stdout.split(".")[0]) < 11
+  ) {
+    throw new Error(
+      "Linux npm 11 or later is required for the archive dependency override. Select it through your Node version manager.",
+    );
+  }
   for (const [name, args] of commands) {
     const program = path.isAbsolute(name) ? name : executableOnPath(name);
     if (!program || /^\/mnt\/[a-z]\//i.test(program) || /\.(exe|cmd|bat)$/i.test(program)) {
-      throw new Error(`${path.basename(name)} requires a Linux executable on PATH. See docs/wsl-setup.md.`);
+      throw new Error(
+        `${path.basename(name)} requires a Linux executable on PATH. See docs/omarchy-setup.md.`,
+      );
     }
     const result = spawnSync(program, args, { timeout: 30_000, stdio: "ignore" });
     if (result.error || result.status !== 0) {
       throw new Error(
-        `${path.basename(name)} prerequisite check fails. See docs/wsl-setup.md. No tools are installed by this script.`,
+        `${path.basename(name)} prerequisite check fails. See docs/omarchy-setup.md. No tools are installed by this script.`,
       );
     }
   }
@@ -92,7 +104,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   try {
     if (process.argv.length !== 4) throw new Error("Use linux-build-check.mjs <mode> <checkout>.");
     runLinuxBuildCheck(process.argv[2], process.argv[3]);
-    console.log("Linux build prerequisites pass. WSL runtime compatibility remains unverified.");
+    console.log("Linux build prerequisites pass. Native Linux runtime compatibility remains unverified.");
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;

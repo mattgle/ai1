@@ -8,6 +8,7 @@ import { FakeOpenCodeServer } from "../../extensions/agents/lib/node/fake-openco
 import { clickTab } from "./click-tab";
 import { openBrowserTab } from "./open-browser-tab";
 import { removeTempDir } from "./remove-temp-dir";
+import { BrowserFixtureServer } from "./browser-fixture-server";
 
 let root: string;
 let tmux: string;
@@ -15,12 +16,18 @@ let socket: string;
 let server: FakeOpenCodeServer;
 let electronApp: Awaited<ReturnType<typeof electron.launch>>;
 let app: TheiaApp;
+let browserFixture: BrowserFixtureServer;
 
 test.beforeAll(async () => {
   root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ai1-terminal-shortcut-")));
   const workspace = path.join(root, "workspace");
   const state = path.join(root, "state");
   fs.mkdirSync(workspace);
+  fs.mkdirSync(path.join(root, "config"));
+  fs.writeFileSync(
+    path.join(root, "config/settings.json"),
+    JSON.stringify({ "ai1.welcome.startup": "never" }),
+  );
   fs.mkdirSync(path.join(state, "opencode"), { recursive: true });
   fs.writeFileSync(path.join(workspace, "terminal-test.txt"), "Terminal shortcut test\n");
   execFileSync("git", ["init", path.join(workspace, "child-repo")], { stdio: "pipe" });
@@ -28,6 +35,8 @@ test.beforeAll(async () => {
   socket = path.join(root, `tmux-${process.getuid!()}`, "default");
   server = new FakeOpenCodeServer();
   await server.start();
+  browserFixture = new BrowserFixtureServer();
+  await browserFixture.start();
   fs.writeFileSync(
     path.join(state, "opencode", "service.json"),
     JSON.stringify({
@@ -35,10 +44,12 @@ test.beforeAll(async () => {
       password: server.password,
     }),
   );
-  const application = path.resolve(__dirname, "../../applications/electron");
+  const application =
+    process.env.AI1_PACKAGED_RESOURCES ?? path.resolve(__dirname, "../../applications/electron");
   electronApp = await electron.launch({
+    executablePath: process.env.AI1_E2E_EXECUTABLE,
     args: [
-      application,
+      ...(process.env.AI1_E2E_EXECUTABLE ? [] : [application]),
       "--no-sandbox",
       "--no-cluster",
       `--app-project-path=${application}`,
@@ -62,6 +73,7 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   await electronApp?.close();
   await server?.stop();
+  await browserFixture?.stop();
   if (tmux && socket) {
     spawnSync(tmux, ["-S", socket, "kill-server"]);
   }
@@ -149,7 +161,7 @@ test("Terminal appearance matches the local Ghostty font, palette, and padding",
   await expect(terminal).toHaveCSS("background-color", "rgb(38, 36, 39)");
   await expect(terminal).toHaveCSS("padding", "2px");
   const measure = terminal.locator(".xterm-char-measure-element");
-  await expect(measure).toHaveCSS("font-size", "12px");
+  await expect(measure).toHaveCSS("font-size", "13px");
   await expect(measure).toHaveCSS("font-family", /JetBrainsMono Nerd Font/);
   const colors = await terminal.evaluate((node) => {
     const span = document.createElement("span");
@@ -199,12 +211,12 @@ test("Terminal appearance matches the local Ghostty font, palette, and padding",
   fs.writeFileSync(settings, "{}");
   await expect(page.locator("body")).toHaveClass(/theia-dark/);
   await expect(terminal).toHaveCSS("background-color", "rgb(38, 36, 39)");
-  await expect(measure).toHaveCSS("font-size", "12px");
+  await expect(measure).toHaveCSS("font-size", "13px");
 });
 
 test("Command-T from a browser page opens the terminal beside that browser", async () => {
   const page = app.page;
-  await openBrowserTab(app, "about:blank");
+  await openBrowserTab(app, browserFixture.url);
   const browser = page.locator(".ai1-browser:visible");
   const id = await browser.getAttribute("id");
   const bar = page.locator("#theia-main-content-panel .lm-TabBar", {
@@ -314,19 +326,26 @@ test("Ghostty split controls move focus, resize, and restore zoom", async () => 
   await expect.poll(async () => (await focused.boundingBox())!.y).toBeGreaterThan(right.y);
   await page.keyboard.press("Meta+Alt+ArrowUp");
   await expect.poll(async () => (await focused.boundingBox())!.y).toBeLessThan(right.y + 10);
-  const beforeResize = (await focused.boundingBox())!;
+  const focusedPane = panel.locator(".terminal-container", {
+    has: page.locator(".xterm-helper-textarea:focus"),
+  });
+  const beforeResize = (await focusedPane.boundingBox())!;
   await page.keyboard.press("Meta+Control+ArrowDown");
-  await expect.poll(async () => (await focused.boundingBox())!.height).toBeGreaterThan(beforeResize.height);
+  await expect
+    .poll(async () => (await focusedPane.boundingBox())!.height)
+    .toBeGreaterThan(beforeResize.height);
   await page.keyboard.press("Meta+Control+ArrowUp");
   await expect
-    .poll(async () => Math.abs((await focused.boundingBox())!.height - beforeResize.height))
+    .poll(async () => Math.abs((await focusedPane.boundingBox())!.height - beforeResize.height))
     .toBeLessThan(2);
-  const beforeHorizontal = (await focused.boundingBox())!;
+  const beforeHorizontal = (await focusedPane.boundingBox())!;
   await page.keyboard.press("Meta+Control+ArrowLeft");
-  await expect.poll(async () => (await focused.boundingBox())!.width).toBeGreaterThan(beforeHorizontal.width);
+  await expect
+    .poll(async () => (await focusedPane.boundingBox())!.width)
+    .toBeGreaterThan(beforeHorizontal.width);
   await page.keyboard.press("Meta+Control+ArrowRight");
   await expect
-    .poll(async () => Math.abs((await focused.boundingBox())!.width - beforeHorizontal.width))
+    .poll(async () => Math.abs((await focusedPane.boundingBox())!.width - beforeHorizontal.width))
     .toBeLessThan(2);
   const count = await bars.count();
   const beforeZoom = (await focused.boundingBox())!;

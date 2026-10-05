@@ -251,7 +251,7 @@ test("the Agents view lists the fixture session under its repository", async () 
 test("a click on a session card opens its terminal in the center", async () => {
   await app.page.locator("#ai1-agents .ai1-agents-card", { hasText: "ai1-e2e-session" }).click();
   const tab = app.page.locator("#theia-main-content-panel .lm-TabBar-tab", {
-    hasText: "OC · ai1-e2e-session",
+    hasText: "sh · ai1-e2e-session",
   });
   await expect(tab).toBeVisible();
   await expect(app.page.locator("#theia-main-content-panel .xterm")).toBeVisible();
@@ -260,11 +260,11 @@ test("a click on a session card opens its terminal in the center", async () => {
 test("a second click focuses the same terminal", async () => {
   await app.page.locator("#ai1-agents .ai1-agents-card", { hasText: "ai1-e2e-session" }).click();
   await expect(
-    app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "OC · ai1-e2e-session" }),
+    app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "sh · ai1-e2e-session" }),
   ).toHaveCount(1);
 });
 
-// Placed here, right after the test above: exactly one "OC · " tab is open
+// Exactly one session shell is open at this point.
 // at this point (the fixture session's own, opened by the two tests
 // above), so `before` below is a known quantity, not just "whatever the
 // suite happened to leave open" -- and no later test opens a further
@@ -272,7 +272,7 @@ test("a second click focuses the same terminal", async () => {
 // count still includes for the rest of the suite.
 test("New Session creates a session in the picked repository and opens it", async () => {
   await showAgentsView();
-  const tabs = app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "OC · " });
+  const tabs = app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "sh · " });
   const before = await tabs.count();
   expect(before).toBe(1);
   const group = app.page.locator("#ai1-agents .ai1-agents-group", { hasText: "dirty-repo" });
@@ -462,7 +462,7 @@ test("closing and reopening the Agents view keeps the card callbacks and the bad
   }
   await card.click();
   await expect(
-    app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "OC · ai1-e2e-session" }),
+    app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "sh · ai1-e2e-session" }),
   ).toBeVisible();
 
   // The badge on the new tab, with the same real-permission pattern as the

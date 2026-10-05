@@ -5,8 +5,8 @@ dist
 src-gen
 gen-webpack.config.js
 gen-webpack.node.config.js
-applications/electron/esbuild.mjs
 applications/electron/gen-esbuild.*.mjs
+applications/electron/resources/release/build-inputs.json
 *.log
 *.tsbuildinfo
 .DS_Store

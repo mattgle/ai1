@@ -19,4 +19,4 @@ npm run download:plugins
 npm run build:production
 npm exec --yes=false --workspace applications/electron -- electron-builder --config electron-builder-linux.yml --linux --x64 --dir --publish never
 echo "Probe directory: applications/electron/dist/linux-unpacked"
-echo "No app is installed. Native loading, sandbox, WSLg graphics, and keyring checks remain required."
+echo "No app is installed. Native loading, sandbox, Wayland graphics, and keyring checks remain required."

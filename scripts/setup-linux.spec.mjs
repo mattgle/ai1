@@ -80,6 +80,7 @@ test("a build uses locked dependencies and checks code before packaging", (t) =>
     "npm run lint",
     "npm run typecheck",
     "npm test",
+    "npm run test:archive-security",
     "package --dir",
   ]);
 });
@@ -88,4 +89,11 @@ test("a failed code check stops the build", (t) => {
   const f = fixture(t);
   assert.equal(f.run(["--build"], { SETUP_TEST_FAIL_NPM: "run lint" }).status, 1);
   assert.deepEqual(f.calls(), ["package --check", "npm ci", "npm run lint"]);
+});
+
+test("a failed archive security check prevents packaging", (t) => {
+  const f = fixture(t);
+  assert.equal(f.run(["--build"], { SETUP_TEST_FAIL_NPM: "run test:archive-security" }).status, 1);
+  assert.equal(f.calls().at(-1), "npm run test:archive-security");
+  assert.equal(f.calls().includes("package --dir"), false);
 });

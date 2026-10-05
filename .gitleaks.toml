@@ -5,3 +5,10 @@ useDefault = true
 description = "Theia shortcut strings are not credentials."
 regexTarget = "match"
 regexes = ['''^keybinding: "ctrlcmd\+shift\+(?:1|2|g)"$''']
+
+[[allowlists]]
+description = "The Explorer shortcut comparison is not a credential."
+paths = ['''extensions/shell-layout/src/browser/section-shortcuts\.ts$''']
+condition = "AND"
+regexTarget = "match"
+regexes = ['''^candidate\.keybinding === "ctrlcmd\+shift\+e"$''']

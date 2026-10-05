@@ -1,6 +1,11 @@
 import { inject, injectable } from "@theia/core/shared/inversify";
 import { ApplicationShell } from "@theia/core/lib/browser";
 import { IShellTerminalServer } from "@theia/terminal/lib/common/shell-terminal-protocol";
+import {
+  BashQuotingFunctions,
+  createShellCommandLine,
+  ShellQuoting,
+} from "@theia/core/lib/common/shell-quoting";
 import { TerminalService } from "@theia/terminal/lib/browser/base/terminal-service";
 import { TerminalLocation, TerminalWidget } from "@theia/terminal/lib/browser/base/terminal-widget";
 import { AgentsService, SessionSummary } from "../common/agents-protocol";
@@ -15,11 +20,12 @@ import { SHELL_TERMINAL_KIND } from "./persistent-terminal-widget";
 export const SESSION_TERMINAL_KIND = "ai1-session";
 const CLOSE_LIMIT_MS = 1500;
 
-// Opens and tracks the terminal tabs of sessions and of persistent shells.
-// A session tab runs the OpenCode interface on an existing session. A closed
-// tab loses nothing: the session lives in the service.
+// OpenCode runs inside a persistent shell. The session stays in the service.
 @injectable()
 export class AgentsTerminals {
+  @inject(ApplicationShell)
+  protected readonly shell!: ApplicationShell;
+
   @inject(TerminalService)
   protected readonly terminals!: TerminalService;
 
@@ -35,46 +41,60 @@ export class AgentsTerminals {
   protected readonly bySession = new IdentityMap<string, TerminalWidget>();
   protected readonly byTmux = new IdentityMap<string, TerminalWidget>();
   protected readonly directories = new WeakMap<TerminalWidget, string>();
+  protected readonly sessionIds = new WeakMap<TerminalWidget, string>();
+  protected shellQueue: Promise<unknown> = Promise.resolve();
+
+  sessionIdOf(terminal: TerminalWidget): string | undefined {
+    return this.sessionIds.get(terminal);
+  }
+
+  linkSession(terminal: TerminalWidget, sessionId: string): void {
+    this.sessionIds.set(terminal, sessionId);
+  }
 
   directoryOf(terminal: TerminalWidget): string | undefined {
     return this.directories.get(terminal);
   }
 
   async openSession(session: SessionSummary): Promise<void> {
+    const ref = this.shell.mainPanel.currentTitle?.owner;
+    return this.queueShell(() => this.openSessionShell(session, ref));
+  }
+
+  protected async openSessionShell(
+    session: SessionSummary,
+    ref: ApplicationShell.WidgetOptions["ref"],
+  ): Promise<void> {
     const existing = this.bySession.get(session.id);
     if (existing && !existing.isDisposed) {
       await this.terminals.open(existing, { mode: "activate" });
       return;
     }
-    const command = await this.service.sessionCommand(session.id, session.directory);
-    const terminal = await this.terminals.newTerminal({
-      title: `OC · ${session.title}`,
-      useServerTitle: false,
-      shellPath: command.program,
-      shellArgs: command.args,
-      cwd: session.directory,
-      destroyTermOnClose: true,
-      kind: SESSION_TERMINAL_KIND,
-      // Without this, the default terminal creation handler places a new
-      // terminal in the bottom panel, not the center, per
-      // `TerminalShellHandler.onWillOpenTerminal` in the installed source.
-      location: TerminalLocation.Editor,
-      // The session lives in the service, not in this tab: Theia must never
-      // store or restore it as part of the workbench layout. A restored tab
-      // would try to reconnect to a process id from a previous run, which no
-      // longer exists.
-      isTransient: true,
-    });
+    const name = nextTmuxName((await this.service.tmuxSessions()).map((session) => session.name));
+    const command = await this.service.sessionShellCommand(session.id, session.directory, name);
+    const terminal = await this.openTmux(
+      name,
+      session.directory,
+      true,
+      { area: "main", mode: "tab-after", ref },
+      session.id,
+    );
+    terminal.title.label = `sh · ${session.title}`;
     this.bySession.set(session.id, terminal);
+    this.sessionIds.set(terminal, session.id);
     this.directories.set(terminal, session.directory);
     this.model.markTerminalOpen(session.id);
     terminal.onTerminalDidClose(() => this.forgetSession(session.id, terminal));
     terminal.onDidDispose(() => this.forgetSession(session.id, terminal));
-    await terminal.start();
-    await this.terminals.open(terminal, { mode: "activate" });
+    terminal.sendText(
+      createShellCommandLine(
+        [command.program, ...command.args].map((value) => ({ value, quoting: ShellQuoting.Strong })),
+        BashQuotingFunctions,
+      ) + "\r",
+    );
   }
 
-  // Closes the tabs of the sessions that are not working and not blocked.
+  // Unlink idle sessions from persistent shells. Keep those shells open.
   closeIdle(): number {
     let closed = 0;
     const known = new Map(this.model.groups.flatMap((group) => group.sessions).map((s) => [s.id, s]));
@@ -85,25 +105,37 @@ export class AgentsTerminals {
       // tab, do not guess it is idle.
       const busy = !session || session.status === "working" || session.status === "blocked";
       if (!busy) {
-        terminal.dispose();
-        closed += 1;
+        if (terminal instanceof PersistentTerminalWidget && terminal.tmuxName) {
+          terminal.unlinkAgentSession();
+          this.sessionIds.delete(terminal);
+          this.forgetSession(id, terminal);
+        } else {
+          terminal.dispose();
+          closed += 1;
+        }
       }
     }
     return closed;
   }
 
-  // Disposes the tab of a session, if one is open. Called after a delete.
+  // Remove the session link after deletion. Keep persistent shells open.
   closeSession(id: string): void {
     const terminal = this.bySession.get(id);
     if (terminal && !terminal.isDisposed) {
-      terminal.dispose();
+      if (terminal instanceof PersistentTerminalWidget && terminal.tmuxName) {
+        terminal.unlinkAgentSession();
+        this.sessionIds.delete(terminal);
+        this.forgetSession(id, terminal);
+      } else terminal.dispose();
     }
   }
 
   async newPersistent(directory: string, placement?: ApplicationShell.WidgetOptions): Promise<void> {
-    const existing = await this.service.tmuxSessions();
-    const name = nextTmuxName(existing.map((session) => session.name));
-    await this.openTmux(name, directory, true, placement);
+    return this.queueShell(async () => {
+      const existing = await this.service.tmuxSessions();
+      const name = nextTmuxName(existing.map((session) => session.name));
+      await this.openTmux(name, directory, true, placement);
+    });
   }
 
   // Keep restored tabs in their saved grid. Add a tab for an existing tmux
@@ -112,6 +144,13 @@ export class AgentsTerminals {
     for (const terminal of this.terminals.all) {
       if (terminal instanceof PersistentTerminalWidget && terminal.tmuxName && !terminal.isDisposed) {
         this.trackTmux(terminal.tmuxName, terminal, terminal.options.cwd?.toString());
+        if (terminal.agentSessionId) {
+          const id = terminal.agentSessionId;
+          this.bySession.set(id, terminal);
+          this.model.markTerminalOpen(id);
+          terminal.onTerminalDidClose(() => this.forgetSession(id, terminal));
+          terminal.onDidDispose(() => this.forgetSession(id, terminal));
+        }
       }
     }
     for (const session of await this.service.tmuxSessions()) {
@@ -145,7 +184,7 @@ export class AgentsTerminals {
   // Persistent-shell widgets keep close-on-dispose enabled. Theia saves their
   // layout first, then disposes them and closes their tmux clients.
   async closeTransientSessionBackends(): Promise<void> {
-    const all = [...this.bySession.values()];
+    const all = [...this.bySession.values()].filter((terminal) => terminal.kind === SESSION_TERMINAL_KIND);
     await settleWithin(
       Promise.allSettled(all.map((terminal) => this.shellTerminalServer.close(terminal.terminalId))),
       CLOSE_LIMIT_MS,
@@ -157,11 +196,13 @@ export class AgentsTerminals {
     directory: string | undefined,
     activate = true,
     placement?: ApplicationShell.WidgetOptions,
-  ): Promise<void> {
+    agentSessionId?: string,
+  ): Promise<TerminalWidget> {
     const command = await this.service.tmuxCommand(name, directory);
     const options: PersistentTerminalOptions = {
       id: `ai1-tmux-${name}`,
       ai1TmuxName: name,
+      ai1AgentSessionId: agentSessionId,
       title: `sh · ${directory ? directory.slice(directory.lastIndexOf("/") + 1) : name}`,
       useServerTitle: false,
       shellPath: command.program,
@@ -180,6 +221,25 @@ export class AgentsTerminals {
       mode: activate ? "activate" : "open",
       widgetOptions: placement,
     });
+    return terminal;
+  }
+
+  async refreshSessionShellLinks(): Promise<void> {
+    const shells = [...this.byTmux.values()].filter(
+      (terminal): terminal is PersistentTerminalWidget =>
+        terminal instanceof PersistentTerminalWidget &&
+        !!terminal.tmuxName &&
+        !!terminal.agentSessionId &&
+        !terminal.isDisposed,
+    );
+    if (!shells.length) return;
+    const links = await this.service.sessionShellLinks(shells.map((terminal) => terminal.tmuxName!));
+    for (const terminal of shells) {
+      const link = links.find((link) => link.name === terminal.tmuxName);
+      if (!link || terminal.isDisposed) continue;
+      if (link.id && link.id === terminal.agentSessionId) this.sessionIds.set(terminal, link.id);
+      else this.sessionIds.delete(terminal);
+    }
   }
 
   protected trackTmux(name: string, terminal: TerminalWidget, directory?: string): void {
@@ -192,6 +252,12 @@ export class AgentsTerminals {
     }
     terminal.onTerminalDidClose(() => this.byTmux.forgetIfSame(name, terminal));
     terminal.onDidDispose(() => this.byTmux.forgetIfSame(name, terminal));
+  }
+
+  protected queueShell(task: () => Promise<void>): Promise<void> {
+    const result = this.shellQueue.then(task);
+    this.shellQueue = result.catch(() => undefined);
+    return result;
   }
 
   // Only forgets `terminal` if it is still the current tab of `id`: a

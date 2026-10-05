@@ -1,4 +1,8 @@
 import * as fs from "node:fs";
+import * as path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { EnvVariablesServer } from "@theia/core/lib/common/env-variables/env-variables-protocol";
 import { fileURLToPath } from "node:url";
 import { inject, injectable, preDestroy } from "@theia/core/shared/inversify";
 import { AgentsClient, AgentsService, AgentsSnapshot, SessionSummary } from "../common/agents-protocol";
@@ -9,7 +13,8 @@ import { TmuxSession } from "../common/tmux-list";
 import { OpenCodeHttpError, OpenCodeTimeoutError, RawSession } from "./opencode-client";
 import { Disposable, OpenCodeHub } from "./opencode-hub";
 import { resolveProgram } from "./resolve-program";
-import { listTmuxSessions, tmuxNewCommand } from "./tmux-runner";
+import { listSessionShellLinks, listTmuxSessions, tmuxNewCommand } from "./tmux-runner";
+import { readTerminalHookRecord, TerminalHookAttention } from "./terminal-hook-store";
 
 interface Tracked {
   raw: RawSession;
@@ -97,6 +102,61 @@ function normalizeRoot(root: string): string {
 export class AgentsServiceImpl implements AgentsService {
   @inject(OpenCodeHub)
   protected hub!: OpenCodeHub;
+
+  @inject(EnvVariablesServer)
+  protected readonly environment!: EnvVariablesServer;
+
+  protected readonly attentionNames = new Set<string>();
+
+  async sessionInputAttention(ids: string[]): Promise<{ id: string; pending: boolean }[]> {
+    const known = [...new Set(ids)].filter((id) => this.tracked.has(id)).slice(0, 64);
+    if (!known.length) return [];
+    const api = await this.hub.apiClient();
+    const results = await mapLimit(known, 4, async (id) => {
+      try {
+        return { id, pending: (await api.pendingFormIds(id)).length > 0 };
+      } catch {
+        return undefined;
+      }
+    });
+    return results.filter((value): value is { id: string; pending: boolean } => value !== undefined);
+  }
+
+  async terminalAttentionSetup(): Promise<{ hookPath: string; directory: string }> {
+    const config = fileURLToPath(await this.environment.getConfigDirUri());
+    return {
+      hookPath: require.resolve("ai1-agents/lib/node/terminal-attention-hook"),
+      directory: path.join(config, "terminal-attention"),
+    };
+  }
+
+  async terminalAttention(names: string[]): Promise<TerminalHookAttention[]> {
+    const allowed = [...new Set(names)]
+      .filter((name) => this.attentionNames.has(name) && /^ai1-\d+$/.test(name))
+      .slice(0, 64);
+    if (!allowed.length) return [];
+    const { directory } = await this.terminalAttentionSetup();
+    if (!fs.existsSync(directory)) return [];
+    try {
+      const { stdout } = await promisify(execFile)(
+        this.resolvePath("tmux"),
+        ["list-panes", "-a", "-F", "#{session_name}:#{pane_id}"],
+        { timeout: 1500 },
+      );
+      const panes = new Set(stdout.trim().split("\n"));
+      const records = await Promise.all(
+        allowed.map(async (name) => {
+          const record = await readTerminalHookRecord(directory, name);
+          return record && panes.has(`${name}:${record.pane}`)
+            ? { name, token: record.token, status: record.status }
+            : undefined;
+        }),
+      );
+      return records.filter((record): record is TerminalHookAttention => record !== undefined);
+    } catch {
+      return [];
+    }
+  }
 
   protected client: AgentsClient | undefined;
   protected readonly tracked = new Map<string, Tracked>();
@@ -380,8 +440,34 @@ export class AgentsServiceImpl implements AgentsService {
     return { program: this.resolvePath("opencode"), args: ["--session", id, directory] };
   }
 
+  async sessionShellCommand(
+    id: string,
+    directory: string,
+    name: string,
+  ): Promise<{ program: string; args: string[] }> {
+    if (!/^ai1-\d+$/.test(name) || !/^[A-Za-z0-9._:-]+$/.test(id)) throw new Error("Invalid session link.");
+    const command = await this.sessionCommand(id, directory);
+    return {
+      program: resolveProgram("node"),
+      args: [
+        require.resolve("ai1-agents/lib/node/session-shell-runner"),
+        this.resolvePath("tmux"),
+        name,
+        id,
+        command.program,
+        ...command.args,
+      ],
+    };
+  }
+
+  sessionShellLinks(names: string[]): Promise<{ name: string; id?: string }[]> {
+    return listSessionShellLinks(names);
+  }
+
   async tmuxCommand(name: string, directory?: string): Promise<{ program: string; args: string[] }> {
+    if (!/^ai1-\d+$/.test(name)) throw new Error("This is not an AI1 terminal session.");
     const command = tmuxNewCommand(name, directory);
+    this.attentionNames.add(name);
     return { ...command, program: this.resolvePath("tmux") };
   }
 

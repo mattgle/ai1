@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=AI1
+Comment=A workspace for coding agents
+Exec=ai1 %F
+TryExec=ai1
+Icon=ai1
+Terminal=false
+Categories=Development;IDE;
+StartupWMClass=AI1
+StartupNotify=true

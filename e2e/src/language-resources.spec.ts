@@ -39,6 +39,38 @@ test.beforeAll(() => {
       "export const realError: number = 'not a number';",
     ].join("\n"),
   );
+  const importsProject = path.join(root, "workspace", "imports-repo");
+  fs.mkdirSync(path.join(importsProject, "src"), { recursive: true });
+  for (const [name, declarations] of [
+    ["react", "export function useState<T>(value: T): [T, (value: T) => void];"],
+    ["react-native", "export interface ViewProps { accessible?: boolean; }"],
+  ]) {
+    const module = path.join(importsProject, "node_modules", name);
+    fs.mkdirSync(module, { recursive: true });
+    fs.writeFileSync(
+      path.join(module, "package.json"),
+      JSON.stringify({ name, version: "0.0.0", types: "index.d.ts" }),
+    );
+    fs.writeFileSync(path.join(module, "index.d.ts"), declarations);
+  }
+  fs.writeFileSync(
+    path.join(importsProject, "tsconfig.json"),
+    JSON.stringify({
+      extends: "../tsconfig.base.json",
+      compilerOptions: { module: "CommonJS", moduleResolution: "Node", jsx: "react" },
+      include: ["src"],
+    }),
+  );
+  fs.writeFileSync(
+    path.join(importsProject, "src", "imports.tsx"),
+    [
+      "import { useState } from 'react';",
+      "import type { ViewProps } from 'react-native';",
+      "export const [count] = useState(1);",
+      "export const props: ViewProps = { accessible: true };",
+      "export const realError: number = 'not a number';",
+    ].join("\n"),
+  );
 });
 
 test.afterAll(async () => {
@@ -115,5 +147,36 @@ for (const [name, directory] of [
     expect(diagnostics).toEqual([
       { code: 2322, message: "Type 'string' is not assignable to type 'number'." },
     ]);
+  });
+  test(`${name} TypeScript resolves nested project imports and reports a missing dependency`, () => {
+    test.skip(!directory, "Set AI1_PACKAGED_RESOURCES to the packaged app resource directory.");
+    const ts = requireModule(
+      path.join(
+        directory!,
+        "plugins/vscode.typescript-language-features/extension/deps/typescript/lib/typescript.js",
+      ),
+    ) as typeof TypeScript;
+    const project = path.join(root, "workspace", "imports-repo");
+    const configPath = path.join(project, "tsconfig.json");
+    const read = ts.readConfigFile(configPath, ts.sys.readFile);
+    expect(read.error).toBeUndefined();
+    const config = ts.parseJsonConfigFileContent(read.config, ts.sys, project);
+    expect(config.errors).toEqual([]);
+    const diagnostics = () => ts.getPreEmitDiagnostics(ts.createProgram(config.fileNames, config.options));
+    expect(diagnostics().map((entry) => entry.code)).toEqual([2322]);
+    const dependency = path.join(project, "node_modules", "react-native");
+    const hidden = path.join(project, "node_modules", "hidden-react-native");
+    fs.renameSync(dependency, hidden);
+    try {
+      const errors = diagnostics();
+      expect(errors.map((entry) => entry.code).sort()).toEqual([2307, 2322]);
+      expect(
+        errors.some((entry) =>
+          ts.flattenDiagnosticMessageText(entry.messageText, "\n").includes("react-native"),
+        ),
+      ).toBe(true);
+    } finally {
+      fs.renameSync(hidden, dependency);
+    }
   });
 }

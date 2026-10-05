@@ -12,7 +12,10 @@ Do not copy macOS or Windows `node_modules` into Linux.
 
 ## Prerequisites
 
-- Git and Linux Node 24 with npm. Do not change the system Node version to meet
+- Git and Linux Node 24 with npm 11 or later. The extractor override requires
+  current npm. npm 12 uses the reviewed `allowScripts` list in `package.json`.
+  Do not allow all dependency scripts to fix a blocked install.
+  Do not change the system Node version to meet
   this requirement. Use an existing Node version manager when available.
 - Python 3, a C/C++ compiler, make, and pkg-config.
 - libsecret, libx11, and libxkbfile development files.
@@ -98,3 +101,7 @@ claim Omarchy support from a successful build alone.
 
 The final release prompt can include installation after runtime and package
 tests pass. The current prompt intentionally stops at a source build.
+
+Experimental Arch package files and the native lifecycle test plan are in
+[Arch package preparation](arch-package.md). Package preparation does not
+install the app. Native tests and distribution review still block release.

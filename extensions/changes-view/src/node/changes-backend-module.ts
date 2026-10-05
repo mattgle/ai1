@@ -4,7 +4,7 @@ import { CHANGES_SERVICE_PATH, ChangesService } from "../common/changes-protocol
 import { ChangesServiceImpl } from "./changes-service-impl";
 
 export default new ContainerModule((bind) => {
-  bind(ChangesService).to(ChangesServiceImpl).inSingletonScope();
+  bind(ChangesService).to(ChangesServiceImpl).inTransientScope();
   bind(ConnectionHandler)
     .toDynamicValue(
       (context) =>

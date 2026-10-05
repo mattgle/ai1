@@ -236,6 +236,17 @@ export class AgentsWidget extends TreeWidget {
     );
   }
 
+  protected override handleEnter(event: KeyboardEvent): void {
+    const node = this.focusService.focusedNode;
+    if (isSessionNode(node)) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.onOpenSession(node);
+    } else {
+      super.handleEnter(event);
+    }
+  }
+
   // A single click on a card opens its terminal.
   protected override tapNode(node?: TreeNode): void {
     super.tapNode(node);

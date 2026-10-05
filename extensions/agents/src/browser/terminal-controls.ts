@@ -5,11 +5,19 @@ import {
   KeybindingRegistry,
   Widget,
 } from "@theia/core/lib/browser";
-import { CommandContribution, CommandRegistry } from "@theia/core/lib/common";
+import {
+  CommandContribution,
+  CommandRegistry,
+  isOSX,
+  MenuContribution,
+  MenuModelRegistry,
+} from "@theia/core/lib/common";
+import { CommonMenus } from "@theia/core/lib/browser/common-frontend-contribution";
 import { Disposable } from "@theia/core/lib/common/disposable";
 import { FrontendApplicationStateService } from "@theia/core/lib/browser/frontend-application-state";
 import { inject, injectable } from "@theia/core/shared/inversify";
-import { DockLayout, DockPanel } from "@theia/core/shared/@lumino/widgets";
+import { DockLayout } from "@theia/core/shared/@lumino/widgets";
+import { TheiaDockPanel } from "@theia/core/lib/browser/shell/theia-dock-panel";
 import { TerminalWidget } from "@theia/terminal/lib/browser/base/terminal-widget";
 import { TerminalService } from "@theia/terminal/lib/browser/base/terminal-service";
 
@@ -25,7 +33,7 @@ const EDITING = [
 
 @injectable()
 export class TerminalControls
-  implements CommandContribution, KeybindingContribution, FrontendApplicationContribution
+  implements CommandContribution, KeybindingContribution, FrontendApplicationContribution, MenuContribution
 {
   @inject(ApplicationShell)
   protected readonly shell!: ApplicationShell;
@@ -37,10 +45,37 @@ export class TerminalControls
   protected readonly stateService!: FrontendApplicationStateService;
 
   protected stateListener: Disposable | undefined;
+  protected lastEscape = 0;
+  protected zoomRevision = 0;
+  protected readonly handleZoomEscape = (event: KeyboardEvent): void => {
+    if (
+      event.key !== "Escape" ||
+      event.repeat ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey ||
+      !this.zoomed
+    ) {
+      this.lastEscape = 0;
+      return;
+    }
+    const now = performance.now();
+    if (this.lastEscape && now - this.lastEscape <= 500) {
+      this.lastEscape = 0;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      this.restoreZoom();
+    } else {
+      this.lastEscape = now;
+    }
+  };
 
-  protected zoomed: { panel: DockPanel; layout: DockLayout.ILayoutConfig } | undefined;
+  protected zoomed:
+    { panel: TheiaDockPanel; layout: DockLayout.ILayoutConfig; widgets: Widget[] } | undefined;
 
   onStart(): void {
+    document.addEventListener("keydown", this.handleZoomEscape, true);
     this.stateListener = this.stateService.onStateChanged((state) => {
       if (state === "closing_window") {
         this.restoreZoom();
@@ -49,10 +84,48 @@ export class TerminalControls
   }
 
   onStop(): void {
+    document.removeEventListener("keydown", this.handleZoomEscape, true);
     this.stateListener?.dispose();
   }
 
   registerCommands(commands: CommandRegistry): void {
+    commands.registerCommand(
+      { id: "ai1.center.zoom", label: "Zoom Center Panel" },
+      {
+        execute: async (widget?: Widget | Promise<object | undefined>) => {
+          const alreadyZoomed = !!this.zoomed;
+          const revision = this.zoomRevision;
+          const opened = await widget;
+          if (opened instanceof Widget) await this.shell.activateWidget(opened.id);
+          const target = opened instanceof Widget ? opened : this.shell.currentWidget;
+          if (
+            !alreadyZoomed &&
+            revision === this.zoomRevision &&
+            !this.zoomed &&
+            target &&
+            this.shell.getAreaFor(target) === "main"
+          ) {
+            this.toggleZoom(target);
+          }
+        },
+      },
+    );
+    commands.registerCommand(
+      { id: "ai1.center.restoreZoom", label: "Exit Center Panel Zoom" },
+      {
+        isEnabled: () => !!this.zoomed,
+        execute: () => this.restoreZoom(),
+      },
+    );
+    commands.registerCommand(
+      { id: "ai1.center.toggleZoom", label: "Toggle Center Panel Zoom" },
+      {
+        isEnabled: () =>
+          !!this.zoomed ||
+          (!!this.shell.currentWidget && this.shell.getAreaFor(this.shell.currentWidget) === "main"),
+        execute: () => this.toggleZoom(),
+      },
+    );
     const searchTerminal = (): TerminalWidget | undefined =>
       this.terminalService.all.find((terminal) => {
         const search = terminal.getSearchBox();
@@ -87,6 +160,10 @@ export class TerminalControls
   }
 
   registerKeybindings(registry: KeybindingRegistry): void {
+    registry.registerKeybinding({
+      command: "ai1.center.toggleZoom",
+      keybinding: isOSX ? "meta+ctrl+enter" : "ctrl+alt+enter",
+    });
     registry.registerKeybinding({ command: "ai1.terminal.closeSearch", keybinding: "esc" });
     const bind = (name: string, keybinding: string): void => {
       registry.registerKeybinding({ command: `ai1.terminal.${name}`, keybinding, when: "terminalFocus" });
@@ -103,7 +180,20 @@ export class TerminalControls
     }
   }
 
-  protected panel(): DockPanel | undefined {
+  registerMenus(menus: MenuModelRegistry): void {
+    menus.registerMenuAction(CommonMenus.VIEW, {
+      commandId: "ai1.center.toggleZoom",
+      label: "Zoom Center Panel",
+      order: "90",
+    });
+    menus.registerMenuAction(CommonMenus.VIEW, {
+      commandId: "ai1.center.restoreZoom",
+      label: "Exit Center Panel Zoom",
+      order: "91",
+    });
+  }
+
+  protected panel(): TheiaDockPanel | undefined {
     const widget = this.shell.currentWidget;
     const area = widget && this.shell.getAreaFor(widget);
     return area === "main" ? this.shell.mainPanel : area === "bottom" ? this.shell.bottomPanel : undefined;
@@ -195,17 +285,27 @@ export class TerminalControls
     }
   }
 
-  protected toggleZoom(): void {
+  protected toggleZoom(target?: Widget): void {
     if (this.zoomed) {
       this.restoreZoom();
       return;
     }
-    const panel = this.panel();
-    const current = this.shell.currentWidget;
+    const current = target ?? this.shell.currentWidget;
+    const panel = target ? this.shell.mainPanel : this.panel();
     if (panel && current && Array.from(panel.tabBars()).length > 1) {
-      this.zoomed = { panel, layout: panel.saveLayout() };
-      panel.mode = "single-document";
+      const bar = panel.findTabBar(current.title);
+      if (!bar) return;
+      this.zoomed = { panel, layout: panel.saveLayout(), widgets: Array.from(panel.widgets()) };
+      this.zoomRevision++;
+      panel.restoreLayout({
+        main: {
+          type: "tab-area",
+          widgets: bar.titles.map((title) => title.owner),
+          currentIndex: bar.titles.indexOf(current.title),
+        },
+      });
       panel.activateWidget(current);
+      panel.markAsCurrent(current.title);
     }
   }
 
@@ -215,8 +315,10 @@ export class TerminalControls
       return;
     }
     this.zoomed = undefined;
+    this.zoomRevision++;
+    this.lastEscape = 0;
     const current = this.shell.currentWidget;
-    const widgets = Array.from(saved.panel.widgets());
+    const widgets = Array.from(new Set([...saved.widgets, ...saved.panel.widgets()]));
     const present = new Set<Widget>();
     const prune = (area: DockLayout.AreaConfig | null): DockLayout.AreaConfig | null => {
       if (!area) {
@@ -251,6 +353,7 @@ export class TerminalControls
       }
     }
     if (current && !current.isDisposed) {
+      saved.panel.markAsCurrent(current.title);
       void this.shell.activateWidget(current.id);
     }
   }

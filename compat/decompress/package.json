@@ -1,0 +1,17 @@
+{
+  "name": "@ai1/decompress-compat",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "CommonJS compatibility for the maintained archive extractor used by Theia.",
+  "main": "index.cjs",
+  "files": [
+    "index.cjs"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@xhmikosr/decompress": "11.1.4"
+  }
+}

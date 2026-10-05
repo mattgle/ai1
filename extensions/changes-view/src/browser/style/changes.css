@@ -6,6 +6,18 @@
   gap: 6px;
 }
 
+.ai1-changes .ai1-changes-refresh-status {
+  padding: 6px 8px;
+  font-size: 0.9em;
+  color: var(--theia-descriptionForeground);
+  border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.ai1-changes .ai1-changes-refresh-warning {
+  padding-top: 4px;
+  color: var(--theia-editorWarning-foreground);
+}
+
 .ai1-changes .ai1-changes-name {
   min-width: 0;
   overflow: hidden;
@@ -47,7 +59,7 @@
   justify-content: center;
   flex: 0 0 24px;
   width: 24px;
-  height: 24px;
+  height: var(--theia-content-line-height);
   padding: 0;
   border: 0;
   border-radius: 4px;

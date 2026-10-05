@@ -1,0 +1,32 @@
+#theia-app-shell .lm-TabBar-tab.ai1-attention-input {
+  --ai1-attention-color: var(--theia-editorWarning-foreground, #d7ba7d);
+}
+
+#theia-app-shell .lm-TabBar-tab.ai1-attention-done {
+  --ai1-attention-color: var(--theia-testing-iconPassed, #73c991);
+}
+
+#theia-app-shell .lm-TabBar-tab.ai1-attention-failed {
+  --ai1-attention-color: var(--theia-editorError-foreground, #f14c4c);
+}
+
+#theia-app-shell .lm-TabBar-tab:is(.ai1-attention-input, .ai1-attention-done, .ai1-attention-failed) {
+  box-shadow: inset 0 0 0 2px var(--ai1-attention-color);
+  background-color: color-mix(
+    in srgb,
+    var(--ai1-attention-color) 12%,
+    var(--theia-editorGroupHeader-tabsBackground)
+  );
+}
+
+body:is(.theia-hc, .theia-hcLight)
+  #theia-app-shell
+  .lm-TabBar-tab:is(.ai1-attention-working, .ai1-attention-input, .ai1-attention-done, .ai1-attention-failed) {
+  outline: 2px solid var(--theia-contrastActiveBorder, var(--theia-focusBorder));
+  outline-offset: -3px;
+}
+#theia-app-shell .lm-TabBar-tab.ai1-attention-working {
+  --ai1-attention-color: var(--theia-progressBar-background, #0078d4);
+  box-shadow: inset 0 0 0 1px var(--ai1-attention-color);
+  background-color: color-mix(in srgb, var(--ai1-attention-color) 5%, var(--theia-editorGroupHeader-tabsBackground));
+}

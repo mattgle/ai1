@@ -1,5 +1,6 @@
 extends: ./electron-builder.yml
 linux:
+  executableName: ai1
   icon: resources/branding/icon-dark.png
   category: Development
   target:

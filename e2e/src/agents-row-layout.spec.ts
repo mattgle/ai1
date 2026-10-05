@@ -1,13 +1,15 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { spawnSync } from "node:child_process";
 import { _electron as electron, expect, test } from "@playwright/test";
 import { TheiaApp, TheiaWorkspace } from "@theia/playwright";
 import { FakeOpenCodeServer } from "../../extensions/agents/lib/node/fake-opencode-server";
 import { clickTab } from "./click-tab";
 import { removeTempDir } from "./remove-temp-dir";
 
-const electronAppPath = path.resolve(__dirname, "..", "..", "applications", "electron");
+const electronAppPath =
+  process.env.AI1_PACKAGED_RESOURCES ?? path.resolve(__dirname, "..", "..", "applications", "electron");
 let root: string;
 let server: FakeOpenCodeServer;
 let electronApp: Awaited<ReturnType<typeof electron.launch>>;
@@ -17,12 +19,19 @@ test.beforeAll(async () => {
   root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ai1-agent-layout-")));
   const workspace = path.join(root, "workspace");
   const state = path.join(root, "state");
+  const home = path.join(root, "home");
+  const bin = path.join(root, "bin");
+  fs.mkdirSync(home);
+  fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, "opencode"), "#!/bin/sh\nexec /bin/cat\n", { mode: 0o755 });
+  fs.writeFileSync(path.join(home, ".zshenv"), `export PATH="${bin}:$PATH"\n`);
   fs.mkdirSync(workspace);
+  fs.writeFileSync(path.join(workspace, "keyboard-panel.txt"), "Keyboard panel test\n");
   fs.mkdirSync(path.join(state, "opencode"), { recursive: true });
   fs.mkdirSync(path.join(root, "config"));
   fs.writeFileSync(
     path.join(root, "config", "settings.json"),
-    JSON.stringify({ "ai1.agents.notifyOnBlocked": false }),
+    JSON.stringify({ "ai1.agents.notifyOnBlocked": false, "ai1.welcome.startup": "never" }),
   );
   server = new FakeOpenCodeServer();
   await server.start();
@@ -60,8 +69,9 @@ test.beforeAll(async () => {
     JSON.stringify({ url: server.baseUrl, password: server.password }),
   );
   electronApp = await electron.launch({
+    executablePath: process.env.AI1_E2E_EXECUTABLE,
     args: [
-      electronAppPath,
+      ...(process.env.AI1_E2E_EXECUTABLE ? [] : [electronAppPath]),
       "--no-sandbox",
       "--no-cluster",
       `--app-project-path=${electronAppPath}`,
@@ -72,6 +82,9 @@ test.beforeAll(async () => {
     ],
     env: {
       ...process.env,
+      HOME: home,
+      ZDOTDIR: home,
+      PATH: `${bin}${path.delimiter}${process.env.PATH}`,
       THEIA_CONFIG_DIR: path.join(root, "config"),
       XDG_STATE_HOME: state,
       TMUX_TMPDIR: root,
@@ -101,6 +114,7 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   await electronApp?.close();
   await server?.stop();
+  if (root) spawnSync("tmux", ["-S", path.join(root, `tmux-${process.getuid!()}`, "default"), "kill-server"]);
   await removeTempDir(root);
 });
 
@@ -317,4 +331,40 @@ test("Open Terminal in the context menu opens the clicked session", async () => 
   await expect(
     app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "Renamed Monorail" }),
   ).toBeVisible();
+});
+
+test("Enter on an Agents session opens its terminal in the last focused center panel", async () => {
+  const page = app.page;
+  await page
+    .locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "sh · Renamed Monorail" })
+    .locator(".lm-TabBar-tabCloseIcon")
+    .click();
+  await expect(page.locator("#theia-main-content-panel .xterm")).toHaveCount(0);
+  await page.locator("#files .theia-TreeNode", { hasText: "keyboard-panel.txt" }).dblclick();
+  await expect(page.locator("#theia-main-content-panel .monaco-editor:visible")).toHaveCount(1);
+  await app.quickCommandPalette.type("Split Editor Right");
+  await page.locator(".quick-input-widget .monaco-list-row", { hasText: "Split Editor Right" }).click();
+  const bars = page.locator("#theia-main-content-panel .lm-TabBar");
+  await expect(bars).toHaveCount(2);
+  await page.keyboard.press("Meta+Control+2");
+  await page.keyboard.press("Meta+Control+a");
+  await expect
+    .poll(() => page.locator("#ai1-agents").evaluate((node) => node.contains(document.activeElement)))
+    .toBe(true);
+  const renderFocus = () =>
+    page.evaluate(
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+    );
+  await page.keyboard.press("Home");
+  await renderFocus();
+  const focused = page.locator("#ai1-agents .theia-TreeNode.theia-mod-focus .ai1-agents-title");
+  await page.keyboard.press("ArrowDown");
+  await renderFocus();
+  await expect(focused).toHaveCount(1);
+  const title = await focused.innerText();
+  await page.keyboard.press("Enter");
+  await expect(bars.nth(1).locator(".lm-TabBar-tab", { hasText: `sh · ${title}` })).toBeVisible();
+  await expect(bars.nth(0).locator(".lm-TabBar-tab", { hasText: `sh · ${title}` })).toHaveCount(0);
+  await expect(page.locator("#theia-main-content-panel .xterm-helper-textarea:focus")).toHaveCount(1);
 });

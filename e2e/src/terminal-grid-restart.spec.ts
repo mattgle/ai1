@@ -24,10 +24,17 @@ test("A window restart keeps the terminal split grid and pane sizes", async () =
   const socket = path.join(root, `tmux-${process.getuid!()}`, "default");
   let running: Awaited<ReturnType<typeof electron.launch>> | undefined;
   const launch = async () => {
-    const application = path.resolve(__dirname, "../../applications/electron");
+    fs.mkdirSync(path.join(root, "config"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "config/settings.json"),
+      JSON.stringify({ "ai1.welcome.startup": "never" }),
+    );
+    const application =
+      process.env.AI1_PACKAGED_RESOURCES ?? path.resolve(__dirname, "../../applications/electron");
     running = await electron.launch({
+      executablePath: process.env.AI1_E2E_EXECUTABLE,
       args: [
-        application,
+        ...(process.env.AI1_E2E_EXECUTABLE ? [] : [application]),
         "--no-sandbox",
         "--no-cluster",
         `--app-project-path=${application}`,
@@ -55,16 +62,18 @@ test("A window restart keeps the terminal split grid and pane sizes", async () =
   };
   const grid = (app: TheiaApp) =>
     app.page.locator("#theia-main-content-panel .lm-TabBar").evaluateAll((bars) =>
-      bars.map((bar) => {
-        const bounds = bar.getBoundingClientRect();
-        return {
-          x: Math.round(bounds.x),
-          y: Math.round(bounds.y),
-          width: Math.round(bounds.width),
-          tabs: Array.from(bar.querySelectorAll(".lm-TabBar-tab")).map((tab) => tab.id),
-          activeTab: bar.querySelector(".lm-mod-current")?.id,
-        };
-      }),
+      bars
+        .map((bar) => {
+          const bounds = bar.getBoundingClientRect();
+          return {
+            x: Math.round(bounds.x),
+            y: Math.round(bounds.y),
+            width: Math.round(bounds.width),
+            tabs: Array.from(bar.querySelectorAll(".lm-TabBar-tab")).map((tab) => tab.id),
+            activeTab: bar.querySelector(".lm-mod-current")?.id,
+          };
+        })
+        .sort((a, b) => a.y - b.y || a.x - b.x),
     );
   try {
     const first = await launch();
@@ -96,7 +105,7 @@ test("A window restart keeps the terminal split grid and pane sizes", async () =
       first.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "sh · workspace" }),
     ).toHaveCount(4);
     const before = await grid(first);
-    await running!.close();
+    await Promise.all([running!.waitForEvent("close"), running!.evaluate(({ app }) => app.quit())]);
     running = undefined;
     const second = await launch();
     await expect(
@@ -113,7 +122,7 @@ test("A window restart keeps the terminal split grid and pane sizes", async () =
         execFileSync(tmux, ["-S", socket, "capture-pane", "-p", "-t", "ai1-4"], { encoding: "utf8" }),
       )
       .toContain("AI1_GRID_RESTORE_MARKER");
-    await running!.close();
+    await Promise.all([running!.waitForEvent("close"), running!.evaluate(({ app }) => app.quit())]);
     running = undefined;
     const third = await launch();
     await expect(third.page.locator("#theia-main-content-panel .lm-TabBar")).toHaveCount(3);
