@@ -15,6 +15,24 @@ the state before this approval.
 
 ## Secret scan
 
+### Startup failure evidence: 2026-10-05
+
+The Changes settings test now records launch phases, process IDs, process
+exit events, application close events, window events, elapsed times, and
+stdout/stderr byte counts. It does not record output text, command arguments,
+environment values, workspace paths, or server credentials. Each launch
+failure writes `changes-settings-launches.json` before cleanup. The test also
+attaches its records before final cleanup. This preserves failure evidence
+when cleanup does not complete.
+
+Ten separate packaged settings tests pass with the same launch sequence and
+timeout values. Their records contain 40 ready launches and 30 process exits
+before final cleanup. The first three launches in each test record both
+process exit and application close before the next launch. All ten records
+pass the local path and credential-field check. No failure appears in this
+measurement, so it does not identify a cause or establish a fix. The earlier
+second-launch timeout and cleanup timeout remain open release risks.
+
 ### Pinned notice assets: 2026-10-05
 
 Source commit `dec015f` is on `feat/release-readiness` in the public repository.

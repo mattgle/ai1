@@ -45,6 +45,7 @@ function createWorkspace(root: string, name: string): string {
 }
 
 test("Changes settings save profile defaults and optional workspace overrides", async () => {
+  const testInfo = test.info();
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ai1-changes-settings-")));
   const workspace = createWorkspace(root, "code");
   const otherWorkspace = createWorkspace(root, "other-code");
@@ -65,34 +66,87 @@ test("Changes settings save profile defaults and optional workspace overrides", 
     process.env.AI1_PACKAGED_RESOURCES ?? path.resolve(__dirname, "../../applications/electron");
   let running: Awaited<ReturnType<typeof electron.launch>> | undefined;
   let app: TheiaApp;
+  const launches: {
+    number: number;
+    phase: string;
+    pid?: number;
+    exitCode?: number | null;
+    signalCode?: string | null;
+    stdoutBytes: number;
+    stderrBytes: number;
+    events: { name: string; elapsedMs: number }[];
+  }[] = [];
   const launch = async (folder: string) => {
-    running = await electron.launch({
-      executablePath: process.env.AI1_E2E_EXECUTABLE,
-      args: [
-        ...(process.env.AI1_E2E_EXECUTABLE ? [] : [application]),
-        "--no-sandbox",
-        "--no-cluster",
-        `--app-project-path=${application}`,
-        `--user-data-dir=${root}/userdata`,
-        `--electronUserData=${root}/userdata`,
-        folder,
-      ],
-      env: {
-        ...process.env,
-        HOME: path.join(root, "home"),
-        THEIA_CONFIG_DIR: path.join(root, "config"),
-        XDG_STATE_HOME: path.join(root, "state"),
-        TMUX_TMPDIR: root,
-        TMUX: "",
-      },
-    });
-    const opened = new TheiaApp(await running.firstWindow(), new TheiaWorkspace(), true);
-    await opened.waitForShellAndInitialized();
-    if (!(await opened.page.locator("#ai1-changes").isVisible()))
-      await clickTab(opened.page.locator("#shell-tab-ai1-changes"));
-    await opened.page.keyboard.press(process.platform === "darwin" ? "Meta+Control+c" : "Control+Shift+c");
-    await expect(opened.page.getByRole("button", { name: "Changes settings", exact: true })).toBeVisible();
-    return opened;
+    const started = performance.now();
+    const record: (typeof launches)[number] = {
+      number: launches.length + 1,
+      phase: "launch",
+      stdoutBytes: 0,
+      stderrBytes: 0,
+      events: [],
+    };
+    launches.push(record);
+    const event = (name: string) =>
+      record.events.push({ name, elapsedMs: Math.round(performance.now() - started) });
+    event("launch-start");
+    try {
+      running = await electron.launch({
+        executablePath: process.env.AI1_E2E_EXECUTABLE,
+        args: [
+          ...(process.env.AI1_E2E_EXECUTABLE ? [] : [application]),
+          "--no-sandbox",
+          "--no-cluster",
+          `--app-project-path=${application}`,
+          `--user-data-dir=${root}/userdata`,
+          `--electronUserData=${root}/userdata`,
+          folder,
+        ],
+        env: {
+          ...process.env,
+          HOME: path.join(root, "home"),
+          THEIA_CONFIG_DIR: path.join(root, "config"),
+          XDG_STATE_HOME: path.join(root, "state"),
+          TMUX_TMPDIR: root,
+          TMUX: "",
+        },
+      });
+      event("launch-connected");
+      const child = running.process();
+      record.pid = child.pid;
+      child.stdout?.on("data", (chunk: Buffer) => {
+        record.stdoutBytes += chunk.length;
+      });
+      child.stderr?.on("data", (chunk: Buffer) => {
+        record.stderrBytes += chunk.length;
+      });
+      child.on("exit", (code, signal) => {
+        record.exitCode = code;
+        record.signalCode = signal;
+        event("process-exit");
+      });
+      running.on("window", () => event("window"));
+      running.on("close", () => event("application-close"));
+      record.phase = "first-window";
+      const page = await running.firstWindow();
+      event("first-window-ready");
+      record.phase = "shell";
+      const opened = new TheiaApp(page, new TheiaWorkspace(), true);
+      await opened.waitForShellAndInitialized();
+      if (!(await opened.page.locator("#ai1-changes").isVisible()))
+        await clickTab(opened.page.locator("#shell-tab-ai1-changes"));
+      await opened.page.keyboard.press(process.platform === "darwin" ? "Meta+Control+c" : "Control+Shift+c");
+      await expect(opened.page.getByRole("button", { name: "Changes settings", exact: true })).toBeVisible();
+      record.phase = "ready";
+      event("shell-ready");
+      return opened;
+    } catch (error) {
+      event("launch-failure");
+      fs.writeFileSync(
+        testInfo.outputPath("changes-settings-launches.json"),
+        JSON.stringify({ launches }, null, 2),
+      );
+      throw error;
+    }
   };
   const quit = async () => {
     const closed = running!.waitForEvent("close");
@@ -222,6 +276,12 @@ test("Changes settings save profile defaults and optional workspace overrides", 
     ).toBeVisible();
     expect(saved(workspaceConfig)["ai1.changes.refreshMode"]).toBeUndefined();
   } finally {
+    const report = testInfo.outputPath("changes-settings-launches.json");
+    fs.writeFileSync(report, JSON.stringify({ launches }, null, 2));
+    await testInfo.attach("Changes settings launch records", {
+      path: report,
+      contentType: "application/json",
+    });
     await running?.close();
     await server.stop();
     await removeTempDir(root);
