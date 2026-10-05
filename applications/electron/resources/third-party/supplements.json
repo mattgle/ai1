@@ -1,6 +1,22 @@
 {
   "schemaVersion": 1,
   "sources": {
+    "imurmurhash": {
+      "license": "MIT",
+      "text": "generated/imurmurhash/LICENSE-README.txt",
+      "sha256": "4491517f7deb68d0b2a3bb590e785e276a60f12448447a9650d0bd50161a101c",
+      "revision": "9f40361c7e2835a9b7b8eaa1cbab2a9f94ee22a2",
+      "url": "https://raw.githubusercontent.com/jensyt/imurmurhash-js/9f40361c7e2835a9b7b8eaa1cbab2a9f94ee22a2/README.md",
+      "download": true
+    },
+    "msgpackr-extract-native": {
+      "license": "MIT",
+      "text": "generated/msgpackr-extract-native/LICENSE.txt",
+      "sha256": "d00470775464c789c7ac04cfba3bf1b79ef149790eb72556d1c51d8f50c8e7f3",
+      "revision": "71def7bd969e5c88d2c918e0d81ee2ba3155d19c",
+      "url": "https://raw.githubusercontent.com/kriszyp/msgpackr-extract/71def7bd969e5c88d2c918e0d81ee2ba3155d19c/LICENSE",
+      "download": true
+    },
     "agent-base": {
       "license": "MIT",
       "text": "generated/agent-base/LICENSE-README.txt",
@@ -163,6 +179,12 @@
     }
   },
   "packages": [
+    { "name": "imurmurhash", "version": "0.1.4", "source": "imurmurhash" },
+    {
+      "name": "@msgpackr-extract/msgpackr-extract-darwin-arm64",
+      "version": "3.0.4",
+      "source": "msgpackr-extract-native"
+    },
     { "name": "agent-base", "version": "6.0.2", "source": "agent-base" },
     { "name": "http-proxy-agent", "version": "4.0.1", "source": "http-proxy-agent-4" },
     { "name": "http-proxy-agent", "version": "5.0.0", "source": "http-proxy-agent-5" },

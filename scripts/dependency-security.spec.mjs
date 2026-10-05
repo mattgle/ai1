@@ -3,6 +3,8 @@ import { createRequire } from "node:module";
 import * as path from "node:path";
 import { test } from "node:test";
 import { EventEmitter } from "node:events";
+import * as http from "node:http";
+import { once as eventOnce } from "node:events";
 
 const require = process.env.AI1_PACKAGED_RESOURCES
   ? createRequire(path.resolve(process.env.AI1_PACKAGED_RESOURCES, "package.json"))
@@ -21,6 +23,64 @@ test("the installed proxy event helper settles connect and error events and remo
     else await outcome;
     assert.equal(emitter.listenerCount("connect"), 0);
     assert.equal(emitter.listenerCount("error"), 0);
+  }
+});
+
+test("the VS Code proxy wrapper preserves a direct agent without a socket event wait", async () => {
+  const createAgent = require("@vscode/proxy-agent/out/agent");
+  const original = new http.Agent();
+  const agent = createAgent(() => "DIRECT", { originalAgent: original });
+  const request = new EventEmitter();
+  request.path = "/fixture";
+  const events = [];
+  request.on("proxy", (event) => events.push(event));
+  try {
+    const result = await agent.callback(request, {
+      host: "example.invalid",
+      port: 80,
+      secureEndpoint: false,
+    });
+    assert.equal(result, original);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].proxy, "DIRECT");
+    assert.equal(events[0].socket, original);
+  } finally {
+    agent.destroy();
+    original.destroy();
+  }
+});
+
+test("the VS Code HTTP proxy caller connects to a loopback fixture and reports connection failure", async () => {
+  const createAgent = require("@vscode/proxy-agent/out/agent");
+  const server = http.createServer((request, response) => {
+    assert.equal(request.url, "http://example.invalid/fixture");
+    response.end("Fixture response");
+  });
+  server.listen(0, "127.0.0.1");
+  await eventOnce(server, "listening");
+  const { port } = server.address();
+  const agent = createAgent(() => `PROXY 127.0.0.1:${port}`);
+  const request = () =>
+    new Promise((resolve, reject) => {
+      const outgoing = http.get("http://example.invalid/fixture", { agent }, (response) => {
+        let body = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk) => {
+          body += chunk;
+        });
+        response.on("end", () => resolve(body));
+        response.on("error", reject);
+      });
+      outgoing.setTimeout(5000, () => outgoing.destroy(new Error("Fixture request timeout")));
+      outgoing.on("error", reject);
+    });
+  try {
+    assert.equal(await request(), "Fixture response");
+    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await assert.rejects(request(), /Failed to establish a socket connection/);
+  } finally {
+    agent.destroy();
+    if (server.listening) await new Promise((resolve) => server.close(resolve));
   }
 });
 

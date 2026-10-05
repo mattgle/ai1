@@ -13,9 +13,7 @@ publication. Security, license, source-duty, live-hook, startup reliability,
 and native Omarchy gates remain open. Earlier local-only records describe
 the state before this approval.
 
-## Secret scan
-
-### Startup failure evidence: 2026-10-05
+## Startup failure evidence: 2026-10-05
 
 The Changes settings test now records launch phases, process IDs, process
 exit events, application close events, window events, elapsed times, and
@@ -33,7 +31,7 @@ pass the local path and credential-field check. No failure appears in this
 measurement, so it does not identify a cause or establish a fix. The earlier
 second-launch timeout and cleanup timeout remain open release risks.
 
-### Pinned notice assets: 2026-10-05
+## Pinned notice assets: 2026-10-05
 
 Source commit `dec015f` is on `feat/release-readiness` in the public repository.
 The branch does not merge to `main`. No binary publication or app installation
@@ -71,6 +69,61 @@ license text at the checked release commits. Do not use a newer release's
 license text or a different package's parent license to clear these entries.
 Native libraries, fonts, copied code, extension inputs, and source duties
 remain separate release checks. Notice counts do not establish compliance.
+
+### Additional notice and build-input review: 2026-10-05
+
+The local bundle now has 565 notice files and nine unresolved entries.
+Production builds prepare 15 pinned notice assets. The two new supplements
+cover IMurmurHash 0.1.4 and the native MessagePack extraction package for
+Darwin arm64 3.0.4. The IMurmurHash tag resolves to commit
+`9f40361c7e2835a9b7b8eaa1cbab2a9f94ee22a2`. Both packaged JavaScript files
+match that commit byte-for-byte. Its complete README includes the MIT terms
+and copyright notice. The MessagePack registry identifies commit
+`71def7bd969e5c88d2c918e0d81ee2ba3155d19c`. The source manifest lists the
+exact platform package as an optional dependency at 3.0.4. The published
+platform archive passes its npm SHA-512 integrity check. The supplement
+preserves that source commit's MIT license. This does not verify the native
+binary's complete source or copied-code duties.
+
+Font Awesome 4.7.0 remains unresolved. Its pinned README and website source
+link to OFL and MIT terms but do not contain their complete text. The TTF
+metadata retains Dave Gandy's 2016 copyright and a license URL, not the full
+terms. The three extension-server manifests match VS Code 1.95.3 at commit
+`f1a4fb101478ce6ec82fe9627c43efbf9e98c813`. Their packaged extension license
+bytes differ from that commit's root license. Version agreement alone does
+not establish the extension build's source connection. Keep those entries
+unresolved. Once, East Asian Width, Fast URI's benchmark, Resolve Package
+Path, and Use Composed Ref also remain unresolved.
+
+The read-only Theia source review now accepts a build-input report. It checks
+positive input contributions against lockfile-verified published archives and
+payload files. It rejects missing input metadata, duplicate records, invalid
+byte contributions, and escaping package paths. Its output keeps changed,
+absent, and unreviewed inputs visible. The command returns a failure status
+when any contributing input remains unresolved.
+
+The actual comparison finds 1,890 equal contributing files across 40 Theia
+packages and two changed package manifests. The package-wide comparison still
+finds 4,359 equal `src/lib` files across 41 packages and 2,113 absent files.
+The additional equal inputs include shared wrappers, themes, and translations.
+The changed files are `@theia/core/package.json` and
+`@theia/plugin-ext/package.json`. Compared with the installed original
+manifests, packaging removes only `keywords`, `bugs`, `scripts`, `nyc`, and
+`gitHead`. No retained field changes. The command correctly keeps a failure
+status for these byte differences. This report does not verify transformed
+build inputs, Monaco, added source files, extension bundles, or complete
+corresponding-source duties.
+
+All 11 packaged evidence, sanitizer, and Changes settings tests pass on the
+new bundle. The build's six language checks pass. The two added proxy-caller
+tests pass in development and against packaged dependencies. The cache test
+still reproduces the known 4.2.0 defect under its pending marker.
+Unit tests, 41 release checks, three archive checks, lint, types, formatting,
+whitespace checks, and both redacted secret scans pass. The lockfile hash
+stays unchanged. The extended source review remains a failure result for the
+two manifest byte differences; these passing checks do not clear that result.
+
+## Secret scan
 
 Gitleaks 8.30.1 scans all locally reachable Git refs with `--log-opts=--all`.
 A second scan covers a copy of tracked and untracked non-ignored source files.

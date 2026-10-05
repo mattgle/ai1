@@ -164,6 +164,19 @@ version-4 result. This limits exposure at those call sites. It does not remove
 the affected APIs from the shipped dependencies or establish every bundled
 or extension caller. The audit finding stays open.
 
+The VS Code proxy wrapper at `@vscode/proxy-agent/out/agent.js` has another
+Once reference. The reviewed direct branch returns the original HTTP agent.
+The HTTP proxy branch uses its installed HTTP Proxy Agent dependency. Two
+additional regressions exercise those real caller paths. A direct-agent test
+checks the returned object and proxy event. A loopback HTTP proxy test checks
+a complete request and a refused connection after the fixture server closes.
+The target uses `example.invalid`; the local proxy handles the request without
+an external connection. Both tests pass in development and in the macOS
+payload. The request timeout bounds only the synthetic network fixture.
+These checks do not clear request cancellation, HTTPS or SOCKS behavior,
+other extension callers, or the Once advisory. The cache regression still
+fails under its pending marker for development 4.2.0 and skips in the payload.
+
 1. Save an audit result for the exact lockfile and shipped package.
 2. Match each advisory range to each shipped copy and caller.
 3. Reproduce applicable cases with isolated inputs.
