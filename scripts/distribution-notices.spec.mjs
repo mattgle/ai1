@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { generateDistributionNotices } from "./distribution-notices.mjs";
 import { createHash } from "node:crypto";
+import { Buffer } from "node:buffer";
 import { URL } from "node:url";
 
 test("all checked-in license supplements preserve their reviewed source bytes", () => {
@@ -73,6 +74,25 @@ test("notices preserve text bytes and use only relative paths", () => {
       "Original copyright\r\nOriginal license\r\n",
     );
     assert.deepEqual(generateDistributionNotices(payload, output, own), manifest);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("plural Chromium notice filenames retain their complete bytes in the inventory", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-chromium-notices-"));
+  try {
+    const payload = path.join(root, "app");
+    fs.mkdirSync(payload);
+    const bytes = Buffer.from("<pre>Original Chromium license\r\n</pre>");
+    fs.writeFileSync(path.join(payload, "LICENSES.chromium.html"), bytes);
+    const own = path.join(root, "LICENSE");
+    fs.writeFileSync(own, "AI1 license\n");
+    const output = path.join(root, "notices");
+    const report = generateDistributionNotices(payload, output, own);
+    const notice = report.notices.find((entry) => entry.path === "LICENSES.chromium.html");
+    assert.ok(notice);
+    assert.ok(fs.readFileSync(path.join(output, notice.text)).equals(bytes));
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

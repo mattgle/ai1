@@ -425,6 +425,52 @@ entries. The prepared and signed FFmpeg library hashes match in this build;
 the evidence still marks that recorded hash as pre-signing rather than assuming
 that all signing methods preserve the bytes.
 
+## Complete native runtime notices: 2026-10-06
+
+The original Electron distribution includes `LICENSE` and
+`LICENSES.chromium.html`. The earlier packaged app omits the Chromium file.
+The shared packaging hook now preserves both complete files in
+`resources/third-party/electron/` before notice generation and signing.
+It checks the installed runtime version and both source hashes. It rejects
+changed destination files and links outside the payload. Matching destination
+files stay unchanged. The notice inventory also recognizes the standard plural
+filename `LICENSES.chromium.html`.
+
+The official Electron 42.11.8 macOS arm64 and Linux x64 release archives both
+contain identical notice bytes. Their verified archive SHA-256 values are:
+
+- macOS arm64:
+  `9e2d2d2c3706e522ba2b32556b7c9dd06a1c7b9925fc1c282f6f8563ac9b0f2f`.
+- Linux x64:
+  `2bb665f0884f4ce6b7eb4fa7e23435616458e61c6548c9bfcc69816126684e83`.
+
+The complete Electron `LICENSE` has 1,096 bytes and SHA-256
+`5154e165bd6c2cc0cfbcd8916498c7abab0497923bafcd5cb07673fe8480087d`.
+The complete Chromium notice has 20,008,860 bytes and SHA-256
+`ca0a3f71df977796bf39a99472783c1ce9378bf4d8f4142a95048c3843980415`.
+Both files match the installed macOS distribution. The app records their hashes
+and sizes in `resources/release/electron-notices.json`. The inventory retains
+an exact copy of each file.
+
+The Electron release tag resolves to source commit
+`b50ff46306a0bc5b4849cb2384c217c8f4c790da`. Its `DEPS` file pins Chromium
+148.0.7778.280. That Chromium revision pins FFmpeg commit
+`f45bab87ce4c5fafc67fd53fcde777578d01bfa0`. The FFmpeg metadata declares
+LGPL 2.1 and identifies the Chromium-specific fork. Its `CREDITS.chromium`
+has 46,468 bytes and SHA-256
+`a4f057d42d8a93077a37d2381a8ebf47e9e0ce2a80336d6ba1534767634ce0d1`.
+The decoded FFmpeg license block in the shipped Chromium notice matches those
+source bytes exactly. This establishes the declared source chain and retained
+notice text. It does not establish reproducible binary equivalence or complete
+corresponding-source availability.
+
+All 59 release checks, lint, and types pass. The local package build and its six
+language checks pass. The combined packaged source-evidence, native-notice,
+codec, image-preview, Markdown, and restart-settings tests pass. The final
+notice inventory has 568 files and six unresolved entries. The clean codec
+policy stays in place. The installed app stays unchanged. No binary publication
+occurs. Native Linux execution and remaining license and source duties stay open.
+
 ## Secret scan
 
 Gitleaks 8.30.1 scans all locally reachable Git refs with `--log-opts=--all`.

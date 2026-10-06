@@ -54,6 +54,52 @@ test("the signed packaged runtime excludes H.264 and AAC", () => {
   expect(report.scope).toContain("before signing");
 });
 
+test("packaged runtime notices preserve the complete Electron, Chromium, and FFmpeg texts", () => {
+  test.skip(!process.env.AI1_PACKAGED_RESOURCES, "This check requires packaged runtime notices.");
+  const report = JSON.parse(
+    fs.readFileSync(path.join(application, "resources/release/electron-notices.json"), "utf8"),
+  ) as {
+    schemaVersion: number;
+    electronVersion: string;
+    notices: { path: string; bytes: number; sha256: string }[];
+  };
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(application, "resources/notices/manifest.json"), "utf8"),
+  ) as {
+    notices: { path: string; text: string; sha256: string }[];
+  };
+  expect(report.schemaVersion).toBe(1);
+  expect(report.electronVersion).toBe("42.11.8");
+  expect(report.notices).toHaveLength(2);
+  for (const [name, checksum, length] of [
+    ["LICENSE", "5154e165bd6c2cc0cfbcd8916498c7abab0497923bafcd5cb07673fe8480087d", 1096],
+    ["LICENSES.chromium.html", "ca0a3f71df977796bf39a99472783c1ce9378bf4d8f4142a95048c3843980415", 20008860],
+  ] as const) {
+    const file = `resources/third-party/electron/${name}`;
+    const entry = report.notices.find((notice) => notice.path === file);
+    expect(entry?.sha256).toBe(checksum);
+    expect(entry?.bytes).toBe(length);
+    const bytes = fs.readFileSync(path.join(application, file));
+    expect(bytes.length).toBe(length);
+    expect(createHash("sha256").update(bytes).digest("hex")).toBe(checksum);
+    const notice = manifest.notices.find((notice) => notice.path.endsWith("/" + file));
+    expect(notice?.sha256).toBe(checksum);
+    expect(fs.readFileSync(path.join(application, "resources/notices", notice!.text)).equals(bytes)).toBe(
+      true,
+    );
+    if (name === "LICENSES.chromium.html") {
+      const block = bytes
+        .toString()
+        .match(/<span class="title">ffmpeg<\/span>[\s\S]*?<pre>([\s\S]*?)<\/pre>/);
+      expect(block).not.toBeNull();
+      const decode = createRequire(__filename)("entities").decodeHTML as (value: string) => string;
+      expect(createHash("sha256").update(decode(block![1])).digest("hex")).toBe(
+        "a4f057d42d8a93077a37d2381a8ebf47e9e0ce2a80336d6ba1534767634ce0d1",
+      );
+    }
+  }
+});
+
 test("app build evidence matches the generated output bytes without local absolute paths", () => {
   const text = fs.readFileSync(path.join(application, "resources/release/build-inputs.json"), "utf8");
   expect(text).not.toContain("/Users/");

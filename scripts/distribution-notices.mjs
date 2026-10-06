@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const checkout = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const noticeName = /^(?:licen[cs]e|notices?|copying|copyright|ofl)(?:$|[._-])/i;
+const noticeName = /^(?:licen[cs]es?|notices?|copying|copyright|ofl)(?:$|[._-])/i;
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
 export function generateDistributionNotices(

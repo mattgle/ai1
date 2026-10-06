@@ -4,6 +4,7 @@ module.exports = async function afterPack(context) {
   const fs = require("node:fs");
   const { Arch } = require("builder-util");
   const { preparePackagedFfmpeg } = await import(path.join(root, "scripts/prepare-packaged-ffmpeg.mjs"));
+  const { prepareElectronNotices } = await import(path.join(root, "scripts/prepare-electron-notices.mjs"));
   const { generateDistributionNotices } = await import(path.join(root, "scripts/distribution-notices.mjs"));
   const app =
     context.electronPlatformName === "darwin"
@@ -26,6 +27,14 @@ module.exports = async function afterPack(context) {
   fs.mkdirSync(release, { recursive: true });
   fs.writeFileSync(path.join(release, "ffmpeg.json"), JSON.stringify(ffmpeg, null, 2) + "\n");
   console.log(`Packaged FFmpeg: ${ffmpeg.library.codecs.length} codecs; H.264 and AAC are absent.`);
+  const runtimeNotices = prepareElectronNotices({
+    payload: path.dirname(path.dirname(resources)),
+    electronVersion: context.packager.config.electronVersion,
+  });
+  fs.writeFileSync(
+    path.join(release, "electron-notices.json"),
+    JSON.stringify(runtimeNotices, null, 2) + "\n",
+  );
   const manifest = generateDistributionNotices(
     app,
     resources,
