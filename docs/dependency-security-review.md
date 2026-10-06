@@ -116,6 +116,44 @@ remain separate and open.
 
 ## Follow-up
 
+### Build-tool caller checks: 2026-10-05
+
+The exact lockfile has two direct Braces callers: Chokidar 3.6.0 and
+Micromatch 4.0.8. Chokidar comes through Mocha and Esbuild Plugin Copy.
+Micromatch comes through Fast Glob and Find Yarn Workspace Root. The copy
+plugin invokes Globby, which uses Fast Glob. Its optional watch path also
+invokes Chokidar with globbing enabled. The generated production copy rule
+uses a fixed shell-integration glob, not a workspace-supplied pattern. That
+limits this reviewed rule; it does not clear other build configurations.
+
+Two bounded child-process regressions reproduce stack exhaustion through the
+installed callers. Chokidar's internal watch-pattern helper throws `RangeError`
+for a 6,003-character nested pattern with globbing enabled. With globbing
+disabled, that helper accepts the same pattern. Fast Glob's public
+`generateTasks` API throws `RangeError` with brace expansion enabled and
+accepts it with expansion disabled. Each child uses a 256 KB stack limit,
+a five-second process bound, and a synthetic pattern. Neither test starts
+filesystem watching or a file scan. They confirm affected caller paths under
+the fixture limits, not an app exploit or a security fix. The packaged tests
+skip these development-only fixtures. The Braces advisory remains open.
+
+Find Yarn Workspace Root reads workspace patterns from an ancestor manifest.
+The reviewed Patch Package caller invokes it only in the Yarn branch when a
+local Yarn lockfile is absent. This project builds with npm. That observation
+does not establish the safety of optional Yarn builds or arbitrary manifests.
+
+The only installed HTTP Cache Semantics chain is Got 11.8.6 through Cacheable
+Request 7.0.4. Got defaults to no HTTP cache and selects Cacheable Request when
+the caller supplies a cache. The two Electron downloader versions pass caller
+options through to Got. Their artifact file cache is a separate mechanism.
+A loopback fixture with no HTTP cache makes two origin requests and receives
+two distinct synthetic responses. A fixture with a shared Map cache stalls
+after its first origin request under Node 24.15.0. A bounded child process
+stops it after eight seconds. It never reaches the `max-stale` request.
+This hang does not establish cross-user disclosure or a fix. The policy-level
+regression still reproduces the known defect. Complete caller validation for
+an explicitly enabled HTTP cache remains open.
+
 ### Generated bundle evidence: 2026-10-05
 
 The production build now records esbuild metadata in

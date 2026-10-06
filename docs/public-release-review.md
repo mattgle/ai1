@@ -320,6 +320,23 @@ isolation, and TypeScript hover still pass. The cache defect remains pending.
 This result closes the missing exact sanitizer-transformation record, not
 the complete corresponding-source, security, or binary-release gates.
 
+## Remaining high-advisory caller evidence: 2026-10-05
+
+Bounded development fixtures reproduce nested-brace stack exhaustion through
+Chokidar's pattern helper and Fast Glob's task generator. They use a synthetic
+6,003-character pattern and a 256 KB child-process stack. Neither starts a
+filesystem scan or watcher. Disabling the corresponding expansion option
+accepts the same pattern. This records affected caller paths, not a fix or an
+app exploit. The generated shell-integration copy rule has a fixed glob.
+The Braces high finding remains open.
+
+A Got loopback fixture with no HTTP cache makes two origin requests. An
+explicit shared-cache fixture stalls after the first origin request and does
+not reach the max-stale check. Its bounded child process stops after eight
+seconds under Node 24.15.0. Do not use that hang as a disclosure result.
+The policy-level cache defect and optional cached caller review remain open.
+See `dependency-security-review.md` for the exact dependency paths and limits.
+
 ## Secret scan
 
 Gitleaks 8.30.1 scans all locally reachable Git refs with `--log-opts=--all`.

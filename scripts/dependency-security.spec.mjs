@@ -5,12 +5,82 @@ import { test } from "node:test";
 import { EventEmitter } from "node:events";
 import * as http from "node:http";
 import { once as eventOnce } from "node:events";
+import { spawnSync } from "node:child_process";
 
 const require = process.env.AI1_PACKAGED_RESOURCES
   ? createRequire(path.resolve(process.env.AI1_PACKAGED_RESOURCES, "package.json"))
   : createRequire(import.meta.url);
 const uri = require("fast-uri");
 const { Address4, Address6, AddressError } = require("ip-address");
+
+test(
+  "the build watcher reproduces nested-brace stack exhaustion only with globbing enabled",
+  {
+    skip: Boolean(process.env.AI1_PACKAGED_RESOURCES),
+  },
+  () => {
+    const module = require.resolve("chokidar");
+    const script = `const chokidar = require(process.argv[1]);
+    const watcher = new chokidar.FSWatcher({ disableGlobbing: process.argv[2] === "true" });
+    let outcome;
+    try {
+      watcher._getWatchHelpers("{".repeat(3000) + "x,y" + "}".repeat(3000), 0);
+      outcome = "accepted";
+    } catch (error) {
+      outcome = error.name;
+    } finally {
+      watcher.close();
+    }
+    console.log(outcome);`;
+    for (const disableGlobbing of [false, true]) {
+      const result = spawnSync(
+        process.execPath,
+        ["--stack-size=256", "-e", script, module, String(disableGlobbing)],
+        {
+          encoding: "utf8",
+          timeout: 5000,
+          maxBuffer: 4096,
+        },
+      );
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 0);
+      assert.equal(result.stderr, "");
+      assert.equal(result.stdout.trim(), disableGlobbing ? "accepted" : "RangeError");
+    }
+  },
+);
+
+test(
+  "the build glob task generator reproduces nested-brace stack exhaustion only with expansion enabled",
+  {
+    skip: Boolean(process.env.AI1_PACKAGED_RESOURCES),
+  },
+  () => {
+    const module = require.resolve("fast-glob");
+    const script = `const glob = require(process.argv[1]);
+    try {
+      glob.generateTasks(["{".repeat(3000) + "x,y" + "}".repeat(3000)], { braceExpansion: process.argv[2] === "true" });
+      console.log("accepted");
+    } catch (error) {
+      console.log(error.name);
+    }`;
+    for (const braceExpansion of [true, false]) {
+      const result = spawnSync(
+        process.execPath,
+        ["--stack-size=256", "-e", script, module, String(braceExpansion)],
+        {
+          encoding: "utf8",
+          timeout: 5000,
+          maxBuffer: 4096,
+        },
+      );
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 0);
+      assert.equal(result.stderr, "");
+      assert.equal(result.stdout.trim(), braceExpansion ? "RangeError" : "accepted");
+    }
+  },
+);
 
 test("the installed proxy event helper settles connect and error events and removes listeners", async () => {
   const once = require("@tootallnate/once");
