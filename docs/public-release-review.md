@@ -265,6 +265,21 @@ CC BY 4.0 and MIT terms, but attribution and trademark notices still need
 review. Byte equality alone does not clear these duties. These asset gaps
 remain separate from the six unresolved package notice entries.
 
+The File Icons JS 1.0.3 registry record identifies source commit
+`984e737370a5ce97b250b09f33f2571c585b8667`. All five shipped font files match
+that commit's bytes. Its source manifest reports 1.0.2 rather than the registry
+version 1.0.3. Keep this mismatch visible; the byte comparison does not make
+the source manifest an exact-version release manifest. The source tree has
+only its package MIT notice, not complete separate font terms.
+
+The pinned README links a preview at Atom File Icons commit
+`6714706f268e257100e03c9eb52819cb97ad570b`. Four font files match that commit:
+Devopicons, file-icons, Font Awesome, and Mfixx. That tree has no Octicons font.
+Its README links the separate icon projects without exact release identifiers.
+Its package MIT notice does not establish the complete terms for each linked
+font family. These source matches narrow provenance but do not clear the
+remaining font-license and attribution checks.
+
 ## Secret scan
 
 Gitleaks 8.30.1 scans all locally reachable Git refs with `--log-opts=--all`.
