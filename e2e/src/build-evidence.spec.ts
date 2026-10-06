@@ -95,3 +95,45 @@ test("language-server supplements preserve the source license and extension noti
     expect(notice.toString().replace(/\r\n/g, "\n")).toBe(license.toString());
   }
 });
+
+test("copied material icons match the shipped package and retain its license", () => {
+  const source = path.join(application, "node_modules/material-icon-theme");
+  const copied = path.join(application, "resources/material-icons");
+  const files = (directory: string): string[] =>
+    fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+      const file = path.join(directory, entry.name);
+      expect(entry.isSymbolicLink(), file).toBe(false);
+      return entry.isDirectory() ? files(file) : [file];
+    });
+  const sourceFiles = [path.join(source, "dist/material-icons.json"), ...files(path.join(source, "icons"))];
+  const relative = sourceFiles.map((file) => path.relative(source, file)).sort();
+  expect(
+    files(copied)
+      .map((file) => path.relative(copied, file))
+      .sort(),
+  ).toEqual(relative);
+  expect(relative).toHaveLength(1252);
+  for (const file of relative)
+    expect(
+      fs.readFileSync(path.join(copied, file)).equals(fs.readFileSync(path.join(source, file))),
+      file,
+    ).toBe(true);
+  const metadata = JSON.parse(fs.readFileSync(path.join(source, "package.json"), "utf8"));
+  expect(metadata.version).toBe("5.38.1");
+  expect(metadata.license).toBe("MIT");
+  const license = fs.readFileSync(path.join(source, "LICENSE"));
+  const hash = createHash("sha256").update(license).digest("hex");
+  expect(hash).toBe("cdab3014d4f69b49dde2b85e81792208c72de613aa6aed7f7a9b5c6609b89670");
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(application, "resources/notices/manifest.json"), "utf8"),
+  ) as {
+    notices: { path: string; sha256: string; text: string }[];
+  };
+  const notice = manifest.notices.find((entry) =>
+    entry.path.endsWith("/node_modules/material-icon-theme/LICENSE"),
+  );
+  expect(notice?.sha256).toBe(hash);
+  expect(fs.readFileSync(path.join(application, "resources/notices", notice!.text)).equals(license)).toBe(
+    true,
+  );
+});

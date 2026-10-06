@@ -239,6 +239,32 @@ suite. The partial wider run is not a complete pass. Its slow navigation
 measurement remains unexplained. The original second-launch timeout remains
 open. Keep the earlier failed hover records as evidence of the test race.
 
+## Copied icon and font archive checks: 2026-10-05
+
+A read-only comparison verifies the exact lockfile SHA-512 archives for
+Material Icon Theme 5.38.1, Monaco Editor Core 1.108.201, Codicons 0.0.45,
+File Icons JS 1.0.3, and Font Awesome 4.7.0. All 1,252 copied material-icon
+files match the published archive bytes. All 11 font files in the app payload
+also match their published archives. The checked retained license files match
+the archives. The five package README files are absent from the payload.
+JetBrains Mono is a local system font in the verified terminal test, not a
+font file supplied by this app payload.
+
+A packaged regression checks the full material-icon copy file set and every
+copied file's bytes against the shipped package. It rejects linked copy files,
+checks the reviewed package version, and verifies the MIT license hash in the
+notice inventory and stored notice text. All six build-evidence tests pass.
+This checks copy integrity and notice retention, not all icon design rights.
+
+The font counts cover one Monaco codicon font, one Codicons font, five fonts
+in File Icons JS, and four Font Awesome files. File Icons JS's CSS identifies
+Font Awesome, Mfizz, Devicons, file-icons, and Octicons font families. Its
+package-level MIT text does not establish all five fonts' source releases or
+license duties. Keep that copied-font review open. Codicons retains both
+CC BY 4.0 and MIT terms, but attribution and trademark notices still need
+review. Byte equality alone does not clear these duties. These asset gaps
+remain separate from the six unresolved package notice entries.
+
 ## Secret scan
 
 Gitleaks 8.30.1 scans all locally reachable Git refs with `--log-opts=--all`.
