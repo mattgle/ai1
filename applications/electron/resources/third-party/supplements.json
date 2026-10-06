@@ -1,6 +1,14 @@
 {
   "schemaVersion": 1,
   "sources": {
+    "vscode-language-servers": {
+      "license": "MIT",
+      "text": "generated/vscode-language-servers/LICENSE.txt",
+      "sha256": "9480271317925265e806a9a196aaa33410a962fa9d4d1e248a4a5187bc8c9df9",
+      "revision": "f1a4fb101478ce6ec82fe9627c43efbf9e98c813",
+      "url": "https://raw.githubusercontent.com/microsoft/vscode/f1a4fb101478ce6ec82fe9627c43efbf9e98c813/LICENSE.txt",
+      "download": true
+    },
     "imurmurhash": {
       "license": "MIT",
       "text": "generated/imurmurhash/LICENSE-README.txt",
@@ -179,6 +187,9 @@
     }
   },
   "packages": [
+    { "name": "vscode-css-languageserver", "version": "1.0.0", "source": "vscode-language-servers" },
+    { "name": "vscode-html-languageserver", "version": "1.0.0", "source": "vscode-language-servers" },
+    { "name": "vscode-json-languageserver", "version": "1.3.4", "source": "vscode-language-servers" },
     { "name": "imurmurhash", "version": "0.1.4", "source": "imurmurhash" },
     {
       "name": "@msgpackr-extract/msgpackr-extract-darwin-arm64",

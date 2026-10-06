@@ -43,22 +43,23 @@ test.beforeAll(async () => {
     "New session",
     "Restore Kimi k3, GLP, Opus 5 support",
   ];
+  const now = Date.now();
   server.sessions = Array.from({ length: 24 }, (_, index) => ({
     id: `layout_${index}`,
     title: titles[index] ?? `Review workspace changes ${index + 1}`,
     directory: workspace,
     model: { id: index % 2 ? "kimi-k3" : "gpt-6-sol", providerID: "test" },
-    time: { created: Date.now() - 7200000, updated: Date.now() - index * 60000 },
+    time: { created: now - 7200000, updated: now - index * 60000 },
     outcome: index === 2 ? "failed" : index === 4 ? undefined : "succeeded",
   }));
-  for (const directory of ["api", "packages/api"]) {
+  for (const [index, directory] of ["api", "packages/api"].entries()) {
     fs.mkdirSync(path.join(workspace, directory), { recursive: true });
     server.sessions.push({
       id: `nested_${directory}`,
       title: `Session in ${directory}`,
       directory: path.join(workspace, directory),
       model: { id: "gpt-6-sol", providerID: "test" },
-      time: { created: Date.now(), updated: Date.now() + 60000 },
+      time: { created: now, updated: now + 60000 - index * 1000 },
       outcome: "succeeded",
     });
   }
@@ -307,10 +308,11 @@ test("Agents keeps the open directory first with separate collapsible path group
 });
 
 test("Open Terminal in the context menu opens the clicked session", async () => {
+  const title = server.sessions.find((session) => session.id === "layout_0")!.title;
   await electronApp.evaluate(() => {
     (globalThis as typeof globalThis & { sessionMenu?: Electron.Menu }).sessionMenu = undefined;
   });
-  const row = app.page.locator("#ai1-agents .theia-TreeNode", { hasText: "Renamed Monorail" });
+  const row = app.page.locator("#ai1-agents .theia-TreeNode", { hasText: title });
   await row.click({ button: "right" });
   await expect
     .poll(() =>
@@ -329,16 +331,17 @@ test("Open Terminal in the context menu opens the clicked session", async () => 
   });
   await expect(app.page.locator("#theia-main-content-panel .xterm")).toHaveCount(1);
   await expect(
-    app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "Renamed Monorail" }),
+    app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: title }),
   ).toBeVisible();
 });
 
 test("Enter on an Agents session opens its terminal in the last focused center panel", async () => {
   const page = app.page;
-  await page
-    .locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "sh · Renamed Monorail" })
-    .locator(".lm-TabBar-tabCloseIcon")
-    .click();
+  const initialTitle = server.sessions.find((session) => session.id === "layout_0")!.title;
+  const initialTab = page.locator("#theia-main-content-panel .lm-TabBar-tab", {
+    hasText: `sh · ${initialTitle}`,
+  });
+  if (await initialTab.count()) await initialTab.locator(".lm-TabBar-tabCloseIcon").click();
   await expect(page.locator("#theia-main-content-panel .xterm")).toHaveCount(0);
   await page.locator("#files .theia-TreeNode", { hasText: "keyboard-panel.txt" }).dblclick();
   await expect(page.locator("#theia-main-content-panel .monaco-editor:visible")).toHaveCount(1);
@@ -351,16 +354,15 @@ test("Enter on an Agents session opens its terminal in the last focused center p
   await expect
     .poll(() => page.locator("#ai1-agents").evaluate((node) => node.contains(document.activeElement)))
     .toBe(true);
-  const renderFocus = () =>
-    page.evaluate(
-      () =>
-        new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
-    );
-  await page.keyboard.press("Home");
-  await renderFocus();
+  const group = page.locator("#ai1-agents .theia-TreeNode", {
+    has: page.getByText("workspace", { exact: true }),
+  });
+  await group.click();
+  await expect(group).toHaveClass(/theia-mod-focus/);
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator("#ai1-agents .ai1-agents-card")).toHaveCount(24);
   const focused = page.locator("#ai1-agents .theia-TreeNode.theia-mod-focus .ai1-agents-title");
   await page.keyboard.press("ArrowDown");
-  await renderFocus();
   await expect(focused).toHaveCount(1);
   const title = await focused.innerText();
   await page.keyboard.press("Enter");

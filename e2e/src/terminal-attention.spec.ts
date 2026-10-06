@@ -442,7 +442,14 @@ test("a session shell survives normal quit and remains usable", async () => {
   if (!(await app.page.locator("#ai1-agents").isVisible())) {
     await clickTab(app.page.locator("#shell-tab-ai1-agents"));
   }
-  await app.page.locator(".ai1-agents").getByText("Attention fixture", { exact: true }).click();
+  const session = app.page.locator(".ai1-agents").getByText("Attention fixture", { exact: true });
+  const group = app.page.locator("#ai1-agents .theia-TreeNode", {
+    has: app.page.getByText("workspace", { exact: true }),
+  });
+  await expect(group).toBeVisible();
+  if (!(await session.isVisible())) await group.locator(".theia-ExpansionToggle").click();
+  await expect(session).toBeVisible();
+  await session.click();
   await expect(tabs).toHaveCount(3);
   const tmux = path.join(root, "bin/tmux");
   expect(

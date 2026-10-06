@@ -114,6 +114,30 @@ status for these byte differences. This report does not verify transformed
 build inputs, Monaco, added source files, extension bundles, or complete
 corresponding-source duties.
 
+The matching build-tree comparison checks 47 installed Theia 1.75.0 packages.
+All 1,892 contributing inputs across 40 packages match published archive bytes
+in the current build tree. This separates the two payload manifest changes
+from current source-tree changes. It does not establish a source snapshot at
+build time or replace the transformed-input review.
+
+Repeat the contributing-input check with:
+
+```sh
+node scripts/review-theia-source.mjs <app-payload> package-lock.json <build-input-report>
+```
+
+Use `.` instead of `<app-payload>` to check the current build tree. A failure
+status with two changed package manifests is the current payload result.
+Do not report it as a clean source-coverage result.
+
+The exact lockfile archives for Once 1.1.2, East Asian Width 0.2.0,
+Resolve Package Path 4.0.3, Use Composed Ref 1.4.0, and Font Awesome 4.7.0
+also pass SHA-512 verification. Their notice files do not supply the missing
+complete terms. Once's archive contains only its compiled code, type file,
+source map, and package manifest. The other archives have README files,
+but those files do not contain the required complete license terms. This
+confirms an upstream evidence gap rather than a notice lost only in packaging.
+
 All 11 packaged evidence, sanitizer, and Changes settings tests pass on the
 new bundle. The build's six language checks pass. The two added proxy-caller
 tests pass in development and against packaged dependencies. The cache test
@@ -122,6 +146,72 @@ Unit tests, 41 release checks, three archive checks, lint, types, formatting,
 whitespace checks, and both redacted secret scans pass. The lockfile hash
 stays unchanged. The extended source review remains a failure result for the
 two manifest byte differences; these passing checks do not clear that result.
+
+## Extension-server source connection: 2026-10-05
+
+Further publisher-history review identifies commit
+`938dde2ae58ceea639df05238892e05df59f255c` in
+`eclipse-theia/vscode-builtin-extensions`. Its VS Code submodule points to
+`f1a4fb101478ce6ec82fe9627c43efbf9e98c813`, the exact 1.95.3 source commit.
+The publisher's `src/version.js` uses that source tree's version for the
+extension version. Its `src/package-vsix.js` copies the source root
+`LICENSE.txt` into each extension as `LICENSE-vscode.txt`.
+
+The packaged CSS, HTML, and JSON extension notices differ from the pinned
+root text only in CRLF line endings. All three retain SHA-256
+`cce33203a80863c22499035b1cfb6aba5df5f02e4ea2669cf5bc5730c1864236`.
+The new supplement preserves the original LF source text separately with
+SHA-256 `9480271317925265e806a9a196aaa33410a962fa9d4d1e248a4a5187bc8c9df9`.
+No existing notice bytes change. Exact source manifests identify
+`vscode-css-languageserver` 1.0.0, `vscode-html-languageserver` 1.0.0, and
+`vscode-json-languageserver` 1.3.4 with MIT metadata. The supplement maps only
+those reviewed name/version pairs. A packaged regression checks both notice
+forms and the parent extension versions. This closes the source-connection
+gap described above for these notice mappings. It does not verify every
+third-party input in the extension bundles or complete their source duties.
+
+The rebuilt local app has 566 notice files, six unresolved entries, and 16
+prepared notice assets. The remaining entries are Once, East Asian Width,
+Fast URI's benchmark, Font Awesome, Resolve Package Path, and Use Composed Ref.
+The packaged tests verify the source license hash, all three existing CRLF
+notice hashes, and every recorded generated output hash. Six build language
+checks pass. The read-only audit still reports four low, 38 moderate, and
+12 high findings. Braces remains at 3.0.3 without a published fixed version.
+HTTP Cache Semantics 4.3.0 remains subject to the seven-day release-age guard.
+
+## Wider UI failures and fixture corrections: 2026-10-05
+
+A wider 67-test packaged run reaches the command's five-minute limit before
+completion. It reports three Agents failures and a TypeScript hover failure.
+The Changes restart test passes. Do not treat the partial run as a pass.
+
+The Agents fixture calls `Date.now()` separately for its nested sessions.
+A one-millisecond difference reverses their expected group order under the
+documented newest-first rule. The fixture now uses one base time and explicit
+relative timestamps. The context-menu test also depends on a rename in an
+earlier test. An isolated run reproduces its missing-title failure. It now
+uses its own session's current title. The keyboard test assumes Theia handles
+Home, but the tree does not register that key. It now selects the directory
+row, uses Arrow Right to expand it, and uses Arrow Down and Enter. Independent
+runs verify all three cases. No app sorting or navigation code changes.
+
+The unchanged hover test fails once in five isolated measurements. Five later
+measurements with diagnostic records pass, but they do not establish a fix.
+The test records focus, token bounds, visible hover count, and provider state
+when that internal state is available. The saved passing record has focus
+and a visible hover, but its provider state is unavailable. Do not use a null
+provider field as proof of readiness or failure. The hover cause stays open.
+No hover retry, fixed delay, or timeout increase occurs.
+
+A later wider 68-test run completes with 66 passes, one failure, and one test
+not run. The failure snapshot shows restored shell tabs and a collapsed
+Agents directory with two sessions. The attention restart test assumes that
+idle groups remain expanded. It now expands the group before selecting the
+session. This changes test setup, not shell persistence. The final combined
+affected suite passes all 34 Agents, attention, notice, sanitizer, and Changes
+settings tests. It includes shell restoration, deletion, and idle cleanup.
+The wider runs remain failure records. The original startup timeout and the
+intermittent hover failure remain open release risks.
 
 ## Secret scan
 

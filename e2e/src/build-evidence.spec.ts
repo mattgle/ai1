@@ -76,3 +76,22 @@ test("app preserves every prepared license asset and exact package mapping", () 
     }
   }
 });
+
+test("language-server supplements preserve the source license and extension notice bytes", () => {
+  const license = fs.readFileSync(
+    path.join(application, "resources/third-party/generated/vscode-language-servers/LICENSE.txt"),
+  );
+  expect(createHash("sha256").update(license).digest("hex")).toBe(
+    "9480271317925265e806a9a196aaa33410a962fa9d4d1e248a4a5187bc8c9df9",
+  );
+  for (const name of ["css", "html", "json"]) {
+    const folder = path.join(application, `plugins/vscode.${name}-language-features/extension`);
+    const extension = JSON.parse(fs.readFileSync(path.join(folder, "package.json"), "utf8"));
+    expect(extension.version).toBe("1.95.3");
+    const notice = fs.readFileSync(path.join(folder, "LICENSE-vscode.txt"));
+    expect(createHash("sha256").update(notice).digest("hex")).toBe(
+      "cce33203a80863c22499035b1cfb6aba5df5f02e4ea2669cf5bc5730c1864236",
+    );
+    expect(notice.toString().replace(/\r\n/g, "\n")).toBe(license.toString());
+  }
+});
