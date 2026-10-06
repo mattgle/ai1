@@ -154,6 +154,27 @@ This hang does not establish cross-user disclosure or a fix. The policy-level
 regression still reproduces the known defect. Complete caller validation for
 an explicitly enabled HTTP cache remains open.
 
+Further reduction separates that promise hang from the cache defect. Cacheable
+Request completes a direct loopback response. Got's stream API also completes.
+The cached promise response reports `aborted: true` and `complete: false`.
+Got's promise handler returns early for the aborted flag. This explains the
+observed unresolved promise branch, but the source of the flag and general
+compatibility with other response types remain unverified. The downloader
+uses Got's stream API rather than its promise API.
+
+Two loopback fixtures now reproduce unsafe cache reuse through Cacheable
+Request and Got's stream API. Each fixture uses an explicit shared Map cache,
+a synthetic cookie response, and a max-stale second request. It waits for the
+cache write before issuing the second request. Both fixtures receive the first
+response body again and make only one origin request. Separate pending tests
+require two origin requests and a fresh second body. They remain pending for
+4.2.0 and skip in packaged runs where these build-tool dependencies are absent.
+Each child has an eight-second bound. No external request, real cookie, or
+user credential occurs. This confirms the affected optional cached caller
+behavior; it does not establish that AI1 enables a shared HTTP cache in its
+current build or runtime. The downloader's separate artifact cache remains
+outside this defect. The high finding and release-age guard stay unchanged.
+
 ### Generated bundle evidence: 2026-10-05
 
 The production build now records esbuild metadata in

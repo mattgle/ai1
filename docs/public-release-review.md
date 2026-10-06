@@ -337,6 +337,17 @@ seconds under Node 24.15.0. Do not use that hang as a disclosure result.
 The policy-level cache defect and optional cached caller review remain open.
 See `dependency-security-review.md` for the exact dependency paths and limits.
 
+Further isolated checks complete the response through Cacheable Request and
+Got's stream API. The cached Got promise reports an aborted flag and its
+promise handler returns early. The source of that flag remains unverified.
+The downloader uses the stream API. Both the direct wrapper and stream API
+reuse the first synthetic cookie response under a max-stale second request
+with an explicitly enabled shared cache. Only one origin request occurs.
+Two pending loopback regressions require a fresh second origin response.
+They do not use an external network, real cookies, or credentials. The
+current app's use of a shared HTTP cache is not established. Keep the high
+finding open and the npm release-age guard enabled.
+
 ## Secret scan
 
 Gitleaks 8.30.1 scans all locally reachable Git refs with `--log-opts=--all`.

@@ -171,6 +171,94 @@ test("tooltip and trash UUID dependencies support their reviewed v4 caller", () 
   }
 });
 
+for (const [label, module] of [
+  ["shared cache wrapper", "cacheable-request"],
+  ["downloader stream", "got"],
+]) {
+  test(
+    `the ${label} revalidates cookie responses despite max-stale`,
+    {
+      skip: Boolean(process.env.AI1_PACKAGED_RESOURCES),
+      todo:
+        createRequire(import.meta.url)("http-cache-semantics/package.json").version === "4.2.0"
+          ? "The npm release-age guard blocks the 4.3.0 update."
+          : false,
+    },
+    () => {
+      const script = `const http = require("node:http");
+    const library = require(process.argv[1]);
+    const useStream = process.argv[2] === "true";
+    let stored;
+    const ready = new Promise(resolve => stored = resolve);
+    class Store extends Map {
+      set(key, value) { super.set(key, value); stored(); return this; }
+    }
+    let requests = 0;
+    const server = http.createServer((request, response) => {
+      requests++;
+      response.setHeader("Set-Cookie", "fixture=value");
+      response.setHeader("Cache-Control", "max-age=600");
+      response.end("Fixture response " + requests);
+    });
+    server.listen(0, "127.0.0.1", async () => {
+      const store = new Store();
+      const wrapper = useStream ? null : new library(http.request, store);
+      const options = { protocol: "http:", hostname: "127.0.0.1", port: server.address().port, path: "/fixture", shared: true };
+      const request = (headers = {}) => new Promise((resolve, reject) => {
+        if (useStream) {
+          const url = "http://127.0.0.1:" + options.port + "/fixture";
+          const stream = library.stream(url, { cache: store, cacheOptions: { shared: true }, headers, retry: { limit: 0 }, timeout: { request: 3000 } });
+          let body = "";
+          let fromCache;
+          stream.setEncoding("utf8");
+          stream.on("response", response => fromCache = response.isFromCache);
+          stream.on("data", chunk => body += chunk);
+          stream.on("end", () => resolve({ body, fromCache }));
+          stream.on("error", reject);
+          return;
+        }
+        const events = wrapper({ ...options, headers }, response => {
+          let body = "";
+          response.setEncoding("utf8");
+          response.on("data", chunk => body += chunk);
+          response.on("end", () => resolve({ body, fromCache: response.fromCache }));
+          response.on("error", reject);
+        });
+        events.on("request", outgoing => outgoing.end());
+        events.on("error", reject);
+      });
+      try {
+        const first = await request();
+        await ready;
+        const second = await request({ "cache-control": "max-stale=999999" });
+        console.log(JSON.stringify({ first, second, originRequests: requests }));
+      } catch (error) {
+        console.log(JSON.stringify({ error: error.name }));
+        process.exitCode = 1;
+      } finally {
+        server.close();
+      }
+    });`;
+      const result = spawnSync(
+        process.execPath,
+        ["-e", script, require.resolve(module), String(module === "got")],
+        {
+          encoding: "utf8",
+          timeout: 8000,
+          maxBuffer: 4096,
+        },
+      );
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 0);
+      assert.equal(result.stderr, "");
+      const record = JSON.parse(result.stdout);
+      assert.deepEqual(record.first, { body: "Fixture response 1", fromCache: false });
+      assert.equal(record.originRequests, 2);
+      assert.deepEqual(record.second, { body: "Fixture response 2", fromCache: false });
+    },
+  );
+}
+
 test(
   "shared caches reject max-stale requests for security-zeroed cookie responses",
   {
