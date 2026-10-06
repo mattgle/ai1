@@ -137,3 +137,54 @@ test("copied material icons match the shipped package and retain its license", (
     true,
   );
 });
+
+test("Monaco sanitizer evidence preserves the exact replacement module and selected source hashes", () => {
+  type Evidence = {
+    path: string;
+    original: { bytes: number; sha256: string };
+    transformed: { bytes: number; sha256: string; contents: string };
+    replacement: { path: string; bytes: number; sha256: string; package: { name: string; version: string } };
+  };
+  const report = JSON.parse(
+    fs.readFileSync(path.join(application, "resources/release/build-inputs.json"), "utf8"),
+  ) as {
+    builds: {
+      name: string;
+      transformations: Evidence[];
+      inputs: { path: string; bytes: number }[];
+      outputs: { inputs: { path: string; bytesInOutput: number }[] }[];
+    }[];
+  };
+  const browser = report.builds.find((build) => build.name === "browser")!;
+  expect(browser.transformations).toHaveLength(1);
+  for (const build of report.builds.filter((build) => build.name !== "browser"))
+    expect(build.transformations).toEqual([]);
+  const record = browser.transformations[0];
+  expect(record.path).toBe(
+    "node_modules/@theia/monaco-editor-core/esm/vs/base/browser/dompurify/dompurify.js",
+  );
+  expect(record.replacement.path).toBe("node_modules/dompurify/dist/purify.cjs.js");
+  expect(record.replacement.package.name).toBe("dompurify");
+  expect(record.replacement.package.version).toBe("3.4.16");
+  for (const [file, evidence] of [
+    [record.path, record.original],
+    [record.replacement.path, record.replacement],
+  ] as const) {
+    const bytes = fs.readFileSync(path.join(application, file));
+    expect(bytes.length).toBe(evidence.bytes);
+    expect(createHash("sha256").update(bytes).digest("hex")).toBe(evidence.sha256);
+    expect(
+      browser.outputs.some((output) =>
+        output.inputs.some((input) => input.path === file && input.bytesInOutput > 0),
+      ),
+    ).toBe(true);
+  }
+  const relative = path.posix.relative(path.posix.dirname(record.path), record.replacement.path);
+  expect(record.transformed.contents).toBe(
+    `import createDOMPurify from ${JSON.stringify(relative)};\nexport default createDOMPurify();`,
+  );
+  const transformed = Buffer.from(record.transformed.contents);
+  expect(transformed.length).toBe(record.transformed.bytes);
+  expect(createHash("sha256").update(transformed).digest("hex")).toBe(record.transformed.sha256);
+  expect(browser.inputs.find((input) => input.path === record.path)?.bytes).toBe(transformed.length);
+});

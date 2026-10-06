@@ -14,7 +14,12 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
-browserOptions.plugins.unshift(dompurifyPlugin.dompurifyBuildPlugin(require.resolve("dompurify")));
+const sanitizerTransformations = new Map();
+browserOptions.plugins.unshift(
+  dompurifyPlugin.dompurifyBuildPlugin(require.resolve("dompurify"), (record) => {
+    sanitizerTransformations.set(record.path, record);
+  }),
+);
 for (const options of [browserOptions, nodeOptions, electronOptions]) options.metafile = true;
 
 const browserContext = await esbuild.context(browserOptions);
@@ -34,7 +39,11 @@ if (watch) {
     const directory = path.dirname(fileURLToPath(import.meta.url));
     const report = buildInputReport(
       [
-        { name: "browser", metafile: browser.metafile },
+        {
+          name: "browser",
+          metafile: browser.metafile,
+          transformations: [...sanitizerTransformations.values()],
+        },
         { name: "node", metafile: node.metafile },
         { name: "electron", metafile: electron.metafile },
       ],

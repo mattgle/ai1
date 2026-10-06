@@ -6,6 +6,66 @@ import { createHash } from "node:crypto";
 import { build } from "esbuild";
 import { test } from "node:test";
 import { buildInputReport } from "./build-input-report.mjs";
+import sanitizerPlugin from "./dompurify-build-plugin.cjs";
+
+test("sanitizer evidence records the exact loaded transformation and rejects inconsistent inputs", async () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ai1-transformed-evidence-")));
+  try {
+    const original = path.join(
+      root,
+      "node_modules/@theia/monaco-editor-core/esm/vs/base/browser/dompurify/dompurify.js",
+    );
+    const replacement = path.join(root, "node_modules/dompurify/index.js");
+    fs.mkdirSync(path.dirname(original), { recursive: true });
+    fs.mkdirSync(path.dirname(replacement), { recursive: true });
+    fs.writeFileSync(original, 'throw new Error("Old sanitizer");');
+    fs.writeFileSync(replacement, 'export default function factory() { return { version: "fixed" }; }');
+    fs.writeFileSync(
+      path.join(root, "node_modules/dompurify/package.json"),
+      JSON.stringify({ name: "dompurify", version: "3.4.16" }),
+    );
+    fs.writeFileSync(
+      path.join(root, "entry.js"),
+      `import sanitizer from ${JSON.stringify(original)}; console.log(sanitizer);`,
+    );
+    const transformations = [];
+    const result = await build({
+      absWorkingDir: root,
+      entryPoints: ["entry.js"],
+      outfile: "bundle.js",
+      bundle: true,
+      metafile: true,
+      plugins: [sanitizerPlugin.dompurifyBuildPlugin(replacement, (record) => transformations.push(record))],
+    });
+    const run = (records) =>
+      buildInputReport(
+        [{ name: "browser", metafile: result.metafile, transformations: records }],
+        root,
+        root,
+      );
+    const report = run(transformations);
+    const evidence = report.builds[0].transformations[0];
+    const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
+    assert.equal(evidence.original.sha256, hash(fs.readFileSync(original)));
+    assert.equal(evidence.transformed.sha256, hash(transformations[0].contents));
+    assert.equal(evidence.transformed.contents, transformations[0].contents);
+    assert.equal(evidence.replacement.sha256, hash(fs.readFileSync(replacement)));
+    assert.equal(evidence.replacement.package.name, "dompurify");
+    assert.equal(JSON.stringify(report).includes(root), false);
+    assert.throws(() => run([...transformations, ...transformations]), /Duplicate/);
+    assert.throws(() => run([{ ...transformations[0], path: "/outside/file.js" }]), /escapes/);
+    assert.throws(
+      () => run([{ ...transformations[0], replacementPath: path.join(root, "unknown.js") }]),
+      /absent/,
+    );
+    assert.throws(() => run([{ ...transformations[0], contents: "Changed source" }]), /bytes do not match/);
+    assert.throws(() => run([{ ...transformations[0], contents: root }]), /local path/);
+    assert.throws(() => run([{ ...transformations[0], original: "not bytes" }]), /Invalid/);
+    assert.ok(fs.readFileSync(original).equals(transformations[0].original));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("virtual native inputs keep dependency identity without local absolute paths", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-virtual-evidence-"));

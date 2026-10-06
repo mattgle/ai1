@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
+import { Buffer } from "node:buffer";
 
 export function buildInputReport(builds, root, workingDirectory) {
   root = path.resolve(root);
@@ -40,11 +41,47 @@ export function buildInputReport(builds, root, workingDirectory) {
   return {
     schemaVersion: 1,
     scope:
-      "Esbuild inputs and outputs only. This report does not cover copied assets, external dependencies, dynamic loading, or complete source duties.",
-    builds: builds.map(({ name, metafile }) => {
+      "Esbuild inputs, outputs, and recorded sanitizer transformations only. This report does not cover copied assets, other transformations, external dependencies, dynamic loading, or complete source duties.",
+    builds: builds.map(({ name, metafile, transformations = [] }) => {
       if (!metafile || !Object.keys(metafile.outputs).length) throw new Error("Build metadata is missing.");
+      const inputs = new Map(Object.entries(metafile.inputs).map(([file, input]) => [relative(file), input]));
+      const transformed = new Set();
       return {
         name,
+        transformations: transformations.map((record) => {
+          const source = relative(record.path);
+          const replacement = relative(record.replacementPath);
+          if (transformed.has(source)) throw new Error("Duplicate build transformation.");
+          transformed.add(source);
+          if (!inputs.has(source) || !inputs.has(replacement))
+            throw new Error("A transformation is absent from build inputs.");
+          if (
+            !Buffer.isBuffer(record.original) ||
+            !Buffer.isBuffer(record.replacement) ||
+            typeof record.contents !== "string"
+          )
+            throw new Error("Invalid build transformation bytes.");
+          if (record.contents.includes(root) || record.contents.includes(root.split(path.sep).join("/")))
+            throw new Error("Transformation source contains a local path.");
+          const bytes = Buffer.from(record.contents);
+          if (
+            inputs.get(source).bytes !== bytes.length ||
+            inputs.get(replacement).bytes !== record.replacement.length
+          )
+            throw new Error("Transformation bytes do not match build inputs.");
+          const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
+          return {
+            path: source,
+            original: { bytes: record.original.length, sha256: hash(record.original) },
+            transformed: { bytes: bytes.length, sha256: hash(bytes), contents: record.contents },
+            replacement: {
+              path: replacement,
+              bytes: record.replacement.length,
+              sha256: hash(record.replacement),
+              package: packageFor(record.replacementPath),
+            },
+          };
+        }),
         inputs: Object.entries(metafile.inputs).map(([file, input]) => ({
           path: relative(file),
           bytes: input.bytes,

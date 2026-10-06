@@ -15,6 +15,13 @@ The reviewed lockfile SHA-256 is
 
 ## Runtime paths
 
+The sanitizer build report now preserves the exact relative-import replacement
+module, its hash, the original embedded source hash, and the selected DOMPurify
+file hash. Both source files match lockfile-verified npm archives. The original
+source stays unchanged in the payload. Packaged output and sanitizer checks
+pass after this recording change. This does not clear unused sanitizer copies,
+extension rendering paths, other build transformations, or complete source duties.
+
 | Package | Known path | Result |
 | --- | --- | --- |
 | `dompurify` | Theia core Markdown rendering and selection descriptions; Monaco package and embedded source | The app pins and overrides the package to 3.4.16. The browser build routes Monaco's embedded import to a separate 3.4.16 instance. The current audit no longer lists DOMPurify. The reviewed detached-handler regression and normal Markdown and editor hover checks pass. See the limits below. |

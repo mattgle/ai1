@@ -280,6 +280,46 @@ Its package MIT notice does not establish the complete terms for each linked
 font family. These source matches narrow provenance but do not clear the
 remaining font-license and attribution checks.
 
+## Recorded Monaco sanitizer transformation: 2026-10-05
+
+The browser build now records the exact replacement module supplied to esbuild.
+The plugin uses a relative import for the selected DOMPurify file rather than
+an absolute local path. It still creates a separate sanitizer instance and
+leaves the original embedded source unchanged. The report includes the original
+source hash, replacement module text and hash, selected DOMPurify file hash,
+and selected package identity. Node and Electron builds have no recorded
+sanitizer transformations. This is not a snapshot of every build input.
+
+The report rejects duplicate transformations, paths outside the repository,
+missing metadata inputs, invalid byte records, local repository paths in
+replacement text, and byte counts that differ from esbuild metadata. The
+regression verifies that unrelated sanitizer paths remain unchanged and that
+the old sanitizer does not execute. The packaged check links both sanitizer
+paths to positive browser output contributions and verifies their retained
+file bytes against the recorded hashes.
+
+The exact lockfile archives pass SHA-512 verification. Monaco Editor Core
+1.108.201's original embedded file has 63,063 bytes and SHA-256
+`7b0d9a951d2d5b886080ceb56eed060bbffc2ca3d88e7131e6c18f749fd32661`.
+DOMPurify 3.4.16's selected `dist/purify.cjs.js` has 84,452 bytes and SHA-256
+`1144c3ba99465d58ff93ab2419ebd99b7d7e12525b1ca4f45308771acf34cfec`.
+Both files match the published archive bytes and the payload bytes.
+
+The recorded replacement module is 114 bytes with SHA-256
+`1688c70114511e9abba018dc204a152ff14c9ea704c5eaf75647a15fd5317e63`:
+
+```js
+import createDOMPurify from "../../../../../../../dompurify/dist/purify.cjs.js";
+export default createDOMPurify();
+```
+
+All 42 release checks pass. The local bundle builds, and its six language
+checks pass. All 14 combined packaged evidence, sanitizer, and Changes settings
+tests pass. Normal core and Monaco Markdown, executable-HTML rejection, hook
+isolation, and TypeScript hover still pass. The cache defect remains pending.
+This result closes the missing exact sanitizer-transformation record, not
+the complete corresponding-source, security, or binary-release gates.
+
 ## Secret scan
 
 Gitleaks 8.30.1 scans all locally reachable Git refs with `--log-opts=--all`.
