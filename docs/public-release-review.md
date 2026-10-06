@@ -348,6 +348,83 @@ They do not use an external network, real cookies, or credentials. The
 current app's use of a shared HTTP cache is not established. Keep the high
 finding open and the npm release-age guard enabled.
 
+## Packaged FFmpeg codec mismatch: 2026-10-05
+
+Theia's rebuild replaces the development Electron FFmpeg library with its
+clean variant. Electron Builder then downloads a separate Electron runtime
+for packaging. The current macOS build does not copy the cleaned library
+into that runtime or check the packaged library before signing.
+
+The development and cached clean libraries have 1,206,816 bytes and SHA-256
+`a68b543f754933780a4c0266d0eab33f8de401151c4866219c6933ab91b6e03c`.
+The packaged library has 2,213,616 bytes and SHA-256
+`def7ec242f4ce81467c04b032c67be5d097e3d2fb15a7e38abd290bd82f54216`.
+Theia's codec check reports 13 other codecs plus H.264 and AAC in the packaged
+library and returns a failure. The earlier development codec checks do not
+establish the packaged app's codec policy or distribution rights.
+
+The installed `/Applications/AI1.app` stays unchanged. No library replacement
+occurs during this check. Choosing the clean packaged library removes H.264
+and AAC support. Keeping those codecs requires a separate distribution-rights
+review. The owner chooses the clean codec policy on 2026-10-06. See the
+implementation and validation below.
+FFmpeg license, corresponding-source, and native release checks also remain
+open. A codec-name check alone does not clear those duties.
+
+## Clean packaged FFmpeg policy: 2026-10-06
+
+The owner approves the clean codec set for the packaged app. The shared
+Electron Builder `afterPack` hook now prepares FFmpeg before notice generation
+and signing. It supports the pinned Electron 42.11.8 macOS arm64 and Linux x64
+targets. It rejects other versions and targets. Native codec inspection also
+requires the build host to match the target platform and architecture.
+
+The hook downloads the official release archive through Electron Get with a
+pinned checksum. It independently checks the archive bytes, then parses those
+same bytes without extracting paths to disk. The pinned SHA-256 values are:
+
+- `ffmpeg-v42.11.8-darwin-arm64.zip`:
+  `ac0ee66fa9416ff93b06124a2ea89868b393d1388276ce963a9706889c142a21`.
+- `ffmpeg-v42.11.8-linux-x64.zip`:
+  `c6585e86f3980291c1b598a47c338439ea400bce5f5198149f9706962caa4b7b`.
+
+Both values come from the official 42.11.8 release `SHASUMS256.txt`. The ZIP
+must contain one regular library file at the exact expected path. The first
+real build stops before signing because the installed Unzipper API has no
+entry `type` field. The corrected check uses its ZIP file attributes. A
+regression verifies that format and rejects duplicates, links, directories,
+empty entries, and unexpected paths. The archive hash guard stays unchanged.
+
+Replacement writes a temporary file next to the packaged library. It preserves
+the destination mode and checks the temporary library's codec names. It then
+replaces the library atomically and checks the installed bytes and codecs.
+Invalid archives, failed inspection, or H.264/AAC codecs stop packaging.
+Before replacement, failures preserve the original library. After replacement,
+any failed byte or codec check stops packaging before signing. Framework
+links may resolve only within the app. Temporary-file cleanup does not remove
+other app files.
+
+The app includes `resources/release/ffmpeg.json` with target identity, archive
+checksum, pre-signing library hash, and codec names. The record explicitly
+limits its library hash to bytes before signing. Signing can change Mach-O
+bytes. A packaged regression inspects the final signed library instead of
+assuming that its hash remains unchanged. The final macOS library has 13
+checked codecs with H.264 and AAC absent.
+
+The local build and strict ad-hoc signature verification pass. Its six language
+checks pass. All 25 combined packaged codec, source-evidence, image-preview,
+Markdown, restart-settings, and terminal-shortcut tests pass. The image-preview
+fixture now uses the packaged executable when supplied. PNG and SVG previews
+and normal text editing remain usable. The installed app stays unchanged.
+No binary publication occurs. Native Linux execution, other runtime behavior,
+FFmpeg licensing, and corresponding-source duties remain open.
+Unit tests, all 52 release checks, three archive checks, lint, types, formatting,
+whitespace checks, and both redacted secret scans pass. The lockfile hash stays
+unchanged. The final notice inventory stays at 566 files and six unresolved
+entries. The prepared and signed FFmpeg library hashes match in this build;
+the evidence still marks that recorded hash as pre-signing rather than assuming
+that all signing methods preserve the bytes.
+
 ## Secret scan
 
 Gitleaks 8.30.1 scans all locally reachable Git refs with `--log-opts=--all`.

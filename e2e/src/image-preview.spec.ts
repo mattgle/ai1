@@ -35,10 +35,12 @@ test.beforeAll(async () => {
     path.join(state, "opencode", "service.json"),
     JSON.stringify({ url: server.baseUrl, password: server.password }),
   );
-  const application = path.resolve(__dirname, "../../applications/electron");
+  const application =
+    process.env.AI1_PACKAGED_RESOURCES ?? path.resolve(__dirname, "../../applications/electron");
   electronApp = await electron.launch({
+    executablePath: process.env.AI1_E2E_EXECUTABLE,
     args: [
-      application,
+      ...(process.env.AI1_E2E_EXECUTABLE ? [] : [application]),
       "--no-sandbox",
       "--no-cluster",
       `--app-project-path=${application}`,

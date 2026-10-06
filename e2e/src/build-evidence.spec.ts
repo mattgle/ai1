@@ -1,10 +1,58 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 import { expect, test } from "@playwright/test";
 
 const application =
   process.env.AI1_PACKAGED_RESOURCES ?? path.resolve(__dirname, "../../applications/electron");
+
+test("the signed packaged runtime excludes H.264 and AAC", () => {
+  test.skip(!process.env.AI1_PACKAGED_RESOURCES, "This check requires a packaged runtime.");
+  const report = JSON.parse(
+    fs.readFileSync(path.join(application, "resources/release/ffmpeg.json"), "utf8"),
+  ) as {
+    schemaVersion: number;
+    electronVersion: string;
+    platform: string;
+    arch: string;
+    source: { file: string; sha256: string; url: string };
+    library: { path: string; codecs: string[]; sha256: string; bytes: number };
+    scope: string;
+  };
+  expect(report.schemaVersion).toBe(1);
+  expect(report.electronVersion).toBe("42.11.8");
+  expect(report.platform).toBe(process.platform);
+  expect(report.arch).toBe(process.arch);
+  const archive = `ffmpeg-v42.11.8-${process.platform}-${process.arch}.zip`;
+  expect(report.source.file).toBe(archive);
+  expect(report.source.url).toBe(
+    `https://github.com/electron/electron/releases/download/v42.11.8/${archive}`,
+  );
+  expect(report.source.sha256).toBe(
+    process.platform === "darwin"
+      ? "ac0ee66fa9416ff93b06124a2ea89868b393d1388276ce963a9706889c142a21"
+      : "c6585e86f3980291c1b598a47c338439ea400bce5f5198149f9706962caa4b7b",
+  );
+  expect(report.library.path).toBe(
+    process.platform === "darwin"
+      ? "Frameworks/Electron Framework.framework/Libraries/libffmpeg.dylib"
+      : "libffmpeg.so",
+  );
+  const inspect = createRequire(__filename)("@theia/ffmpeg").getFfmpegCodecs as (
+    file: string,
+  ) => { name: string }[];
+  const names = inspect(path.resolve(application, "../..", report.library.path))
+    .map((codec) => codec.name.toLowerCase())
+    .sort();
+  expect(names.length).toBeGreaterThan(0);
+  expect(names).not.toContain("h264");
+  expect(names).not.toContain("aac");
+  expect(names).toEqual(report.library.codecs);
+  expect(report.library.sha256).toMatch(/^[a-f0-9]{64}$/);
+  expect(report.library.bytes).toBeGreaterThan(0);
+  expect(report.scope).toContain("before signing");
+});
 
 test("app build evidence matches the generated output bytes without local absolute paths", () => {
   const text = fs.readFileSync(path.join(application, "resources/release/build-inputs.json"), "utf8");
