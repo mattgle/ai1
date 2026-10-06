@@ -213,6 +213,32 @@ settings tests. It includes shell restoration, deletion, and idle cleanup.
 The wider runs remain failure records. The original startup timeout and the
 intermittent hover failure remain open release risks.
 
+## Hover provider readiness: 2026-10-05
+
+The test's original diagnostic looks for production class names that the build
+shortens. It also reads a provider field that Monaco does not store on the
+editor. The revised test locates the bound editor manager by its public methods
+and reads Monaco's `ILanguageFeaturesService` from the editor's service scope.
+The records now identify the TypeScript model and its hover provider count.
+These internal lookups apply only to the test; no app code changes.
+
+Ten measurements with the unchanged hover action reproduce two failures.
+Every measurement starts with zero providers. Both failed measurements end
+with one registered provider but no visible hover. The test now checks that
+the TypeScript hover provider is registered before it performs the single
+pointer action. It keeps the existing assertion timeout and checks actual
+documentation with bold formatting. It adds no delay or hover retry. Ten
+measurements with this readiness check pass. This supports a test setup race;
+it does not establish an app-level hover fix or complete startup reliability.
+
+The later 68-test wider run passes its first 60 tests, then reaches the same
+five-minute command limit. The down-split navigation test takes about 72
+seconds in that run. A separate 12-test navigation, shortcut, and Welcome
+suite passes. Both navigation tests take about 12 seconds in the smaller
+suite. The partial wider run is not a complete pass. Its slow navigation
+measurement remains unexplained. The original second-launch timeout remains
+open. Keep the earlier failed hover records as evidence of the test race.
+
 ## Secret scan
 
 Gitleaks 8.30.1 scans all locally reachable Git refs with `--log-opts=--all`.

@@ -241,35 +241,69 @@ test("the packaged editor shows TypeScript documentation in a hover", async () =
   const state = () =>
     app.page.evaluate(() => {
       type Model = { getLanguageId: () => string };
+      type Features = {
+        hoverProvider: { has: (model: Model) => boolean; ordered: (model: Model) => unknown[] };
+      };
+      type Services = { _parent?: Services; _services: { _entries: Map<unknown, Features> } };
       type Control = {
         getModel: () => Model;
-        _languageFeaturesService?: { hoverProvider: { has: (model: Model) => boolean } };
+        _instantiationService?: Services;
       };
-      type Manager = { currentEditor?: { editor: { getControl: () => Control } } };
+      type Manager = { id: string; currentEditor?: { editor: { getControl: () => Control } } };
+      type Container = {
+        parent?: Container;
+        _bindingDictionary: { _map: Map<unknown, { cache?: unknown }[]> };
+        get: (key: unknown) => Manager;
+      };
       const container = (
         window as unknown as {
-          theia: {
-            container: {
-              _bindingDictionary: { _map: Map<unknown, unknown> };
-              get: (key: unknown) => Manager;
-            };
-          };
+          theia: { container: Container };
         }
       ).theia.container;
-      const key = [...container._bindingDictionary._map.keys()].find(
-        (key) =>
-          (typeof key === "function" && key.name === "EditorManager") ||
-          (typeof key === "symbol" && key.description === "EditorManager"),
-      );
-      const editor = key ? container.get(key).currentEditor?.editor.getControl() : undefined;
+      let manager: Manager | undefined;
+      for (let scope: Container | undefined = container; scope && !manager; scope = scope.parent) {
+        const caches = [...scope._bindingDictionary._map.values()].flatMap((bindings) =>
+          bindings.map((binding) => binding.cache),
+        );
+        manager = caches.find(
+          (value) =>
+            value &&
+            typeof value === "object" &&
+            (value as Manager).id === "code-editor-opener" &&
+            "currentEditor" in value,
+        ) as Manager | undefined;
+        if (!manager) {
+          const key = [...scope._bindingDictionary._map.keys()].find((value) => {
+            const prototype =
+              typeof value === "function"
+                ? (value.prototype as {
+                    getByUri?: unknown;
+                    registerSelectionResolver?: unknown;
+                  })
+                : undefined;
+            return (
+              typeof prototype?.getByUri === "function" &&
+              typeof prototype.registerSelectionResolver === "function"
+            );
+          });
+          if (key) manager = scope.get(key);
+        }
+      }
+      const editor = manager?.currentEditor?.editor.getControl();
       const model = editor?.getModel();
+      let features: Features | undefined;
+      for (let scope = editor?._instantiationService; scope && !features; scope = scope._parent) {
+        features = [...scope._services._entries].find(
+          ([id]) => String(id) === "ILanguageFeaturesService",
+        )?.[1];
+      }
       return {
         documentFocused: document.hasFocus(),
+        editorManagerFound: Boolean(manager),
         language: model?.getLanguageId() ?? null,
-        hoverProviderReady:
-          model && editor?._languageFeaturesService
-            ? editor._languageFeaturesService.hoverProvider.has(model)
-            : null,
+        hoverProviderReady: model && features?.hoverProvider ? features.hoverProvider.has(model) : null,
+        hoverProviderCount:
+          model && features?.hoverProvider ? features.hoverProvider.ordered(model).length : null,
         visibleHoverCount: Array.from(document.querySelectorAll<HTMLElement>(".monaco-hover")).filter(
           (node) => node.offsetWidth > 0 && node.offsetHeight > 0,
         ).length,
@@ -277,12 +311,20 @@ test("the packaged editor shows TypeScript documentation in a hover", async () =
     });
   const records = {
     before: await state(),
+    ready: null as Awaited<ReturnType<typeof state>> | null,
     tokenBounds: await token.boundingBox(),
     after: null as Awaited<ReturnType<typeof state>> | null,
   };
-  await token.hover();
   const hover = app.page.locator(".monaco-hover:visible");
   try {
+    await expect
+      .poll(async () => {
+        const current = await state();
+        return current.language === "typescript" && current.hoverProviderReady === true;
+      })
+      .toBe(true);
+    records.ready = await state();
+    await token.hover();
     await expect(hover).toContainText("Hover fixture with bold documentation.");
     await expect(hover.locator("strong")).toHaveText("bold");
   } finally {
