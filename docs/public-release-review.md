@@ -471,6 +471,32 @@ notice inventory has 568 files and six unresolved entries. The clean codec
 policy stays in place. The installed app stays unchanged. No binary publication
 occurs. Native Linux execution and remaining license and source duties stay open.
 
+### Clean FFmpeg source settings
+
+At Electron commit `b50ff46306a0bc5b4849cb2384c217c8f4c790da`,
+[`build/args/ffmpeg.gn`](https://github.com/electron/electron/blob/b50ff46306a0bc5b4849cb2384c217c8f4c790da/build/args/ffmpeg.gn)
+imports the common settings, then selects `ffmpeg_branding = "Chromium"`,
+`proprietary_codecs = false`, and `is_component_ffmpeg = true`. The common
+settings instead select Chrome branding and enable proprietary codecs. The
+separate clean settings explain why the normal packaged runtime requires the
+verified library replacement.
+
+At FFmpeg commit `f45bab87ce4c5fafc67fd53fcde777578d01bfa0`, both
+`chromium/config/Chromium/mac/arm64/config.h` and
+`chromium/config/Chromium/linux/x64/config.h` declare
+`FFMPEG_LICENSE "LGPL version 2.1 or later"`. Both set `CONFIG_GPL`,
+`CONFIG_GPLV3`, `CONFIG_VERSION3`, and `CONFIG_NONFREE` to zero.
+Electron's `patches/ffmpeg/.patches` lists one patch,
+`link_with_loader_path.patch`. That patch changes the macOS shared library's
+install name from `@rpath/libffmpeg.dylib` to `@loader_path/libffmpeg.dylib`.
+The patch does not change the listed license flags.
+
+These files establish declared source settings only. They do not prove that
+the distributed library uses every declared input without other changes.
+The review still needs the exact source package, applied patches, build inputs,
+build instructions, and applicable replacement or relinking materials.
+Retained notices and a codec check do not clear that release gate.
+
 ## Secret scan
 
 Gitleaks 8.30.1 scans all locally reachable Git refs with `--log-opts=--all`.
