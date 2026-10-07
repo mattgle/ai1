@@ -237,16 +237,44 @@ test("the packaged editor shows TypeScript documentation in a hover", async () =
   await app.page.locator("#files .theia-TreeNode", { hasText: "hover.ts" }).dblclick();
   const line = app.page.locator(".monaco-editor:visible .view-line").filter({ hasText: /^fixtureValue;/ });
   await expect(line).toBeVisible();
-  const token = line.locator("span").filter({ hasText: "fixtureValue" }).last();
-  const state = () =>
-    app.page.evaluate(() => {
-      type Model = { getLanguageId: () => string };
+  const token = line
+    .locator("span")
+    .filter({ hasText: /^fixtureValue;?$/ })
+    .last();
+  // Select the actual symbol before the independent pointer-hover check.
+  await token.click();
+  await app.page.mouse.move(0, 0);
+  const state = (point?: { x: number; y: number }) =>
+    app.page.evaluate((point) => {
+      type Position = { lineNumber: number; column: number };
+      type Target = { type: number; position?: Position };
+      type Model = {
+        getLanguageId: () => string;
+        getWordAtPosition(position: Position): { word: string } | null;
+        uri: { toString(): string };
+      };
       type Features = {
         hoverProvider: { has: (model: Model) => boolean; ordered: (model: Model) => unknown[] };
       };
       type Services = { _parent?: Services; _services: { _entries: Map<unknown, Features> } };
       type Control = {
         getModel: () => Model;
+        getPosition(): Position | null;
+        hasTextFocus(): boolean;
+        getTargetAtClientPoint(x: number, y: number): Target | null;
+        getOption(id: number): unknown;
+        _contributions?: {
+          _instances: Map<
+            string,
+            {
+              _ignoreMouseEvents: boolean;
+              _isMouseDown: boolean;
+              _mouseMoveEvent?: { target: Target };
+              isHoverVisible: boolean;
+            }
+          >;
+          _pending: Map<string, unknown>;
+        };
         _instantiationService?: Services;
       };
       type Manager = { id: string; currentEditor?: { editor: { getControl: () => Control } } };
@@ -255,11 +283,7 @@ test("the packaged editor shows TypeScript documentation in a hover", async () =
         _bindingDictionary: { _map: Map<unknown, { cache?: unknown }[]> };
         get: (key: unknown) => Manager;
       };
-      const container = (
-        window as unknown as {
-          theia: { container: Container };
-        }
-      ).theia.container;
+      const container = (window as unknown as { theia: { container: Container } }).theia.container;
       let manager: Manager | undefined;
       for (let scope: Container | undefined = container; scope && !manager; scope = scope.parent) {
         const caches = [...scope._bindingDictionary._map.values()].flatMap((bindings) =>
@@ -297,22 +321,53 @@ test("the packaged editor shows TypeScript documentation in a hover", async () =
           ([id]) => String(id) === "ILanguageFeaturesService",
         )?.[1];
       }
+      const target = editor && point ? editor.getTargetAtClientPoint(point.x, point.y) : null;
+      const controller = editor?._contributions?._instances.get("editor.contrib.contentHover");
+      const position = editor?.getPosition();
       return {
         documentFocused: document.hasFocus(),
+        editorFocused: editor?.hasTextFocus(),
+        uri: model?.uri.toString(),
+        position,
+        cursorWord: position ? model?.getWordAtPosition(position)?.word : null,
         editorManagerFound: Boolean(manager),
         language: model?.getLanguageId() ?? null,
         hoverProviderReady: model && features?.hoverProvider ? features.hoverProvider.has(model) : null,
         hoverProviderCount:
           model && features?.hoverProvider ? features.hoverProvider.ordered(model).length : null,
+        hoverOptions: editor?.getOption(69),
+        target: target
+          ? {
+              type: target.type,
+              position: target.position,
+              word: target.position ? model?.getWordAtPosition(target.position) : null,
+            }
+          : null,
+        controller: controller
+          ? {
+              ignoreMouseEvents: controller._ignoreMouseEvents,
+              mouseDown: controller._isMouseDown,
+              mouseTarget: controller._mouseMoveEvent?.target.type,
+              mousePosition: controller._mouseMoveEvent?.target.position,
+              visible: controller.isHoverVisible,
+            }
+          : null,
+        controllerPending: editor?._contributions?._pending.has("editor.contrib.contentHover"),
         visibleHoverCount: Array.from(document.querySelectorAll<HTMLElement>(".monaco-hover")).filter(
           (node) => node.offsetWidth > 0 && node.offsetHeight > 0,
         ).length,
       };
-    });
+    }, point);
   const records = {
     before: await state(),
     ready: null as Awaited<ReturnType<typeof state>> | null,
     tokenBounds: await token.boundingBox(),
+    token: null as {
+      text: string | null;
+      html: string;
+      point: { x: number; y: number };
+      hit?: string;
+    } | null,
     after: null as Awaited<ReturnType<typeof state>> | null,
   };
   const hover = app.page.locator(".monaco-hover:visible");
@@ -324,11 +379,27 @@ test("the packaged editor shows TypeScript documentation in a hover", async () =
       })
       .toBe(true);
     records.ready = await state();
+    expect(records.ready.editorFocused).toBe(true);
+    expect(records.ready.position?.lineNumber).toBe(4);
+    expect(records.ready.cursorWord).toBe("fixtureValue");
+    expect(records.ready.controllerPending).toBe(false);
+    await expect(hover).toHaveCount(0);
     await token.hover();
     await expect(hover).toContainText("Hover fixture with bold documentation.");
     await expect(hover.locator("strong")).toHaveText("bold");
   } finally {
-    records.after = await state();
+    records.token = await token.evaluate((node) => {
+      const bounds = node.getBoundingClientRect();
+      const x = bounds.x + bounds.width / 2;
+      const y = bounds.y + bounds.height / 2;
+      return {
+        text: node.textContent,
+        html: node.outerHTML,
+        point: { x, y },
+        hit: document.elementFromPoint(x, y)?.outerHTML,
+      };
+    });
+    records.after = await state(records.token.point);
     await test.info().attach("TypeScript hover state", {
       body: JSON.stringify(records, null, 2),
       contentType: "application/json",

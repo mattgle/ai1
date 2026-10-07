@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import { createServer, ServerResponse } from "node:http";
 import { _electron as electron, expect, test } from "@playwright/test";
 import { TheiaApp, TheiaWorkspace } from "@theia/playwright";
+import type {} from "@theia/core/lib/electron-common/electron-api";
 import { removeTempDir } from "./remove-temp-dir";
 import { clickTab } from "./click-tab";
 
@@ -379,17 +380,28 @@ test("hook setup gives instructions without changing agent settings", async () =
 });
 
 test("attention stays visible in light and high-contrast themes", async () => {
+  const config = path.join(root, "config/settings.json");
+  const original = fs.existsSync(config) ? JSON.parse(fs.readFileSync(config, "utf8")) : {};
+  const titleBarStyle = await app.page.evaluate(() => window.electronTheiaCore.getTitleBarStyleAtStartup());
+  // Keep the current window style while this test changes only the theme.
+  fs.writeFileSync(
+    config,
+    JSON.stringify({ ...original, "window.titleBarStyle": titleBarStyle, "files.autoSave": "off" }),
+  );
   const tab = app.page
     .locator("#theia-main-content-panel .lm-TabBar-tab")
     .filter({ hasText: "Attention fixture" });
   for (const theme of ["light", "hc-theia", "dark"]) {
     fs.writeFileSync(
       path.join(root, "config/settings.json"),
-      JSON.stringify({ "workbench.colorTheme": theme }),
+      JSON.stringify({ ...JSON.parse(fs.readFileSync(config, "utf8")), "workbench.colorTheme": theme }),
     );
     await expect(app.page.locator("body")).toHaveClass(
       theme === "hc-theia" ? /theia-hc/ : new RegExp(`theia-${theme}`),
     );
+    const saved = JSON.parse(fs.readFileSync(config, "utf8"));
+    expect(saved["window.titleBarStyle"]).toBe(titleBarStyle);
+    expect(saved["files.autoSave"]).toBe("off");
     emit("permission.asked", { id: `theme-${theme}` });
     await expect(tab).toHaveClass(/ai1-attention-input/);
     await expect(tab).toHaveCSS("box-shadow", /inset/);

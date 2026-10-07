@@ -95,7 +95,6 @@ test("Changes settings save profile defaults and optional workspace overrides", 
         args: [
           ...(process.env.AI1_E2E_EXECUTABLE ? [] : [application]),
           "--no-sandbox",
-          "--no-cluster",
           `--app-project-path=${application}`,
           `--user-data-dir=${root}/userdata`,
           `--electronUserData=${root}/userdata`,
@@ -149,9 +148,13 @@ test("Changes settings save profile defaults and optional workspace overrides", 
     }
   };
   const quit = async () => {
-    const closed = running!.waitForEvent("close");
-    await running!.evaluate(({ app }) => app.quit());
+    const quitting = running!;
+    const child = quitting.process();
+    const closed = quitting.waitForEvent("close");
+    await quitting.evaluate(({ app }) => app.quit());
     await closed;
+    expect(child.signalCode).toBeNull();
+    expect(child.exitCode).toBe(0);
     running = undefined;
   };
   const names = () => app.page.locator("#ai1-changes .ai1-changes-repo .ai1-changes-name");

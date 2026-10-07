@@ -1,21 +1,27 @@
-import { ChildProcess, spawn } from "node:child_process";
+import { ChildProcess, spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import { AddressInfo } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
-import { chromium, expect, test } from "@playwright/test";
-import { TheiaApp, TheiaAppLoader, TheiaWorkspace } from "@theia/playwright";
+import { _electron as electron, chromium, expect, test, type Page } from "@playwright/test";
+import { TheiaApp, TheiaWorkspace } from "@theia/playwright";
+import { FakeOpenCodeServer } from "../../extensions/agents/lib/node/fake-opencode-server";
 import { BrowserFixtureServer, makeLocalCertificate } from "./browser-fixture-server";
 import { clickTab } from "./click-tab";
 import { createMetaRepoFixture } from "./meta-repo-fixture";
 import { openBrowserTab } from "./open-browser-tab";
 import { removeTempDir } from "./remove-temp-dir";
 
-const electronAppPath = path.resolve(__dirname, "..", "..", "applications", "electron");
+const electronAppPath =
+  process.env.AI1_PACKAGED_RESOURCES ?? path.resolve(__dirname, "..", "..", "applications", "electron");
 const pluginsPath = path.join(electronAppPath, "plugins");
 
 let app: TheiaApp;
+let root: string;
+let running: Awaited<ReturnType<typeof electron.launch>>;
+let workspace: TheiaWorkspace;
+let server: FakeOpenCodeServer;
 let configDir: string;
 let userDataDir: string;
 let fixture: BrowserFixtureServer;
@@ -24,7 +30,9 @@ let agentPort: number;
 let portsBadgeServer: ChildProcess;
 
 function mainTab(text: string) {
-  return app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: text });
+  return app.page.locator('#theia-main-content-panel .lm-TabBar-tab[id^="shell-tab-ai1-browser:"]', {
+    hasText: text,
+  });
 }
 
 async function freePort(): Promise<number> {
@@ -39,16 +47,71 @@ async function openTab(url: string, profileName?: string): Promise<void> {
   await openBrowserTab(app, url, profileName);
 }
 
-test.beforeAll(async ({ playwright, browser }) => {
-  configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-m3a-config-"));
-  process.env.THEIA_CONFIG_DIR = configDir;
+async function expectAgentFrames(page: Page): Promise<void> {
+  await test.step("Check background agent animation frames", async () => {
+    const native = await running.evaluate(({ webContents }) =>
+      webContents
+        .getAllWebContents()
+        .filter((contents) => contents.getType() === "webview")
+        .map((contents) => ({
+          id: contents.id,
+          backgroundThrottling: contents.getBackgroundThrottling(),
+          offscreen: contents.isOffscreen(),
+        })),
+    );
+    test.info().annotations.push({ type: "agent-native-scheduling", description: JSON.stringify(native) });
+    const frames = await page.evaluate(
+      () =>
+        new Promise<{ frames: number; width: number; height: number; visibility: string; elapsedMs: number }>(
+          (resolve) => {
+            const started = performance.now();
+            let count = 0;
+            let frame: number;
+            const finish = () => {
+              clearTimeout(deadline);
+              cancelAnimationFrame(frame);
+              resolve({
+                frames: count,
+                width: innerWidth,
+                height: innerHeight,
+                visibility: document.visibilityState,
+                elapsedMs: Math.round(performance.now() - started),
+              });
+            };
+            // End this phase if the guest does not produce the two frames that a click needs.
+            const deadline = setTimeout(finish, 1000);
+            const next = () => {
+              count++;
+              if (count === 2) finish();
+              else frame = requestAnimationFrame(next);
+            };
+            frame = requestAnimationFrame(next);
+          },
+        ),
+    );
+    test.info().annotations.push({ type: "agent-animation-frames", description: JSON.stringify(frames) });
+    expect(frames.width, "The background agent page needs a nonzero viewport width").toBeGreaterThan(0);
+    expect(frames.height, "The background agent page needs a nonzero viewport height").toBeGreaterThan(0);
+    expect(frames.frames, "The background agent page must produce animation frames before a real click").toBe(
+      2,
+    );
+  });
+}
+
+test.beforeAll(async () => {
+  root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-m3a-")));
+  configDir = path.join(root, "config");
+  const home = path.join(root, "home");
+  const state = path.join(root, "state");
+  for (const folder of [configDir, home, path.join(state, "opencode")])
+    fs.mkdirSync(folder, { recursive: true });
   agentPort = await freePort();
   fs.writeFileSync(
     path.join(configDir, "settings.json"),
     JSON.stringify({ "ai1.browser.agentAddress.enabled": true, "ai1.browser.agentAddress.port": agentPort }),
   );
-  userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-m3a-userdata-"));
-  const workspace = new TheiaWorkspace();
+  userDataDir = path.join(root, "userdata");
+  workspace = new TheiaWorkspace();
   workspace.initialize();
   createMetaRepoFixture(workspace.path);
   // Listens in `dirty-repo` before the app starts, so the Ports view's one
@@ -66,36 +129,65 @@ test.beforeAll(async ({ playwright, browser }) => {
   await fixture.start();
   secureFixture = new BrowserFixtureServer(makeLocalCertificate(configDir));
   await secureFixture.start();
-  app = await TheiaAppLoader.load(
-    {
-      playwright,
-      browser,
-      useElectron: {
-        launchOptions: {
-          additionalArgs: [
-            "--no-sandbox",
-            "--no-cluster",
-            `--user-data-dir=${userDataDir}`,
-            `--electronUserData=${userDataDir}`,
-          ],
-          electronAppPath,
-          pluginsPath,
-        },
-      },
-    },
-    workspace,
+  server = new FakeOpenCodeServer();
+  server.sessions = [];
+  await server.start();
+  fs.writeFileSync(
+    path.join(state, "opencode/service.json"),
+    JSON.stringify({ url: server.baseUrl, password: server.password }),
   );
+  running = await electron.launch({
+    executablePath: process.env.AI1_E2E_EXECUTABLE,
+    args: [
+      ...(process.env.AI1_E2E_EXECUTABLE ? [] : [electronAppPath]),
+      "--no-sandbox",
+      "--no-cluster",
+      `--app-project-path=${electronAppPath}`,
+      `--plugins=local-dir:${pluginsPath}`,
+      `--user-data-dir=${userDataDir}`,
+      `--electronUserData=${userDataDir}`,
+      workspace.path,
+    ],
+    env: {
+      ...process.env,
+      HOME: home,
+      ZDOTDIR: home,
+      THEIA_CONFIG_DIR: configDir,
+      XDG_CONFIG_HOME: path.join(root, "xdg-config"),
+      XDG_DATA_HOME: path.join(root, "data"),
+      XDG_CACHE_HOME: path.join(root, "cache"),
+      XDG_STATE_HOME: state,
+      TMUX_TMPDIR: root,
+      TMUX: "",
+      THEIA_ELECTRON_DISABLE_NATIVE_ELEMENTS: "1",
+      THEIA_ELECTRON_NO_EARLY_WINDOW: "1",
+      THEIA_NO_SPLASH: "true",
+    },
+  });
+  const executable = await running.evaluate(() => process.execPath);
+  test.info().annotations.push({ type: "electron-executable", description: executable });
+  if (process.env.AI1_E2E_EXECUTABLE)
+    expect(fs.realpathSync(executable)).toBe(fs.realpathSync(process.env.AI1_E2E_EXECUTABLE));
+  app = new TheiaApp(await running.firstWindow(), workspace, true);
+  await app.waitForShellAndInitialized();
+  await expect
+    .poll(() => fs.existsSync(path.join(userDataDir, "ai1-browser-agent-secret")), { timeout: 30_000 })
+    .toBe(true);
 });
 
 test.afterAll(async () => {
   try {
-    await app.page.close();
+    await running?.close();
   } finally {
-    portsBadgeServer.kill();
-    await fixture.stop();
-    await secureFixture.stop();
-    fs.rmSync(configDir, { recursive: true, force: true });
-    await removeTempDir(userDataDir);
+    portsBadgeServer?.kill();
+    await fixture?.stop();
+    await secureFixture?.stop();
+    await server?.stop();
+    if (root) {
+      spawnSync("tmux", ["-S", path.join(root, `tmux-${process.getuid!()}`, "default"), "kill-server"]);
+      await removeTempDir(root);
+    }
+    workspace?.remove();
   }
 });
 
@@ -420,17 +512,56 @@ test("Playwright controls the agent tab through the agent address, and sees only
   const secret = fs.readFileSync(path.join(userDataDir, "ai1-browser-agent-secret"), "utf8").trim();
   const agentTab = app.page.locator("#theia-main-content-panel .lm-TabBar-tab.ai1-browser-agent-tab");
   let firstTab = agentTab;
-  const browser = await chromium.connectOverCDP(`http://127.0.0.1:${agentPort}/${secret}/`);
+  const browser = await test.step("Connect to the agent page", () =>
+    chromium.connectOverCDP(`http://127.0.0.1:${agentPort}/${secret}/`));
   try {
     const pages = browser.contexts().flatMap((context) => context.pages());
     expect(pages).toHaveLength(1);
     const page = pages[0];
-    await page.goto(`${fixture.url}button`);
-    await page.click("#go");
+    await test.step("Load the background agent page", async () => {
+      await page.goto(`${fixture.url}button`);
+      const viewport = await page.evaluate(() => ({
+        width: window.innerWidth,
+        height: window.innerHeight,
+        visibility: document.visibilityState,
+      }));
+      test.info().annotations.push({ type: "agent-page-viewport", description: JSON.stringify(viewport) });
+      const host = await app.page.evaluate(() => {
+        const tab = document.querySelector(".lm-TabBar-tab.ai1-browser-agent-connected");
+        const widget = tab ? document.getElementById(tab.id.replace(/^shell-tab-/, "")) : undefined;
+        const geometry = (node: Element | null | undefined) => {
+          if (!node) return undefined;
+          const bounds = node.getBoundingClientRect();
+          const style = getComputedStyle(node);
+          return {
+            width: bounds.width,
+            height: bounds.height,
+            x: bounds.x,
+            y: bounds.y,
+            display: style.display,
+            visibility: style.visibility,
+            pointerEvents: style.pointerEvents,
+          };
+        };
+        return {
+          widget: geometry(widget),
+          viewport: geometry(widget?.querySelector(".ai1-browser-viewport")),
+          webview: geometry(widget?.querySelector("webview")),
+          parent: geometry(widget?.parentElement),
+        };
+      });
+      test.info().annotations.push({ type: "agent-host-geometry", description: JSON.stringify(host) });
+      expect(viewport.width, "The background agent page needs a nonzero viewport width").toBeGreaterThan(0);
+      expect(viewport.height, "The background agent page needs a nonzero viewport height").toBeGreaterThan(0);
+    });
+    await expectAgentFrames(page);
+    await test.step("Click the button through CDP", () => page.click("#go"));
     await expect(mainTab("Clicked")).toBeVisible();
     await expect(mainTab("Clicked")).toHaveClass(/ai1-browser-agent-connected/);
-    const shot = await page.screenshot();
-    expect(shot.length).toBeGreaterThan(1000);
+    await test.step("Capture the background agent page", async () => {
+      const shot = await page.screenshot();
+      expect(shot.length).toBeGreaterThan(1000);
+    });
     await page.goto(`${fixture.url}form`);
     await expect(page).toHaveTitle("Welcome");
     // The agent cannot open a local file.
@@ -474,18 +605,40 @@ test("a new agent connection opens the agent tab and does not take the keyboard 
   await app.page.locator("#theia-statusBar").click();
 
   await app.quickCommandPalette.trigger("Terminal: Create New Terminal");
-  const input = app.page.locator(".terminal-container:not(.lm-mod-hidden) .xterm-helper-textarea").last();
+  const terminal = app.page.locator(".terminal-container:not(.lm-mod-hidden)").last();
+  const terminalId = await terminal.getAttribute("id");
+  expect(terminalId).not.toBeNull();
+  const input = app.page.locator(`[id="${terminalId}"] .xterm-helper-textarea`);
   await expect(input).toBeFocused();
-
+  // Record any loss of focus, even if the app later restores it.
+  const observation = await input.evaluateHandle((node) => {
+    const changes: string[] = [];
+    const onBlur = () => changes.push("terminal blur");
+    node.addEventListener("blur", onBlur);
+    return { node, changes, onBlur };
+  });
   const browser = await chromium.connectOverCDP(`http://127.0.0.1:${agentPort}/${secret}/`);
   try {
     await expect(agentTab).toHaveCount(1);
-    await expect(agentTab).toHaveClass(/lm-mod-current/);
-    // Give a late focus change time to occur before the check.
-    await app.page.waitForTimeout(1000);
-    await expect(input).toBeFocused({ timeout: 1000 });
+    const pages = browser.contexts().flatMap((context) => context.pages());
+    expect(pages).toHaveLength(1);
+    await pages[0].goto(`${fixture.url}button`);
+    await expect(pages[0]).toHaveTitle("Button");
+    await expect(agentTab).toHaveText(/Agent \d+ · Button/);
+    await expectAgentFrames(pages[0]);
+    await pages[0].click("#go");
+    await expect(pages[0]).toHaveTitle("Clicked");
+    await expect(agentTab).toHaveText(/Agent \d+ · Clicked/);
+    const shot = await pages[0].screenshot();
+    expect(shot.length).toBeGreaterThan(1000);
+    await expect(agentTab).not.toHaveClass(/lm-mod-current/);
+    await expect(app.page.locator(`[id="${terminalId}"]`)).toBeVisible();
+    await expect(input).toBeFocused();
+    expect(await observation.evaluate(({ changes }) => changes)).toEqual([]);
   } finally {
     await browser.close();
+    await observation.evaluate(({ node, onBlur }) => node.removeEventListener("blur", onBlur));
+    await observation.dispose();
   }
 });
 

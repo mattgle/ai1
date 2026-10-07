@@ -55,9 +55,7 @@ export class BrowserTabs {
     return widget;
   }
 
-  // `activate: false` shows the tab but leaves the keyboard focus where it
-  // is. A tab that the agent address opens uses it: the owner can type in
-  // another view at that time.
+  // Native webviews need a selected tab to render in the current design.
   async open(
     url: string,
     profileId: string,

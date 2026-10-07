@@ -1,233 +1,296 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { expect, test } from "@playwright/test";
-import { TheiaApp, TheiaAppLoader, TheiaWorkspace } from "@theia/playwright";
+import { _electron as electron, expect, test, type Locator } from "@playwright/test";
+import { TheiaApp, TheiaWorkspace } from "@theia/playwright";
+import { FakeOpenCodeServer } from "../../extensions/agents/lib/node/fake-opencode-server";
 import { BrowserFixtureServer } from "./browser-fixture-server";
 import { clickTab } from "./click-tab";
 import { createMetaRepoFixture } from "./meta-repo-fixture";
 import { openBrowserTab } from "./open-browser-tab";
 import { removeTempDir } from "./remove-temp-dir";
 
-const electronAppPath = path.resolve(__dirname, "..", "..", "applications", "electron");
-const pluginsPath = path.join(electronAppPath, "plugins");
+const electronAppPath =
+  process.env.AI1_PACKAGED_RESOURCES ?? path.resolve(__dirname, "..", "..", "applications", "electron");
 
 let app: TheiaApp;
-let configDir: string;
-let userDataDir: string;
+let root: string;
+let electronApp: Awaited<ReturnType<typeof electron.launch>>;
+let server: FakeOpenCodeServer;
+let tmux: string;
+let socket: string;
 let sessionId: string;
 let dirtyRepo: string;
-let preexistingTmuxSessions: string[];
 let browserFixture: BrowserFixtureServer;
 
-// Reads the names of the ai1-* tmux sessions from the output of `tmux ls`.
-// No tmux server running is not an error: it just means no session exists.
+// Welcome can create unrelated sessions in other repository folders.
 function listAi1TmuxSessions(): string[] {
   try {
-    const output = execFileSync("tmux", ["ls"], { encoding: "utf8" });
+    const output = execFileSync(tmux, ["-S", socket, "ls", "-F", "#{session_name}\t#{session_path}"], {
+      encoding: "utf8",
+    });
     return output
       .split("\n")
-      .filter((line) => line.indexOf(":") >= 0)
-      .map((line) => line.slice(0, line.indexOf(":")))
-      .filter((name) => name.startsWith("ai1-"));
+      .map((line) => line.split("\t"))
+      .filter(([name, directory]) => name.startsWith("ai1-") && directory === dirtyRepo)
+      .map(([name]) => name);
   } catch {
     return [];
   }
 }
 
-// Polls `GET /api/session/:id/permission` until a request is pending, and
-// returns its id. Called right after the permission-creating request is
-// sent, before any UI assertion, so a `finally` block always has a real
-// id to reply to -- otherwise, if a later UI assertion timed out before the
-// code would otherwise have queried for the id, the request could be left
-// open in the owner's real OpenCode service.
-async function waitForPendingPermissionId(id: string, timeoutMs = 10_000): Promise<string> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const raw = execFileSync("opencode", ["api", "GET", `/api/session/${id}/permission`], {
-      encoding: "utf8",
-    });
-    const pending = JSON.parse(raw).data as { id: string }[];
-    if (pending[0]) {
-      return pending[0].id;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 200));
+function setPermissionPending(pending: boolean): void {
+  if (pending) {
+    server.pending.add(sessionId);
+  } else {
+    server.pending.delete(sessionId);
   }
-  throw new Error(`no permission request appeared for session ${id} within ${timeoutMs}ms`);
+  server.pushEvent(
+    pending ? "permission.asked" : "permission.replied",
+    pending
+      ? {
+          sessionID: sessionId,
+          id: `per_${sessionId}`,
+          action: "external_directory",
+          resources: ["/fixture"],
+        }
+      : { sessionID: sessionId, requestID: `per_${sessionId}`, reply: "reject" },
+  );
 }
 
-// Replies "reject" to every permission request still pending for `id`.
-// Called unconditionally from a `finally` block: after a successful reply
-// in the try block this finds nothing pending (a no-op); after a failed
-// assertion it finds the one `waitForPendingPermissionId` returned, and
-// replies to it, so a probe permission request never lingers in the
-// owner's real OpenCode service.
-function replyToAllPending(id: string): void {
-  let pending: { id: string }[];
-  try {
-    const raw = execFileSync("opencode", ["api", "GET", `/api/session/${id}/permission`], {
-      encoding: "utf8",
-    });
-    pending = JSON.parse(raw).data as { id: string }[];
-  } catch (error) {
-    // A throw here would hide the test's own failure.
-    console.warn(`could not list the pending permissions of ${id}: ${String(error)}`);
-    return;
-  }
-  for (const item of pending) {
-    try {
-      execFileSync("opencode", [
-        "api",
-        "POST",
-        `/api/session/${id}/permission/${item.id}/reply`,
-        "--data",
-        JSON.stringify({ decision: "reject" }),
-      ]);
-    } catch (error) {
-      console.warn(`could not reply to permission request '${item.id}':`, error);
-    }
+function createShellHome(home: string, shellPath: string): void {
+  const quote = (value: string): string => `'${value.replace(/'/g, `'"'"'`)}'`;
+  const startup = `export HOME=${quote(home)}\nexport PATH=${quote(shellPath)}\n`;
+  // Restore the fixture PATH after system login-shell startup files.
+  for (const file of [".zshenv", ".zprofile", ".zshrc", ".bash_profile", ".bashrc"]) {
+    fs.writeFileSync(path.join(home, file), startup);
   }
 }
 
-test.beforeAll(async ({ playwright, browser }) => {
-  preexistingTmuxSessions = listAi1TmuxSessions();
-  // The application must not write into the real settings folder of the
-  // machine during a test run. Playwright's Electron launch inherits the
-  // runner's environment, so this folder becomes the app's settings folder.
-  configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-config-"));
-  process.env.THEIA_CONFIG_DIR = configDir;
-  // Electron's own user-data folder (its default is the real `AI1` folder
-  // under the machine's application support directory) holds the workbench
-  // layout; two launch flags redirect it fully. See the same setup in
-  // `m1-smoke.spec.ts` for why both are needed.
-  userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-userdata-"));
-  const workspace = new TheiaWorkspace();
-  workspace.initialize();
-  createMetaRepoFixture(workspace.path);
+test.beforeEach(async () => {
+  root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ai1-m2-agents-")));
+  const workspace = path.join(root, "workspace");
+  const config = path.join(root, "config");
+  const state = path.join(root, "state");
+  const bin = path.join(root, "bin");
+  const home = path.join(root, "home");
+  const shellPath = `${bin}${path.delimiter}${process.env.PATH ?? ""}`;
+  for (const directory of [workspace, config, bin, home, path.join(state, "opencode")]) {
+    fs.mkdirSync(directory, { recursive: true });
+  }
+  createShellHome(home, shellPath);
+  createMetaRepoFixture(workspace);
+  dirtyRepo = path.join(workspace, "dirty-repo");
+  tmux = execFileSync("which", ["tmux"], { encoding: "utf8" }).trim();
+  socket = path.join(root, `tmux-${process.getuid!()}`, "default");
+
+  // Block CLI discovery and shell commands from reaching the installed OpenCode.
+  fs.writeFileSync(path.join(bin, "opencode"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  server = new FakeOpenCodeServer();
+  await server.start();
+  sessionId = "m2_fixture";
+  const now = Date.now();
+  server.sessions = [
+    {
+      id: sessionId,
+      title: "ai1-e2e-session",
+      directory: dirtyRepo,
+      model: { id: "fake", providerID: "fixture" },
+      time: { created: now, updated: now },
+    },
+  ];
+  fs.writeFileSync(
+    path.join(state, "opencode", "service.json"),
+    JSON.stringify({ url: server.baseUrl, password: server.password }),
+  );
   browserFixture = new BrowserFixtureServer();
   await browserFixture.start();
-  // OpenCode stores `location.directory` verbatim, with no resolution of
-  // its own. The Electron main process, on its side, resolves the
-  // workspace path with `fs.realpath` before it opens the window
-  // (`electron-main-application.ts`), so on a system where the temporary
-  // folder is a symlink (`/var` on macOS) the running app's workspace root
-  // is already the resolved path. This directory must equal that resolved
-  // root, or the Agents service filters the session out of every group.
-  // `AgentsServiceImpl.normalizeRoot`'s own `fs.realpathSync` call resolves
-  // symbolic links on the root's side of that comparison, for a root a
-  // real deployment might hand it unresolved; it does not touch this
-  // session directory, the other side of the comparison, so this
-  // resolution still belongs here.
-  dirtyRepo = path.join(fs.realpathSync(workspace.path), "dirty-repo");
-  // The directory of a created session comes from the request body, not a
-  // query parameter or the process cwd of the opencode CLI's own server.
-  const raw = execFileSync(
-    "opencode",
-    [
-      "api",
-      "POST",
-      "/api/session",
-      "--data",
-      JSON.stringify({ title: "ai1-e2e-session", location: { directory: dirtyRepo } }),
+  electronApp = await electron.launch({
+    executablePath: process.env.AI1_E2E_EXECUTABLE,
+    args: [
+      ...(process.env.AI1_E2E_EXECUTABLE ? [] : [electronAppPath]),
+      "--no-sandbox",
+      `--app-project-path=${electronAppPath}`,
+      `--user-data-dir=${path.join(root, "userdata")}`,
+      `--electronUserData=${path.join(root, "userdata")}`,
+      workspace,
     ],
-    { cwd: dirtyRepo, encoding: "utf8" },
-  );
-  sessionId = JSON.parse(raw).data.id;
-  app = await TheiaAppLoader.load(
-    {
-      playwright,
-      browser,
-      useElectron: {
-        launchOptions: {
-          additionalArgs: [
-            "--no-sandbox",
-            "--no-cluster",
-            `--user-data-dir=${userDataDir}`,
-            `--electronUserData=${userDataDir}`,
-          ],
-          electronAppPath,
-          pluginsPath,
-        },
-      },
+    env: {
+      ...process.env,
+      HOME: home,
+      ZDOTDIR: home,
+      BASH_ENV: path.join(home, ".bashrc"),
+      ENV: path.join(home, ".bashrc"),
+      PATH: shellPath,
+      THEIA_CONFIG_DIR: config,
+      XDG_STATE_HOME: state,
+      TMUX_TMPDIR: root,
+      TMUX: "",
     },
-    workspace,
-  );
-});
-
-test.afterAll(async () => {
-  try {
-    await app?.page.close();
-    if (sessionId) {
-      execFileSync("opencode", ["api", "DELETE", `/api/session/${sessionId}`]);
-    }
-    // The "New Session" test (criterion 3) creates further sessions in the
-    // fixture's own dirty-repo directory. `directory=` is meant to be an
-    // exact match against a session's own `location.directory`, verified
-    // live (a parent or a sibling directory gave no match) -- but a
-    // server-side filter is never trusted alone for a delete against the
-    // owner's real data: skip this whole block if the fixture directory
-    // was never set (a failure earlier in `beforeAll`, before the
-    // assignment), and, for each session the listing returns, check its
-    // own `location.directory` from the response body and delete it only
-    // when that field equals `dirtyRepo` exactly. A filter that silently
-    // matched more than the exact directory (a bug, a future API change,
-    // a prefix match, ...) can then never delete a session of a different
-    // directory -- including one of the owner's own.
-    if (dirtyRepo) {
-      try {
-        const raw = execFileSync(
-          "opencode",
-          ["api", "GET", `/api/session?directory=${encodeURIComponent(dirtyRepo)}`],
-          { encoding: "utf8" },
-        );
-        const remaining = JSON.parse(raw).data as { id: string; location?: { directory?: string } }[];
-        for (const session of remaining) {
-          if (session.location?.directory !== dirtyRepo) {
-            console.warn(
-              `skipped session '${session.id}': its own directory '${session.location?.directory}' does not equal the fixture directory '${dirtyRepo}' exactly`,
-            );
-            continue;
-          }
-          try {
-            execFileSync("opencode", ["api", "DELETE", `/api/session/${session.id}`]);
-          } catch (error) {
-            console.warn(`could not delete session '${session.id}':`, error);
-          }
-        }
-      } catch (error) {
-        console.warn(`could not list the sessions of '${dirtyRepo}':`, error);
-      }
-    }
-    // Kill only the ai1-* tmux sessions this test made, never one that
-    // existed before it (the owner's own sessions). Each kill is its own
-    // try/catch, so one failure does not stop the rest of the cleanup.
-    for (const name of listAi1TmuxSessions()) {
-      if (!preexistingTmuxSessions.includes(name)) {
-        try {
-          execFileSync("tmux", ["kill-session", "-t", name]);
-        } catch (error) {
-          console.warn(`could not kill tmux session '${name}':`, error);
-        }
-      }
-    }
-  } finally {
-    await browserFixture?.stop();
-    fs.rmSync(configDir, { recursive: true, force: true });
-    await removeTempDir(userDataDir);
+  });
+  const executable = await electronApp.evaluate(() => process.execPath);
+  test.info().annotations.push({ type: "electron-executable", description: executable });
+  if (process.env.AI1_E2E_EXECUTABLE) {
+    expect(fs.realpathSync(executable)).toBe(fs.realpathSync(process.env.AI1_E2E_EXECUTABLE));
   }
+  app = new TheiaApp(await electronApp.firstWindow(), new TheiaWorkspace(), true);
+  await app.waitForShellAndInitialized();
+  await expect.poll(() => server.requests).toContain("GET /api/event");
 });
 
-// The right side panel shows one view at a time. The Changes view opens as
-// the default view (Task M1), so a test selects the Agents tab before it
-// checks that view's content, the same way an earlier test in the M1 suite
-// clicks a file to open its diff. A side panel tab collapses the panel when
-// it is clicked while already the active tab, so this only clicks when the
-// Agents view is not the visible one yet.
+test.afterEach(async () => {
+  const process = electronApp?.process();
+  const errors: unknown[] = [];
+  const shutdownMarkers = new Set<string>();
+  let stderrTail = "";
+  const captureStderr = (chunk: Buffer): void => {
+    stderrTail = (stderrTail + chunk.toString()).slice(-4096);
+    for (const marker of [
+      "napi_fatal_error",
+      "FATAL ERROR",
+      "ERR_IPC_CHANNEL_CLOSED",
+      "GPU process exited unexpectedly",
+      "Network service crashed",
+    ]) {
+      if (stderrTail.includes(marker)) shutdownMarkers.add(marker);
+    }
+  };
+  process?.stderr?.on("data", captureStderr);
+  try {
+    await electronApp?.close();
+    if (process) {
+      test.info().annotations.push({
+        type: "electron-cleanup",
+        description: JSON.stringify({ exitCode: process.exitCode, signalCode: process.signalCode }),
+      });
+      await test.info().attach("electron-shutdown", {
+        body: JSON.stringify({
+          exitCode: process.exitCode,
+          signalCode: process.signalCode,
+          errorMarkers: [...shutdownMarkers],
+        }),
+        contentType: "application/json",
+      });
+      expect(process.signalCode).toBeNull();
+      expect(process.exitCode).toBe(0);
+    }
+  } catch (error) {
+    errors.push(error);
+  } finally {
+    process?.stderr?.off("data", captureStderr);
+    // Complete each cleanup even if shutdown or another cleanup fails.
+    const services = await Promise.allSettled([server?.stop(), browserFixture?.stop()]);
+    for (const service of services) {
+      if (service.status === "rejected") errors.push(service.reason);
+    }
+    try {
+      if (tmux && socket) {
+        const cleanup = spawnSync(tmux, ["-S", socket, "kill-server"]);
+        test.info().annotations.push({
+          type: "tmux-cleanup",
+          description: JSON.stringify({ exitCode: cleanup.status, signal: cleanup.signal }),
+        });
+        if (cleanup.error) errors.push(cleanup.error);
+      }
+    } catch (error) {
+      errors.push(error);
+    }
+    try {
+      await removeTempDir(root);
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  for (const error of errors.slice(1)) {
+    console.error("Fixture cleanup also fails:", error);
+  }
+  if (errors.length > 0) throw errors[0];
+});
+
+// Do not click an active side-panel tab because that closes the panel.
 async function showAgentsView(): Promise<void> {
   if (!(await app.page.locator("#ai1-agents").isVisible())) {
     await clickTab(app.page.locator("#shell-tab-ai1-agents"));
   }
+  await expect(app.page.locator("#ai1-agents")).toBeVisible();
+}
+
+async function checkAgentsLifecycle(operation: "close" | "reopened"): Promise<void> {
+  const result = await app.page.evaluate(async (operation) => {
+    type Widget = { id: string; isDisposed: boolean };
+    type Shell = {
+      id: string;
+      getWidgets(area: "right"): Widget[];
+      closeWidget(id: string): Promise<Widget | undefined>;
+    };
+    type Container = {
+      parent?: Container;
+      _bindingDictionary: { _map: Map<unknown, { cache?: unknown }[]> };
+    };
+    const browser = window as unknown as {
+      theia: { container: Container };
+      ai1M2ClosedAgents?: Widget;
+    };
+    let shell: Shell | undefined;
+    for (let scope: Container | undefined = browser.theia.container; scope && !shell; scope = scope.parent) {
+      shell = [...scope._bindingDictionary._map.values()]
+        .flatMap((bindings) => bindings.map((binding) => binding.cache))
+        .find((value) => (value as Shell | undefined)?.id === "theia-app-shell") as Shell | undefined;
+    }
+    if (!shell) throw new Error("The application shell is not available.");
+    const current = shell.getWidgets("right").find((widget) => widget.id === "ai1-agents");
+    if (!current) throw new Error("The Agents widget is not in the right shell area.");
+    if (operation === "close") {
+      browser.ai1M2ClosedAgents = current;
+      const closed = await shell.closeWidget(current.id);
+      return {
+        closedTarget: closed === current,
+        disposed: current.isDisposed,
+        removedFromShell: !shell.getWidgets("right").includes(current),
+      };
+    }
+    return {
+      oldDisposed: browser.ai1M2ClosedAgents?.isDisposed,
+      newInstance: current !== browser.ai1M2ClosedAgents,
+      newInstanceLive: !current.isDisposed,
+    };
+  }, operation);
+  expect(result).toEqual(
+    operation === "close"
+      ? { closedTarget: true, disposed: true, removedFromShell: true }
+      : { oldDisposed: true, newInstance: true, newInstanceLive: true },
+  );
+  await test.info().attach(`agents-${operation}`, {
+    body: JSON.stringify(result),
+    contentType: "application/json",
+  });
+}
+
+async function showFixtureCard(): Promise<Locator> {
+  await showAgentsView();
+  const group = app.page.locator("#ai1-agents .ai1-agents-group", { hasText: "dirty-repo" });
+  await expect(group).toBeVisible();
+  const card = app.page.locator("#ai1-agents .ai1-agents-card", { hasText: "ai1-e2e-session" });
+  if (!(await card.isVisible())) {
+    await group.click();
+  }
+  await expect(card).toBeVisible();
+  return card;
+}
+
+function sessionTab(title: string): Locator {
+  return app.page.locator("#theia-main-content-panel .lm-TabBar-tab").filter({
+    has: app.page.locator(".lm-TabBar-tabLabel", { hasText: `sh · ${title}` }),
+  });
+}
+
+async function terminalForTab(tab: Locator): Promise<Locator> {
+  await expect(tab).toBeVisible();
+  const id = await tab.getAttribute("id");
+  expect(id).toMatch(/^shell-tab-/);
+  // Theia puts the target widget ID after this prefix in each tab ID.
+  return app.page.locator(`[id=${JSON.stringify(id!.slice("shell-tab-".length))}] .xterm`);
 }
 
 test("the Agents view is in the right panel", async () => {
@@ -236,45 +299,31 @@ test("the Agents view is in the right panel", async () => {
 });
 
 test("the Agents view lists the fixture session under its repository", async () => {
-  await showAgentsView();
-  const group = app.page.locator("#ai1-agents .ai1-agents-group", { hasText: "dirty-repo" });
-  await expect(group).toBeVisible();
-  // A group with no working or blocked session starts collapsed, so its
-  // session card is not in the tree until the group expands.
-  const card = app.page.locator("#ai1-agents .ai1-agents-card", { hasText: "ai1-e2e-session" });
-  if (!(await card.isVisible())) {
-    await group.click();
-  }
-  await expect(card).toBeVisible();
+  await showFixtureCard();
 });
 
 test("a click on a session card opens its terminal in the center", async () => {
-  await app.page.locator("#ai1-agents .ai1-agents-card", { hasText: "ai1-e2e-session" }).click();
-  const tab = app.page.locator("#theia-main-content-panel .lm-TabBar-tab", {
-    hasText: "sh · ai1-e2e-session",
-  });
-  await expect(tab).toBeVisible();
-  await expect(app.page.locator("#theia-main-content-panel .xterm")).toBeVisible();
+  await (await showFixtureCard()).click();
+  await expect(await terminalForTab(sessionTab("ai1-e2e-session"))).toBeVisible();
 });
 
 test("a second click focuses the same terminal", async () => {
-  await app.page.locator("#ai1-agents .ai1-agents-card", { hasText: "ai1-e2e-session" }).click();
-  await expect(
-    app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "sh · ai1-e2e-session" }),
-  ).toHaveCount(1);
+  const card = await showFixtureCard();
+  await card.click();
+  const tab = sessionTab("ai1-e2e-session");
+  const terminal = await terminalForTab(tab);
+  await expect(terminal).toBeVisible();
+  const firstId = await tab.getAttribute("id");
+  await app.page.locator("#ai1-agents").focus();
+  await card.click();
+  await expect(tab).toHaveCount(1);
+  await expect(tab).toHaveAttribute("id", firstId!);
+  await expect(terminal.locator(".xterm-helper-textarea")).toBeFocused();
 });
 
-// Exactly one session shell is open at this point.
-// at this point (the fixture session's own, opened by the two tests
-// above), so `before` below is a known quantity, not just "whatever the
-// suite happened to leave open" -- and no later test opens a further
-// OpenCode interface tab, so this session's own tab is the only one that
-// count still includes for the rest of the suite.
 test("New Session creates a session in the picked repository and opens it", async () => {
   await showAgentsView();
-  const tabs = app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "sh · " });
-  const before = await tabs.count();
-  expect(before).toBe(1);
+  const before = new Set(server.sessions.map((session) => session.id));
   const group = app.page.locator("#ai1-agents .ai1-agents-group", { hasText: "dirty-repo" });
   const groupRow = group.locator("xpath=ancestor::div[contains(@class,'theia-TreeNode')][1]");
   const badgeBefore = Number(await groupRow.locator(".ai1-agents-badge").innerText());
@@ -283,11 +332,15 @@ test("New Session creates a session in the picked repository and opens it", asyn
   await app.page.locator(".quick-input-widget .monaco-list-row", { hasText: "New Session" }).click();
   await app.page.locator(".quick-input-widget .monaco-list-row", { hasText: "dirty-repo" }).click();
 
-  await expect(tabs).toHaveCount(before + 1);
+  await expect.poll(() => server.sessions.filter((session) => !before.has(session.id)).length).toBe(1);
+  const created = server.sessions.find((session) => !before.has(session.id))!;
+  expect(created.directory).toBe(dirtyRepo);
+  await expect(await terminalForTab(sessionTab(created.title))).toBeVisible();
   await expect(groupRow.locator(".ai1-agents-badge")).toHaveText(String(badgeBefore + 1));
 });
 
 test("a persistent terminal creates a tmux session", async () => {
+  const before = new Set(listAi1TmuxSessions());
   await app.quickCommandPalette.type("New Persistent Terminal");
   await app.page
     .locator(".quick-input-widget .monaco-list-row", { hasText: "New Persistent Terminal" })
@@ -296,45 +349,44 @@ test("a persistent terminal creates a tmux session", async () => {
   await expect(
     app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "sh · dirty-repo" }),
   ).toBeVisible();
-  await expect.poll(() => execFileSync("tmux", ["ls"], { encoding: "utf8" })).toContain("ai1-");
+  await expect.poll(() => listAi1TmuxSessions().filter((name) => !before.has(name))).toHaveLength(1);
 });
 
 test("a prompt moves the card to working and then to done", async () => {
-  await showAgentsView();
-  const card = app.page.locator("#ai1-agents .ai1-agents-card", { hasText: "ai1-e2e-session" });
+  const card = await showFixtureCard();
   const row = card.locator("xpath=ancestor::div[contains(@class,'theia-TreeNode')][1]");
-  execFileSync(
-    "opencode",
-    [
-      "api",
-      "POST",
-      `/api/session/${sessionId}/prompt`,
-      "--data",
-      JSON.stringify({ text: "Reply with the single word ok." }),
-    ],
-    { cwd: dirtyRepo },
-  );
-  // The two inner timeouts must fit inside the Playwright test timeout
-  // (120_000, playwright.config.ts) with margin, or a genuinely slow run
-  // times out at the outer level with a less clear failure.
+  const response = await fetch(`${server.baseUrl}/api/session/${sessionId}/prompt`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Basic ${Buffer.from(`opencode:${server.password}`).toString("base64")}`,
+    },
+    body: JSON.stringify({ text: "Fixture prompt" }),
+  });
+  expect(response.status).toBe(204);
+  expect(server.prompts).toEqual([{ sessionId, body: { text: "Fixture prompt" } }]);
+  // Short server turns can finish before the UI sees working state.
+  server.active.add(sessionId);
+  server.pushEvent("session.execution.started", { sessionID: sessionId });
   await expect(row.locator(".ai1-agents-status-working")).toBeVisible({ timeout: 20_000 });
-  await expect(row.locator(".ai1-agents-status-done")).toBeVisible({ timeout: 80_000 });
+  server.active.delete(sessionId);
+  server.sessions[0].outcome = "succeeded";
+  server.pushEvent("session.execution.succeeded", { sessionID: sessionId });
+  await expect(row.locator(".ai1-agents-status-done")).toBeVisible({ timeout: 20_000 });
 });
 
 test("Design Mode sends drawn feedback and its screenshot to the chosen agent session", async () => {
-  const designSession = JSON.parse(
-    execFileSync(
-      "opencode",
-      [
-        "api",
-        "POST",
-        "/api/session",
-        "--data",
-        JSON.stringify({ title: "ai1-e2e-design-mode-session", location: { directory: dirtyRepo } }),
-      ],
-      { cwd: dirtyRepo, encoding: "utf8" },
-    ),
-  ).data as { id: string };
+  const designSession = {
+    ...server.sessions[0],
+    id: "m2_design",
+    title: "ai1-e2e-design-mode-session",
+  };
+  server.sessions.push(designSession);
+  server.pushEvent("session.created", {
+    sessionID: designSession.id,
+    title: designSession.title,
+    directory: dirtyRepo,
+  });
   try {
     await openBrowserTab(app, `${browserFixture.url}design-mode`);
     await expect(
@@ -368,170 +420,81 @@ test("Design Mode sends drawn feedback and its screenshot to the chosen agent se
       "Browser feedback sent to ai1-e2e-design-mode-session.",
     );
 
-    const raw = execFileSync(
-      "opencode",
-      ["api", "GET", `/api/session/${designSession.id}/message?limit=10&order=desc`],
-      { cwd: dirtyRepo, encoding: "utf8" },
-    );
-    const messages = JSON.parse(raw).data as unknown[];
-    const sentMessage = JSON.stringify(messages);
-    expect(sentMessage).toContain("Move this button down.");
-    expect(sentMessage).toContain("browser-selection-1.png");
+    const sent = server.prompts.filter((prompt) => prompt.sessionId === designSession.id);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].body.text).toContain("Move this button down.");
+    expect(sent[0].body.files).toEqual([
+      expect.objectContaining({ name: "browser-selection-1.png", uri: expect.any(String) }),
+    ]);
   } finally {
-    execFileSync("opencode", ["api", "DELETE", `/api/session/${designSession.id}`], { cwd: dirtyRepo });
+    server.sessions = server.sessions.filter((session) => session.id !== designSession.id);
   }
 });
 
 test("a session that waits for a permission shows a notice and a badge", async () => {
   await showAgentsView();
-  // `POST /api/session/:id/permission` returns at once and leaves the request
-  // pending. The `finally` block below always replies to any request still
-  // pending (or, if the try block's own reply already went out, does nothing).
-  execFileSync(
-    "opencode",
-    [
-      "api",
-      "POST",
-      `/api/session/${sessionId}/permission`,
-      "--data",
-      JSON.stringify({ action: "external_directory", resources: ["/etc/x/*"] }),
-    ],
-    { cwd: dirtyRepo, stdio: "ignore", timeout: 10_000 },
-  );
-  // Toasts and the notification center render the same notice twice in the
-  // DOM (`NotificationComponent`, reused by both); scoping to the open
-  // toasts container picks the one that is actually visible right now.
+  setPermissionPending(true);
+  // Select the open toast, not its copy in the notification center.
   const notice = app.page.locator(".theia-notification-toasts.open .theia-notification-list-item", {
     hasText: "waits for a permission",
   });
   const badge = app.page.locator("#shell-tab-ai1-agents .theia-badge-decorator-sidebar");
   try {
-    const requestId = await waitForPendingPermissionId(sessionId);
     await expect(notice).toBeVisible({ timeout: 30_000 });
     await expect(notice.locator("button.theia-button", { hasText: "Open" })).toBeVisible();
     await expect(badge).toHaveText("1");
 
-    execFileSync("opencode", [
-      "api",
-      "POST",
-      `/api/session/${sessionId}/permission/${requestId}/reply`,
-      "--data",
-      JSON.stringify({ decision: "reject" }),
-    ]);
+    setPermissionPending(false);
 
     await expect(notice).toHaveCount(0, { timeout: 30_000 });
     await expect(badge).toHaveCount(0);
   } finally {
-    replyToAllPending(sessionId);
+    setPermissionPending(false);
   }
 });
 
 test("closing and reopening the Agents view keeps the card callbacks and the badge working", async () => {
   await showAgentsView();
-  // A side-panel tab has no inline close icon (`theia-app-sides
-  // .lm-TabBar-tabCloseIcon { display: none }`). The palette's "Close Tab"
-  // command acts on `ApplicationShell.currentTabBar`/`currentTitle`
-  // (`CurrentWidgetCommandAdapter`'s fallback when its triggering event has
-  // no tab-bar DOM target, `application-shell.ts`'s `findTabBar`/
-  // `findTitle`), which by this point in the suite is a main-area terminal
-  // tab, not the Agents tab, so it closes the wrong one. The tab's own
-  // right-click "Close" targets the exact tab the click landed on instead
-  // (the same adapter, but its event now DOES have that tab as its DOM
-  // target), which is what a real user would do to close a side-panel view.
-  await clickTab(app.page.locator("#shell-tab-ai1-agents"), { button: "right" });
-  await app.page.locator(".lm-Menu-item", { hasText: /^Close$/ }).click();
+  // Close the real widget through the shell, without opening a native menu.
+  await checkAgentsLifecycle("close");
   await expect(app.page.locator("#ai1-agents")).toHaveCount(0);
 
-  // Reopens it with its own toggle command (`AbstractViewContribution`'s
-  // default label, "Toggle {viewName}"); `WidgetManager` makes a fresh
-  // `AgentsWidget` instance for it, a different object than the one the
-  // suite's earlier tests used.
+  // Open a new Agents widget instance.
   await app.quickCommandPalette.type("Toggle Agents");
   await app.page.locator(".quick-input-widget .monaco-list-row", { hasText: "Toggle Agents" }).click();
   await expect(app.page.locator("#theia-right-side-panel #ai1-agents")).toBeVisible();
+  await checkAgentsLifecycle("reopened");
 
-  // The card callbacks on the new instance: a click on the fixture card
-  // still opens (or focuses) its terminal.
-  const card = app.page.locator("#ai1-agents .ai1-agents-card", { hasText: "ai1-e2e-session" });
-  if (!(await card.isVisible())) {
-    // A fresh widget instance starts with no saved expansion state, and by
-    // this point in the suite the fixture session is no longer `working`
-    // or `blocked` (the earlier prompt test already moved it to `done`),
-    // so its group starts collapsed again.
-    await app.page.locator("#ai1-agents .ai1-agents-group", { hasText: "dirty-repo" }).click();
-  }
+  const card = await showFixtureCard();
   await card.click();
-  await expect(
-    app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "sh · ai1-e2e-session" }),
-  ).toBeVisible();
+  await expect(await terminalForTab(sessionTab("ai1-e2e-session"))).toBeVisible();
 
-  // The badge on the new tab, with the same real-permission pattern as the
-  // notice test above.
-  execFileSync(
-    "opencode",
-    [
-      "api",
-      "POST",
-      `/api/session/${sessionId}/permission`,
-      "--data",
-      JSON.stringify({ action: "external_directory", resources: ["/etc/w/*"] }),
-    ],
-    { cwd: dirtyRepo, stdio: "ignore", timeout: 10_000 },
-  );
+  setPermissionPending(true);
   const badge = app.page.locator("#shell-tab-ai1-agents .theia-badge-decorator-sidebar");
   try {
-    const requestId = await waitForPendingPermissionId(sessionId);
     await expect(badge).toHaveText("1", { timeout: 30_000 });
-    execFileSync("opencode", [
-      "api",
-      "POST",
-      `/api/session/${sessionId}/permission/${requestId}/reply`,
-      "--data",
-      JSON.stringify({ decision: "reject" }),
-    ]);
+    setPermissionPending(false);
     await expect(badge).toHaveCount(0);
   } finally {
-    replyToAllPending(sessionId);
+    setPermissionPending(false);
   }
 });
 
-test("a real permission request still shows a notice while the Agents view is closed", async () => {
-  // Close the tab itself (not just switch away from it, which the Agents
-  // view already tolerates by design): `AgentsWidget` is disposed, so the
-  // event stream and the notice can only still work because
-  // `AgentsContribution.onStart` loads the model on its own, independent of
-  // the widget's own `init()`.
+test("a permission request still shows a notice while the Agents view is closed", async () => {
+  // Close the widget to check that notices do not depend on its event handlers.
   await showAgentsView();
-  await clickTab(app.page.locator("#shell-tab-ai1-agents"), { button: "right" });
-  await app.page.locator(".lm-Menu-item", { hasText: /^Close$/ }).click();
+  await checkAgentsLifecycle("close");
   await expect(app.page.locator("#ai1-agents")).toHaveCount(0);
 
-  execFileSync(
-    "opencode",
-    [
-      "api",
-      "POST",
-      `/api/session/${sessionId}/permission`,
-      "--data",
-      JSON.stringify({ action: "external_directory", resources: ["/etc/y/*"] }),
-    ],
-    { cwd: dirtyRepo, stdio: "ignore", timeout: 10_000 },
-  );
+  setPermissionPending(true);
   const notice = app.page.locator(".theia-notification-toasts.open .theia-notification-list-item", {
     hasText: "waits for a permission",
   });
   try {
-    const requestId = await waitForPendingPermissionId(sessionId);
     await expect(notice).toBeVisible({ timeout: 30_000 });
-    execFileSync("opencode", [
-      "api",
-      "POST",
-      `/api/session/${sessionId}/permission/${requestId}/reply`,
-      "--data",
-      JSON.stringify({ decision: "reject" }),
-    ]);
+    setPermissionPending(false);
     await expect(notice).toHaveCount(0, { timeout: 30_000 });
   } finally {
-    replyToAllPending(sessionId);
+    setPermissionPending(false);
   }
 });

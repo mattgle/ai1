@@ -3,17 +3,24 @@ import * as http from "node:http";
 import { AddressInfo } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
-import { Browser, chromium, expect, Locator, test } from "@playwright/test";
-import { TheiaApp, TheiaAppLoader, TheiaExplorerView, TheiaWorkspace } from "@theia/playwright";
+import { spawnSync } from "node:child_process";
+import { _electron as electron, Browser, chromium, expect, Locator, test } from "@playwright/test";
+import { TheiaApp, TheiaExplorerView, TheiaWorkspace } from "@theia/playwright";
+import { FakeOpenCodeServer } from "../../extensions/agents/lib/node/fake-opencode-server";
 import { BrowserFixtureServer, DOWNLOAD_TEXT } from "./browser-fixture-server";
 import { clickTab } from "./click-tab";
 import { openBrowserTab } from "./open-browser-tab";
 import { removeTempDir } from "./remove-temp-dir";
 
-const electronAppPath = path.resolve(__dirname, "..", "..", "applications", "electron");
+const electronAppPath =
+  process.env.AI1_PACKAGED_RESOURCES ?? path.resolve(__dirname, "..", "..", "applications", "electron");
 const pluginsPath = path.join(electronAppPath, "plugins");
 
 let app: TheiaApp;
+let root: string;
+let running: Awaited<ReturnType<typeof electron.launch>>;
+let workspace: TheiaWorkspace;
+let server: FakeOpenCodeServer;
 let configDir: string;
 let userDataDir: string;
 let fixture: BrowserFixtureServer;
@@ -40,7 +47,9 @@ function pagesOf(browser: Browser) {
 }
 
 function mainTab(text: string): Locator {
-  return app.page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: text });
+  return app.page.locator('#theia-main-content-panel .lm-TabBar-tab[id^="shell-tab-ai1-browser:"]', {
+    hasText: text,
+  });
 }
 
 async function agentNumber(tab: Locator): Promise<number> {
@@ -97,44 +106,70 @@ async function closeTab(tab: Locator): Promise<void> {
   await app.page.locator(".lm-Menu-item", { hasText: /^Close$/ }).click();
 }
 
-test.beforeAll(async ({ playwright, browser }) => {
-  configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-m3b-config-"));
-  process.env.THEIA_CONFIG_DIR = configDir;
+test.beforeAll(async () => {
+  root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-m3b-")));
+  configDir = path.join(root, "config");
+  const home = path.join(root, "home");
+  const state = path.join(root, "state");
+  for (const folder of [configDir, home, path.join(state, "opencode")])
+    fs.mkdirSync(folder, { recursive: true });
   agentPort = await freePort();
   fs.writeFileSync(
     path.join(configDir, "settings.json"),
     JSON.stringify({ "ai1.browser.agentAddress.enabled": true, "ai1.browser.agentAddress.port": agentPort }),
   );
-  userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-m3b-userdata-"));
-  // The app reads these two only when AI1_E2E_BACKGROUND is 1. Playwright
-  // gives the Electron process the environment of this process.
-  downloadsDir = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-e2e-m3b-downloads-"));
-  shellLog = path.join(downloadsDir, "..", `${path.basename(downloadsDir)}-shell.log`);
-  process.env.AI1_E2E_DOWNLOADS_DIR = downloadsDir;
-  process.env.AI1_E2E_SHELL_LOG = shellLog;
-  const workspace = new TheiaWorkspace();
+  userDataDir = path.join(root, "userdata");
+  // Keep downloads and shell actions in the test folders.
+  downloadsDir = path.join(root, "downloads");
+  fs.mkdirSync(downloadsDir);
+  shellLog = path.join(root, "shell.log");
+  workspace = new TheiaWorkspace();
   workspace.initialize();
   fixture = new BrowserFixtureServer();
   await fixture.start();
-  app = await TheiaAppLoader.load(
-    {
-      playwright,
-      browser,
-      useElectron: {
-        launchOptions: {
-          additionalArgs: [
-            "--no-sandbox",
-            "--no-cluster",
-            `--user-data-dir=${userDataDir}`,
-            `--electronUserData=${userDataDir}`,
-          ],
-          electronAppPath,
-          pluginsPath,
-        },
-      },
-    },
-    workspace,
+  server = new FakeOpenCodeServer();
+  server.sessions = [];
+  await server.start();
+  fs.writeFileSync(
+    path.join(state, "opencode/service.json"),
+    JSON.stringify({ url: server.baseUrl, password: server.password }),
   );
+  running = await electron.launch({
+    executablePath: process.env.AI1_E2E_EXECUTABLE,
+    args: [
+      ...(process.env.AI1_E2E_EXECUTABLE ? [] : [electronAppPath]),
+      "--no-sandbox",
+      "--no-cluster",
+      `--app-project-path=${electronAppPath}`,
+      `--plugins=local-dir:${pluginsPath}`,
+      `--user-data-dir=${userDataDir}`,
+      `--electronUserData=${userDataDir}`,
+      workspace.path,
+    ],
+    env: {
+      ...process.env,
+      HOME: home,
+      ZDOTDIR: home,
+      THEIA_CONFIG_DIR: configDir,
+      XDG_CONFIG_HOME: path.join(root, "xdg-config"),
+      XDG_DATA_HOME: path.join(root, "data"),
+      XDG_CACHE_HOME: path.join(root, "cache"),
+      XDG_STATE_HOME: state,
+      TMUX_TMPDIR: root,
+      TMUX: "",
+      AI1_E2E_DOWNLOADS_DIR: downloadsDir,
+      AI1_E2E_SHELL_LOG: shellLog,
+      THEIA_ELECTRON_DISABLE_NATIVE_ELEMENTS: "1",
+      THEIA_ELECTRON_NO_EARLY_WINDOW: "1",
+      THEIA_NO_SPLASH: "true",
+    },
+  });
+  const executable = await running.evaluate(() => process.execPath);
+  test.info().annotations.push({ type: "electron-executable", description: executable });
+  if (process.env.AI1_E2E_EXECUTABLE)
+    expect(fs.realpathSync(executable)).toBe(fs.realpathSync(process.env.AI1_E2E_EXECUTABLE));
+  app = new TheiaApp(await running.firstWindow(), workspace, true);
+  await app.waitForShellAndInitialized();
   // The agent address starts after the preferences are ready.
   await expect
     .poll(() => fs.existsSync(path.join(userDataDir, "ai1-browser-agent-secret")), { timeout: 30_000 })
@@ -143,15 +178,15 @@ test.beforeAll(async ({ playwright, browser }) => {
 
 test.afterAll(async () => {
   try {
-    await app.page.close();
+    await running?.close();
   } finally {
-    await fixture.stop();
-    delete process.env.AI1_E2E_DOWNLOADS_DIR;
-    delete process.env.AI1_E2E_SHELL_LOG;
-    fs.rmSync(configDir, { recursive: true, force: true });
-    fs.rmSync(downloadsDir, { recursive: true, force: true });
-    fs.rmSync(shellLog, { force: true });
-    await removeTempDir(userDataDir);
+    await fixture?.stop();
+    await server?.stop();
+    if (root) {
+      spawnSync("tmux", ["-S", path.join(root, `tmux-${process.getuid!()}`, "default"), "kill-server"]);
+      await removeTempDir(root);
+    }
+    workspace?.remove();
   }
 });
 
@@ -207,8 +242,10 @@ test("two agents connect at the same time, and each agent has its own tab and se
       "#theia-main-content-panel .lm-TabBar-tab.ai1-browser-agent-connected",
     );
     await expect(agentTabs).toHaveCount(2);
-    const firstTab = mainTab("Welcome");
-    const secondTab = mainTab("Button");
+    const firstTab = agentTabs.filter({ hasText: /Agent \d+ · Welcome/ });
+    const secondTab = agentTabs.filter({ hasText: /Agent \d+ · Button/ });
+    await expect(firstTab).toHaveCount(1);
+    await expect(secondTab).toHaveCount(1);
     await expect(firstTab).toHaveText(/Agent \d+ · Welcome/);
     await expect(secondTab).toHaveText(/Agent \d+ · Button/);
     await expect(firstTab).toHaveClass(/ai1-browser-agent-tab/);
