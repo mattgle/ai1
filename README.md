@@ -205,6 +205,13 @@ The tab shows the platform's shortcuts and this example workflow:
 6. Press **Cmd+Control+0** to return to the last center panel. Press
    **Cmd+Control+B** to open the browser and test your local application.
 
+Agents marks sessions with a reported parent as **Sub-agent**.
+Child sessions appear below their parent in the same directory group.
+Hover over the badge to see the parent name.
+Use **Select Parent Session** in the row menu to select the parent without
+opening a terminal. If the parent is unavailable, the badge shows its ID and
+the menu action stays disabled. Sessions without parent data stay unchanged.
+
 Sessions opened from Agents run OpenCode inside a persistent shell in the
 session directory. Control+C can exit OpenCode without closing the shell.
 Selecting the same session again focuses its existing shell. It does not restart
@@ -262,6 +269,9 @@ font family, text weights, bold ANSI colors, and palette. These controls save to
 the app profile. Restore terminal defaults removes only app-profile appearance
 overrides. Workspace overrides stay in effect. Custom color overrides stay in
 effect after a palette change.
+
+In the terminal, **Shift+Enter** sends the Ctrl+J newline key for OpenCode.
+**Enter** keeps its normal submit behavior. OpenCode key settings stay unchanged.
 
 On macOS, **Cmd+K, Cmd+W** closes all center tabs as one batch.
 **Cmd+Shift+T** restores that batch, including editors, browser tabs, and

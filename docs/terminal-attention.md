@@ -6,6 +6,16 @@ installed app or agent settings.
 
 ## Appearance
 
+Terminal Shift+Enter sends line feed, the Ctrl+J newline key supported by
+OpenCode. Enter keeps its carriage-return input. The handler changes no agent
+configuration. It leaves other modifier combinations, input composition,
+read-only terminals, and press-to-close terminals unchanged.
+
+A packaged regression reads the input bytes after xterm and tmux. Before the
+fix, Shift+Enter and Enter both send byte 13. After the fix, they send bytes
+10 and 13. All ten terminal shortcut tests pass in the local signed package.
+This result does not replace live agent-hook lifecycle verification.
+
 Tabs use five-pixel upper corners. Panel surfaces use six-pixel corners, thin
 borders, and four-pixel gaps. Each activity bar shares a frame with its side
 panel. The outer frame uses a small two-pixel vertical inset. Side-panel content
@@ -177,6 +187,107 @@ hook-trust bypass and Gemini's skip-trust options also remain unused.
 Global settings and existing trust decisions stay unchanged.
 
 ## Official references
+
+### Offline schema check: 2026-10-06
+
+Installed versions remain Claude Code 2.1.282, Codex 0.159.0, and Gemini 0.46.0.
+The installed Codex binary generates an offline protocol schema in the review
+folder. Its managed-hook definition accepts all seven events configured by AI1:
+SessionStart, SessionEnd, UserPromptSubmit, PermissionRequest, PreToolUse,
+PostToolUse, and Stop. It has no StopFailure event. The generated requirements
+schema has SHA-256
+`0ea97959b59322ec8901c79bf597b7241f42a10fe11034a4d86b3a6b044a43df`.
+
+The current official Codex and Gemini references still supply no reliable
+turn-failure event for these adapters. Unsupported failures remain unmarked.
+These checks do not establish live lifecycle events. No login, setup, global
+settings, permissions, or hook-trust decisions change. Full live validation
+requires a usable session with approved setup and hook trust.
+
+### Isolated command lifecycle check: 2026-10-07
+
+`node --test scripts/terminal-hook-lifecycle.spec.mjs` runs the source helper
+through the generated hook commands. It uses a separate tmux socket, an empty
+temporary home, and no tmux configuration file. The helper and configuration
+sources are prepared only in the temporary test directory. The test does not
+build or start Electron. It does not start an agent CLI or send a model request.
+
+Ten checks pass. Fixture sequences cover all configured events for Claude,
+Codex, and Gemini. They verify working, pending input, completion, session end,
+Claude failure, and matching question and elicitation replies. Permission input
+stays pending after an unrelated tool result. Unsupported failure events and
+child callbacks leave the record unchanged. The checks also cover invalid
+stdin, non-AI1 panes, changed pane and session identities, private file modes,
+and refusal to use a state directory with unsafe permissions. Every helper
+invocation returns only `{}`. Paths with spaces and an apostrophe work.
+The 11 existing hook unit tests also pass from temporary test files. Scoped
+ESLint and formatting checks pass. Workspace build output stays unchanged.
+
+These are fixture integration results, not live agent event results. Installed
+CLI version commands still report Claude Code 2.1.282, Codex 0.159.0, and Gemini
+0.46.0. A new offline Codex schema check gives the same requirements-file hash
+as the 2026-10-06 check. It still has no `StopFailure` hook.
+
+Live validation remains blocked. Claude's isolated startup reaches setup and
+needs the owner's setup choices. The startup diagnosis below identifies the
+Codex and Gemini gates. No existing login, global configuration, permission
+policy, or trust decision changes. Print mode and trust bypass flags are not a
+substitute for owner approval. Codex and Gemini turn failures remain unsupported
+and unmarked.
+
+### Isolated startup diagnosis: 2026-10-07
+
+The review runs `codex --no-daemon` and `gemini` through `node-pty`. Each process
+uses its own empty temporary home and workspace. The environment contains only
+`PATH`, `HOME`, `TERM=xterm-256color`, and a temporary `TMPDIR`. No prompt,
+keypress, terminal-query reply, login choice, or trust answer is sent. The first
+corrected checks wait 12 seconds. A repeat uses new homes and waits eight seconds.
+Only the processes and directories created by these checks are removed.
+`--no-daemon` keeps Codex separate from the existing shared daemon.
+
+Both runs identify these first-use gates:
+
+- Codex 0.159.0 shows `Sign in with ChatGPT`, device-code login, or API-key
+  selection. The CLI waits at its login menu. No choice is selected.
+- Gemini 0.46.0 shows `Do you trust the files in this folder?`. The CLI waits
+  at workspace trust. No trust answer is sent.
+
+Codex emits one cursor-position query and one device-attribute query in the
+12-second check. Its login menu still appears without replies. Gemini also
+reports a true-color warning. These signals do not prevent the observed menus.
+The repeat has no observed fatal startup error. It does not verify later stages.
+
+An initial Codex probe sets `CODEX_HOME` to a directory that does not exist.
+It exits with `Error finding codex home: CODEX_HOME points to
+"<temporary-home>/.codex", but that path does not exist`. This is a probe setup
+error, not an installed-CLI failure. The corrected runs omit `CODEX_HOME` and
+reach the login menu. An explicit `CODEX_HOME` must name an existing directory.
+
+The real home contains `.codex/auth.json`, `.codex/config.toml`,
+`.gemini/settings.json`, `.gemini/oauth_creds.json`, `.gemini/google_accounts.json`,
+and `.gemini/trustedFolders.json`. The review checks file existence and metadata
+only. It does not open these files. Their metadata stays unchanged during the
+repeat. `CODEX_HOME`, `GEMINI_CLI_HOME`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, and
+`GOOGLE_API_KEY` are unset in the reviewed parent environment. File presence
+does not prove valid or expired authentication.
+
+Changing `HOME` hides the normal Codex configuration and file-based login data.
+Installed Gemini code also puts settings, file-based OAuth data, and folder
+trust under its selected home. `GEMINI_CLI_HOME` can override that home. The probe
+does not set this variable. Some optional Gemini storage uses the OS keychain,
+so `HOME` alone is not a general keychain isolation guarantee. This review does
+not query that storage or select an authentication method.
+
+The Codex login menu is therefore an empty-home artifact. It does not show that
+the owner's existing login is missing or invalid. Gemini's observed blocker is
+the new workspace trust decision, not a confirmed authentication failure.
+Further live validation needs owner approval to use an existing authenticated
+session and its normal runtime files, or owner setup of a separate test login.
+Gemini also needs an owner-approved workspace trust decision. All adapters need
+opt-in hooks; Codex needs hook review and trust through `/hooks`. These steps
+remain outside this check. No live hook event or model request is verified.
+
+### Links
 
 - [OpenCode CLI plugin events](https://opencode.ai/v2/docs/build/plugins/cli)
 - [OpenCode V2 API](https://opencode.ai/v2/docs/api)

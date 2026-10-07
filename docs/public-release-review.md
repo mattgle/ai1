@@ -13,6 +13,22 @@ publication. Security, license, source-duty, live-hook, startup reliability,
 and native Omarchy gates remain open. Earlier local-only records describe
 the state before this approval.
 
+## Signed source commits: 2026-10-07
+
+The owner approves the pending source commits and continued release work.
+Signed commits separate the Agents tree, terminal input, release tooling,
+isolated test fixtures, and MCP credential guard. The source and Git-history
+secret scans pass with full redaction before staging. The retained upstream
+FFmpeg patch has a file-specific whitespace exception. Its byte checks pass;
+the exception does not change the upstream patch.
+
+This source checkpoint has 822 passing workspace unit tests, 93 passing release
+checks, 17 passing offline editor checks, and 10 passing hook fixture checks.
+Lint, types, formatting, and whitespace checks pass. The strict dependency and
+archive checks retain three cache failures. Packaged guard checks are the next
+step. No push, merge, installed-app replacement, or binary publication occurs
+at this checkpoint.
+
 ## Startup failure evidence: 2026-10-05
 
 The Changes settings test now records launch phases, process IDs, process
@@ -496,6 +512,445 @@ the distributed library uses every declared input without other changes.
 The review still needs the exact source package, applied patches, build inputs,
 build instructions, and applicable replacement or relinking materials.
 Retained notices and a codec check do not clear that release gate.
+
+## All-area release review: 2026-10-06
+
+### Parallel follow-up: 2026-10-07
+
+The coordinated review covers all six existing backlog areas. Separate workers
+check security, source and licenses, hooks, editor behavior, and Omarchy staging.
+Electron tests run in sequence against one unchanged local package.
+
+The restart failure's macOS crash record identifies `watcher.node` callbacks
+during Node environment cleanup. Another record identifies `pty.node` exit
+callbacks during cleanup. These are native shutdown observations, not proof of
+the cause of the subsequent first-window timeout.
+
+Three repeated baseline settings and attention suites pass 45 tests. A separate
+lifecycle comparison checks five launches per test in both backend modes.
+All 15 initial forked-backend launches exit with code zero and no signal.
+The shared-backend tests initially fail an incorrect zero-exit expectation:
+Theia's backend `gracefulShutdown()` deliberately exits with code one. That exit
+code alone does not reproduce a native crash. The corrected diagnostic accepts
+only zero or the documented one in shared mode; any exit signal still fails.
+The normal forked main process must exit with code zero.
+
+The strengthened lifecycle fixture opens three nested Git repositories and
+creates real watcher events before quit. Three repeated lifecycle and attention
+suites pass 48 tests, including 30 launches across both modes. The historical
+native crash does not reproduce in those runs. No delay, retry, or longer timeout
+is added. The original first-window timeout is not declared fixed.
+
+The theme fixture has a separate reproducible settings defect. It replaces
+the profile file and removes `window.titleBarStyle`. Theia can then show its
+required-restart dialog, which blocks the next terminal test. The regression
+fails with the style removed. The fixture now changes only `workbench.colorTheme`
+and preserves title-bar and unrelated preferences. Theme, Control+C, shell
+restoration, and deletion checks pass in all three repeated suites.
+
+The settings restart test now uses the shipped default forked backend rather
+than the test-only `--no-cluster` flag. It retains the same launch order and
+timeout values and adds clean main-process exit assertions. The shared-mode
+lifecycle diagnostic remains available separately.
+
+The normal-backend settings test then passes ten repeated runs with traces.
+Each run uses four launches with the same profile and checks a zero exit code
+and no signal from each main process. All 40 launches pass. The suite takes
+3.5 minutes, with each test between 20.0 and 20.8 seconds. The earlier disposal
+assertion error is a fixture error: retain the child handle before Playwright
+closes and disposes its application object. No native crash or first-window
+timeout appears in this run. The original timeout cause remains open.
+
+The hook integration fixture has ten passing checks through the actual helper
+and isolated tmux panes. It does not verify live CLI events. Isolated Codex
+startup reaches the login menu because its temporary home has no test login.
+The existing home has an authentication file, whose content and validity remain
+unread. Gemini startup reaches the workspace trust question. Neither probe
+submits input or changes login, configuration, permission, or trust state.
+See `terminal-attention.md` for the exact remaining approval requirements.
+
+The Arch staging review has 26 passing checks. Source notice paths now use the
+actual unpacked-app root, and copied notice text uses the notice-output root.
+Real-generator fixtures verify both runtime and package notices. Path, link,
+file-mode, and checksum guards reject unsafe inputs. These results do not prove
+native Omarchy execution or pacman lifecycle behavior. See `arch-package.md`.
+
+Ten offline editor checks pass for nested project selection, imports, JSX
+diagnostics, hover, definitions, completion, edits, and ESLint fixes. React uses
+installed types; React Native still uses a declaration fixture. The new UI
+check passes twice after the fixture uses canonical paths and standard Quick
+Open. It also checks definitions, actual pointer-hover content, React
+diagnostics, and separate project save fixes. The command-palette Show Hover
+path still shows no hover in the fixture and needs separate diagnosis.
+The owner-project comparison remains open. See `editor-release-follow-up.md`.
+
+The source follow-up verifies the exact Electron FFmpeg patch, its application
+to the selected upstream build file, and cryptographic publication provenance
+for both clean archives. It does not verify complete compiler inputs or
+modified-library operation. See `release-source-follow-up.md` for exact hashes,
+source revisions, candidate build instructions, and the remaining limits.
+
+The build now captures actual outer `onLoad` bytes from the polyfill and native
+plugins. The production build passes and records all 14 outer polyfills, four
+native wrappers, four backend transformations, and the existing sanitizer
+transformation. Generator hashes and loader hashes stay separate from disk
+source hashes. No local absolute path appears in the report. Nested generator
+inputs, default-loader snapshots, external loads, and complete source duties
+remain unverified. See `release-source-follow-up.md` for the exact boundary.
+
+MCP SDK 1.31.0 is now locked and installed. The SDK change updates only its
+version, archive URL, and integrity. All 701 installed SDK files match the
+verified archive. The prior Proxy Addr update remains unchanged. Install
+scripts stay disabled, and the seven-day release guard stays active.
+The lockfile SHA-256 is
+`c3c82bc1c7595c51eda37b559609c3d4c4d8df1414e336b7ecd764833bdb894c`.
+The initial package has SDK 1.30.0. The later local rebuild below includes
+SDK 1.31.0.
+
+The repeated strict MCP test passes six checks and fails three issuerless
+credential checks. The full development dependency suite has 27 passes and
+six pending failures. Strict security and archive checks have 30 passes and
+six hard failures: three MCP cases and three guarded cache cases. A successful
+exit from the non-strict suite does not clear those defects. The fresh audit
+has 63 findings and no SDK entry. The production-only audit has 41 findings
+and no high or critical entry. See `dependency-security-review.md`.
+
+The MCP integration review confirms the extension is reachable through
+`@theia/plugin-ext`, despite the absence of a direct AI1 application dependency.
+Both development and packaged generated entry points load its frontend,
+backend, and Electron callback modules. A connection-scoped provider-factory
+replacement can restrict the existing feature without enabling a new one.
+Synthetic manager checks confirm that a live authorization-server pin change
+clears that server's stored credentials. Unchanged configuration preserves
+records. The proposed guard can refuse unsafe state without changing settings
+or deleting records, but blocking unpinned static clients changes supported
+login behavior. At this review stage, that policy awaits owner approval. No
+guard is implemented at this stage, and no live configuration or stored
+credential changes occur.
+
+The later approved source guard replaces the connection-scoped provider factory.
+It refuses issuerless credentials and unpinned static clients. It checks cached
+discovery and preserves unsafe stored records on refusal. All 14 guarded MCP
+caller checks and 822 workspace unit tests pass. Strict dependency, sanitizer,
+and archive checks now have 38 passes and three cache failures. The local
+production build includes the guard. The packaged app still needs a rebuild
+and checks for this change. Live login, configuration, stored credentials, and
+the installed app stay unchanged. See the approved-guard section in
+`dependency-security-review.md` for recovery limits and exact test scope.
+
+Repository lint, all workspace type checks, and 80 release-script tests pass.
+The subsequent workspace unit run passes 771 tests. Three archive rejection
+checks, ten hook integration checks, and ten offline editor checks also pass.
+The redacted Git-history and source-file secret scans pass with the existing
+Gitleaks executable. These results precede the final dependency update and
+transformed-source follow-up. Repeat applicable checks after those changes.
+
+The subsequent local package includes SDK 1.31.0 and the captured build report.
+Ad-hoc signing and strict signature verification pass. All six packaged
+language-resource checks pass. The notice inventory still has 571 files and
+five unresolved entries. The installed app remains unchanged.
+
+All 84 release-script checks pass after integration. The updated packaged
+dependency suite has 21 passes, nine build-only skips, and three pending MCP
+failures. Those failures remain release blockers; its zero exit status does
+not clear them. Repository lint, all workspace type checks, formatting, both
+redacted secret scans, and diff whitespace checks pass again. The wider UI
+suite follows this rebuild and needs its own complete result.
+
+The subsequent wider run completes 153 tests in 14.5 minutes: 146 pass and
+seven fail. The corrected nested-editor command check is deliberately separate.
+Some legacy launch helpers start the development entry point despite the
+packaged environment variables. This is a mixed wider run, not proof that all
+153 checks exercise the installed test package.
+
+All new source-capture and SDK package checks pass. Changes settings restart,
+both lifecycle modes, terminal attention, the theme-preservation regression,
+Control+C, shell restoration, folder picking, mixed-tab restoration, and
+Shift+Enter checks pass. No startup timeout or native crash appears in this run.
+
+Four failures occur in `m2-agents.spec.ts`: a terminal locator matches two
+widgets; a later test cannot find its expected session after worker restart;
+another assumes one terminal but finds four; and the prompt test does not see
+working state. Two browser tests fail: an agent connection hides or removes the
+selected terminal input, and a broad Welcome selector matches both the AI1
+Welcome tab and a browser tab. The Markdown documentation hover also fails.
+The causes remain under review. Fixture and app faults stay separate until
+tests establish the correct boundary. The wider run is not a release pass.
+
+The command-palette hover review identifies a separate selector defect:
+`Show Hover` selects the debug command, while Monaco's action is
+`Show or Focus Hover`. Five offline command checks pass. The corrected UI test
+requires dispatch of `editor.action.showHover` and actual hover content.
+Its UI validation follows the wider run.
+
+The browser review confirms that its broad Welcome locator matches the app's
+Welcome widget and the browser tab. It now selects connected browser-agent tabs.
+The focus regression records a stable terminal ID and blur events. It requires
+the agent tab to remain in the background while navigation completes.
+The unchanged package's `BrowserTabs.open()` calls `revealWidget` for
+`activate: false`, which can select that tab and hide the terminal. A local
+source change removes that reveal call and preserves normal activation.
+Lint and types pass. The unchanged package remains the failing-control input;
+the corrected runtime regression and rebuilt app still need validation.
+
+The strengthened background-tab test fails against the unchanged package.
+After agent navigation and title completion, its tab still has
+`lm-mod-current`. This proves the selection defect at the actual agent
+connection boundary. The next local rebuild includes the no-reveal source
+change and requires a separate passing regression. No runtime success is
+claimed from source inspection alone.
+
+The legacy Agents fixtures now create separate state per test and scope
+terminal assertions to the session widget. The second-click check performs
+both clicks itself. Session creation checks the new service record rather than
+an unrelated tab count. Fake service events hold working and completion state
+until each UI assertion completes. A temporary home, zsh and bash startup
+files, and a blocked executable prevent installed OpenCode calls. Packaged
+launches verify the actual executable path. Lint, types, and shell fixture
+checks pass; Electron validation remains separate.
+
+The corrected editor and Markdown suites pass all 21 checks across three
+sequential repetitions against the rebuilt SDK package. Both pointer hover and
+the exact `editor.action.showHover` command return actual TypeScript content.
+The documentation test renders the expected bold text. All sanitizer tests
+remain unchanged. The missed original first-hover event has no proven
+low-level cause. Hide Hover performs phase cleanup. Escape cleanup fails in
+two separate probes and remains a key-event investigation, not a verified
+app defect. See `editor-release-follow-up.md` for exact evidence.
+
+The no-reveal rebuild passes strict signature verification and six language
+checks. The next 53-test failure-area suite has 50 passes, three failures,
+and two cleanup-hook errors. It takes 19 minutes. All seven original failure
+cases now pass, including the background-tab check with no terminal blur.
+Normal browser activation, two connected agents, real editor hover content,
+and Markdown rendering also pass.
+
+The remaining failures differ from the original seven. Two Agents lifecycle
+tests wait for a DOM Close menu after opening an Electron sidebar context menu.
+Their cleanup also waits until its existing timeout. A browser-control test
+times out during trace-recording setup, without a test-body assertion failure.
+The affected workers continue diagnosis. No timeout, delay, retry, trace
+disablement, or success claim hides those failures. The wider release gate
+remains open until a complete valid run passes.
+
+Offline review of the browser trace corrects the initial timeout description.
+The test body runs: CDP connection and navigation complete, then the real click
+waits for actionability. Screenshot and disconnect calls do not start.
+All three guest snapshots have a zero-width, zero-height viewport. The trace
+fixture's timeout label does not identify the original wait.
+The no-reveal change therefore preserves owner focus but exposes a separate
+hidden-guest sizing defect. Background guests must retain a usable viewport
+without selecting their tab. The strengthened probe checks nonzero dimensions
+and keeps the actual click and screenshot. Source remediation remains under
+review; revealing the tab or forcing a click is not an accepted substitute.
+
+Both corrected Agents lifecycle checks pass after the fixture uses the real
+`ApplicationShell.closeWidget` path instead of a native menu. All 11 Agents
+checks pass once, and both lifecycle checks pass again. Saved observations
+prove disposal, shell removal, a different live instance on reopening, and
+permission notices while the widget is closed. No teardown stall appears.
+The shared-backend main process exits with code one and no signal. The fixture
+now uses the normal forked backend and requires a zero main-process exit code;
+its subsequent runtime validation remains separate.
+
+The Escape observe and strict probes also pass. All four project checks show
+one Escape reaching the focused native editor input with no competing context,
+and closing the hover before Hide Hover. This verifies normal editor focus,
+not hover-widget focus or competing UI. The two earlier probe failures remain
+unexplained. No Escape app defect or source fix is established.
+
+The normal-backend Agents run then passes all 11 tests in 1.1 minutes.
+Each main process exits with code zero and no signal. The retained child handle
+supports the exit assertions after Playwright closes its application object.
+Both widget-lifecycle tests pass, and no teardown stall appears. The missing
+tmux socket before initial session creation is an expected fixture state, not
+a failed cleanup or app process. The hidden-guest browser defect remains open.
+Shutdown attachments now retain only fixed error markers and exit status.
+They do not retain raw stderr, URLs, or terminal content. Scoped lint, types,
+formatting, and whitespace checks pass after this diagnostic-only change.
+
+The stronger old-package geometry probe fails in 126 ms. Guest, widget,
+viewport, and webview dimensions are zero despite a visible parent measuring
+1,578 by 1,414 pixels. A CSS candidate keeps inactive browser widgets sized
+with parent-relative width and height, `visibility: hidden`, and no pointer
+input. Three real-Lumino headless geometry checks and 19 viewport/handover
+unit checks pass. These are not Electron guest-control proof.
+
+The signed candidate package passes its language checks, but all six repeated
+real-control and focus probes reach the existing 120-second timeout. The CSS
+candidate is not cleared. The next investigation inspects the blocked action
+and guest visibility or frame scheduling. Geometry alone must not replace
+actual clicks, screenshots, and owner-focus assertions. No repeated long probe
+run follows until a smaller diagnostic establishes the cause.
+
+The current independent source checks pass: 771 workspace unit tests,
+84 release-script tests, 17 combined offline editor tests, and ten hook
+integration tests. Repository lint, workspace types, formatting including CSS,
+both redacted secret scans, and whitespace checks also pass. They do not clear
+the failed browser runtime checks or the other release blockers.
+
+Further native probes confirm that the CSS candidate preserves geometry but
+does not produce animation-frame callbacks. Transparency produces frames and
+real control, but the click blurs the terminal. Host `inert` does not prevent
+that blur. Repeating native background-throttling configuration after hiding
+resumes frames, but the click still blurs the terminal and screenshot capture
+does not complete in the bounded probe.
+
+Same-guest focus emulation and active lifecycle commands do not resume frames
+in the tested state. Native hidden capture returns `UnknownVizError`.
+These observations reject the tested candidates, not all possible designs.
+An offscreen fixture created before navigation supports control and capture,
+but it uses a different page. Existing attached guests have no tested public
+API path that changes their rendering backend while retaining the same DOM,
+workers, history entries, target, and CDP sessions. The new-page prototype is
+not accepted as a migration fix.
+
+Only the failed no-reveal and hidden-CSS source candidates are removed. The
+regression tests and evidence remain. The restored local package passes lint,
+types, strict signature verification, and the real browser-control test in
+5.8 seconds. Clicks and screenshots work again under the original selected-tab
+behavior. Background control with unchanged owner focus remains blocked.
+The installed app remains unchanged. A larger presentation or input redesign
+requires owner approval and its own design review. No source or binary
+publication follows these incomplete runtime results.
+
+The embedded font-name review checks seven installed files against verified
+npm archive bytes and 13 pinned source inputs against their hashes. Font Awesome
+4.7.0 has a 2016 Dave Gandy copyright field and a license URL, but no license
+description field. MFixx, DevOpicons, and Octicons have no reviewed copyright
+or license-description field. The IcoMoon generation credit is not permission.
+These name-table observations do not establish complete font terms.
+
+The review supports only a source-identity proposal for the File Icons JS
+Font Awesome WOFF2 file. It does not justify a new license supplement. Modified
+font terms, original Octicons provenance, and glyph or trademark rights remain
+open. See `release-source-follow-up.md` and `font-metadata/review.json` under
+the retained third-party resources. All 93 release-script checks pass after
+the nine metadata tests join the standard command. Lint, formatting, both
+redacted secret scans, and whitespace checks pass again.
+
+The owner chooses an Orca comparison before a browser design decision.
+That review needs the Orca repository path or URL. No larger browser change
+or MCP credential-policy change starts without the required owner decision.
+
+### Dependency security
+
+The fresh audit identifies a new critical Proxy Addr finding and a moderate
+Sprintf JS finding. Proxy Addr 2.0.8 fixes the reproduced cross-family trust
+defect through both the package and Express's request IP getters. The update
+changes one dependency. The final audit has four low, 47 moderate, and 12 high
+findings, with no critical finding. See `dependency-security-review.md` for
+the caller tests, exact source comparison, and remaining limits.
+
+### Notices and fonts
+
+Packaging now excludes only Fast URI's unused private benchmark folder. Its
+ISC manifest lacks complete terms and differs from the parent BSD license.
+No benchmark file contributes to the recorded builds. Runtime URI code and its
+license stay in the app. This removes unused development files from the
+distribution rather than assigning them an unsupported license.
+
+The shipped File Icons font matches
+`Alhadis/FileIcons` commit `1733e5a1db30ae00d63a285676b0c51d12262033`.
+Its SHA-256 is
+`6f75c29f3206c61d1c3217f31693e8c071578a30f4c832a476ae951d51ec48ae`.
+That commit's complete ISC notice has SHA-256
+`1ab89e3af343bb0239ce4ca74802e335b33b0181569f753bddb7a7534e09396e`.
+Production preparation retains the notice. `font-sources.json` maps that one
+font to its source and license. It does not relabel the File Icons JS package
+or clear the other four copied fonts or third-party icon designs.
+
+MFixx matches commit `d0eac9f7ebc837e954dd98b784f5d2efd07f7e2f` of its
+linked source project. DevOpicons matches commit
+`23fffde69c4a0395bfb2c3ede95084e2c46e6abf` of its linked project. These byte
+matches narrow provenance. Their complete modified-font terms remain open.
+
+Codicons now has explicit attribution to Microsoft Corporation and its
+contributors. The app preserves its complete unchanged README, including the
+upstream trademark conditions. That README matches release tag `v0.0.45` at
+commit `dbb6555160650624bb1719d6264910b1cbe528f2`. The source manifest has a
+version placeholder, and the generated font is absent from that tree.
+Do not treat the README match as complete font-build provenance. The font
+bytes stay unchanged from the verified published package. Both complete
+CC BY 4.0 and MIT license files stay in the app. Trademark review remains open.
+
+The current inventory has 571 notice files and five unresolved package entries:
+Once, East Asian Width, Font Awesome, Resolve Package Path, and Use Composed
+Ref. Their checked source trees still lack complete matching terms. The font
+and attribution improvements do not clear these package entries.
+
+### Source evidence and build failure guard
+
+The report now records on-disk source paths, sizes, and hashes for 5,699 input
+records: 3,356 browser, 2,326 backend, and 17 Electron inputs. Fourteen generated
+browser polyfills have no captured on-disk path and stay explicitly unverified.
+Hashes are taken when the report is written after the bundle builds. They are
+not snapshots of every loaded input or records of every transformation.
+The sanitizer transformation remains separately recorded.
+
+A real CSS font URL exposes a report error because its version suffix is not
+part of the disk filename. The corrected record keeps the metadata URL and
+the exact separate disk source path. A real esbuild regression verifies the
+suffix behavior. Missing files and source links outside the repository fail.
+
+The failed report also exposes unsupported npm 8 behavior: a failed workspace
+build can return success to the package script. Packaging now rejects npm
+versions below 11. Tests verify that an old npm stops before any build and
+that a production-build failure stops before Electron Builder. Evidence errors
+now appear in the build log. The supported-npm rebuild passes. The failed
+earlier package is not counted as a successful release check.
+
+The exact unpatched FFmpeg source archive is available at
+<https://chromium.googlesource.com/chromium/third_party/ffmpeg/+archive/f45bab87ce4c5fafc67fd53fcde777578d01bfa0.tar.gz>.
+The local archive has 18,247,011 bytes and SHA-256
+`d89f18948ffd25e78fab4cd43b56818ee72a4e9d73f5ed447fc87b1c016aae5a`.
+A read-only archive inspection checks 10,989 entries without extraction.
+It finds the exact credits, complete LGPL 2.1 text, build file, and both reviewed
+configuration headers. The Electron patch is not part of that upstream archive.
+The applied patch set, complete build dependencies and instructions, and
+applicable replacement or relinking materials still need a reviewed source
+release. No source archive or binary is published by this check.
+
+The official clean Linux x64 library has 4,389,568 bytes and SHA-256
+`982b54151885b5ff9561451fe6235e0ffc869d84b2ff3e0ce362ef922eacf2e8`.
+Its archive passes the pinned hash check. This is a byte and ELF-header check,
+not native execution or a complete corresponding-source result.
+
+### Startup and navigation
+
+The later 66-test run has 62 passes, two failures, and two tests that do not run.
+It is not a release pass. Changes settings reaches its test timeout after a
+second window opens. Its first process exits with SIGABRT. A modal dialog blocks
+the terminal attention Control+C test. These failures need separate diagnosis.
+The earlier repeated measurements below do not clear these wider-run failures.
+
+Ten repeated packaged settings tests pass with 40 app launches. First-window
+times range from 655 to 10,233 milliseconds. One second launch has the slow
+result. Its debugger connection completes at 594 milliseconds. The delay occurs
+before the first window. Every preceding normal quit records process exit before
+application close, so process overlap does not explain these measurements.
+The original 30-second first-window timeout does not reproduce in this run.
+Its cause stays open. No startup delay, retry, or longer timeout is added.
+
+Ten traced navigation tests pass in 11.2–11.7 seconds. The earlier 72-second
+result does not reproduce. The traces stay in the local review folder. These
+results do not prove that the intermittent startup and navigation issues are
+fixed. App behavior remains unchanged for these results.
+
+### Agent hooks and native Omarchy
+
+Installed versions stay at Claude Code 2.1.282, Codex 0.159.0, and Gemini 0.46.0.
+Codex's generated offline schema accepts all seven configured hook event names.
+It has no reliable turn-failure event. The current Gemini reference also has no
+matching turn-failure event. Unsupported failures stay unmarked. Setup, login,
+global configuration, permissions, and hook trust stay unchanged. Full live
+lifecycle verification still needs a usable approved session.
+
+The Linux setup check rejects this macOS host before dependency installation.
+Shared Linux configuration and isolated Arch staging checks pass. They do not
+verify Wayland, sandbox, keyring, PTY, keyboard shortcuts, launcher behavior,
+`makepkg`, `namcap`, or pacman lifecycle. These checks still need an Omarchy
+machine. Privileged installation also needs separate approval.
 
 ## Secret scan
 

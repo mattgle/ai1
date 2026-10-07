@@ -50,6 +50,8 @@ bash scripts/setup-linux.sh --build
 
 The script refuses to remove an existing `node_modules` directory. Use a fresh
 checkout rather than deleting another person's dependencies or build work.
+The same guard preserves a symbolic link, including a broken link. Any failed
+dependency, lint, type, test, archive-security, or package command stops the flow.
 The output directory is `applications/electron/dist/linux-unpacked`.
 This flow does not install a launcher or replace an existing AI1 installation.
 
@@ -105,3 +107,9 @@ tests pass. The current prompt intentionally stops at a source build.
 Experimental Arch package files and the native lifecycle test plan are in
 [Arch package preparation](arch-package.md). Package preparation does not
 install the app. Native tests and distribution review still block release.
+
+The 2026-10-07 isolated setup tests confirm command order and failure handling
+with fake package and npm commands. The host guard rejects macOS before a build.
+No dependency install, native build, app launch, keyring check, or pacman action
+runs in these tests. See the required native evidence table in the Arch guide
+for the machine, approval, package, and backup inputs that remain necessary.
