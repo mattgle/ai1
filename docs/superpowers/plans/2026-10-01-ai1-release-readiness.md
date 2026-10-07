@@ -4,6 +4,13 @@ Status: in progress. WSL work is deferred. The active target is native Omarchy
 x64. No Omarchy test machine is available. Use isolated editor fixtures until
 the owner supplies a project and affected file.
 
+### Work order update: 2026-10-07
+
+The owner has no Omarchy machine and asks to leave native checks until last.
+Continue local source, security, notice, and isolated macOS checks first.
+Live login and trust checks still need separate approved sessions. This order
+does not waive native checks or approve binary publication.
+
 ## Order
 
 1. Reproduce unsafe archive extraction at Theia's actual deployment call site.

@@ -327,6 +327,71 @@ or a verified published archive comparison.
 `chunk-DEMDiNwt.js`. `os.js` imports `process.js`.
 These links narrow the source candidates. They do not replace nested input capture.
 
+### Independent polyfill reconstruction: 2026-10-07
+
+The local follow-up reconstructs the nested builds with esbuild 0.28.2 and
+JSPM 2.1.0. It uses the plugin's browser export conditions, ESM bundle options,
+and exact `eval(` replacement. It sets the working directory explicitly to
+`applications/electron`. Generated source comments depend on that directory.
+The initial root-directory comparison does not match the production hashes.
+The explicit production-directory comparison matches every reviewed entry.
+
+An in-memory loader snapshots the complete JavaScript source bytes and hashes
+for each nested input. Each build with that loader produces the same bytes as
+a separate build with the default loader. Input sizes match the nested metafile.
+The on-disk source hashes still match the snapshots after each build.
+
+| Browser entry | Nested source inputs | Matching production entries | External imports |
+| --- | ---: | ---: | ---: |
+| `buffer` | 2 | 2, including `node:buffer` | 0 |
+| `string_decoder` | 3 | 1 | 0 |
+| `path` | 3 | 1 | 0 |
+| `os` | 2 | 1 | 0 |
+| `net` | 1 | 1 | 0 |
+| `child_process` | 1 | 1 | 0 |
+
+All six CommonJS templates and the empty `stream` template also match their
+captured production hashes and sizes. In total, all 14 outer entries match.
+The production and signed local package build-input reports match byte-for-byte.
+The temporary `ai1-polyfill-review-21pRmy/review.json` retains the input hashes,
+generated hashes, versions, matching paths, and external-import records.
+The check writes no app files and runs no Electron process or package install.
+
+These results identify an exact source reconstruction for the current generated
+bytes. They do not capture nested inputs during the original production build.
+They do not verify complete generator dependencies, default loaders in the full
+app build, or complete license and source duties.
+The production generator and app behavior stay unchanged.
+
+The subsequent published-archive check verifies JSPM 2.1.0 against the current
+lockfile SHA-512 integrity value. All 11 distinct nested source files match the
+archive entries byte-for-byte. The archive has 1,521,183 bytes and SHA-256
+`03f58f124bc351a4d965291ab4d961794508b612ec116ad215700a28e3b43b44`.
+The check reads selected entries through `tar -xOf` without filesystem extraction.
+It records the archive identity and comparison count in the same temporary report.
+This narrows the source-provenance gap. It does not clear the remaining duties.
+
+The repeatable checker is `scripts/review-polyfill-source.mjs`. It uses a local
+JSPM archive and writes JSON to standard output. It performs no network request,
+filesystem extraction, package install, or app launch. The optional second
+argument checks the packaged build-input report against the production report.
+
+```sh
+node scripts/review-polyfill-source.mjs <local-jspm-archive.tgz> <packaged-app-resources>
+```
+
+The checker requires the exact reviewed generator hash and all 14 reviewed
+production entries. Missing, duplicate, unknown, or changed-generator entries
+fail. Source snapshots must produce the same nested output as default loaders.
+All recorded source sizes and hashes must match. External nested imports fail.
+The archive must pass the current lockfile integrity check before decompression.
+Missing, duplicate, linked, or changed selected archive files fail.
+
+All six focused fixture tests and all 99 release-script checks pass. The
+repeatable checker also passes against the current local archive and signed
+package. These results do not enable the full loaded-input release gate or
+clear the source and license duties listed above.
+
 ### Backend transformations
 
 The existing backend report has four native `node-file` wrappers. Their disk
