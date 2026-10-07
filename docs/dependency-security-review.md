@@ -177,10 +177,10 @@ extension rendering paths, other build transformations, or complete source dutie
 | `dompurify` | Theia core Markdown rendering and selection descriptions; Monaco package and embedded source | The app pins and overrides the package to 3.4.16. The browser build routes Monaco's embedded import to a separate 3.4.16 instance. The current audit no longer lists DOMPurify. The reviewed detached-handler regression and normal Markdown and editor hover checks pass. See the limits below. |
 | `fast-uri` | Schema and URI dependencies | Shipped version updates from 3.1.7 to 3.1.8. The percent-encoded host normalization regression fails before the update and passes after it. The current audit no longer lists this package. |
 | `ip-address` | SOCKS proxy code | Shipped version updates from 10.7.0 to 10.7.2. Cross-family subnet and bounded-diagnostic regressions fail before the update and pass after it. The current audit no longer lists this package. |
-| `uuid` | Tooltip and trash dependencies; Theia core UUID utility | Shipped. Theia core calls v5 without a caller-provided buffer. That exact call pattern passes the development and packaged regression. The affected tooltip and trash copies and their callers still need review. A forced major override is not approved. |
+| `uuid` | Tooltip and trash dependencies; Theia core UUID utility | Shipped. Actual core, CommonJS and ESM tooltip, and memory-only Linux Trash caller fixtures pass in development and the package. Core v5 supplies no buffer or offset; the other reviewed calls use v4 without arguments. This limits those caller paths, not every bundled or extension caller. The advisory stays open. A forced major override is not approved. |
 | `@tootallnate/once` | The VS Code proxy-agent dependency graph | The reviewed installed 1.1.2 implementation has no AbortSignal option. The HTTP proxy caller waits for connect without a signal. Connection and error settlement tests verify listener cleanup. The advisory and unreviewed callers remain open. |
 | `diff` | Mocha dependency graph | The audit flags the development copy in the 7.x range. The package inventory also contains a shipped 5.2.2 copy, outside this advisory's affected range. Bundled copies still need review. Do not classify all copies as test-only. |
-| `@modelcontextprotocol/sdk` | Theia AI MCP HTTP transports and OAuth provider; copied package source | Installed 1.31.0 fixes the reviewed issuer-bound SDK defect. The existing app package still contains affected 1.30.0. Static and old issuerless credential paths remain unsafe with 1.31.0. No recorded bundle input contributes this package. This does not make the copied code unreachable. See the 2026-10-07 reviews below. |
+| `@modelcontextprotocol/sdk` | Theia AI MCP HTTP transports and OAuth provider; copied package source | Installed and current packaged SDK is 1.31.0. The connection-scoped AI1 guard refuses unsafe static and issuerless records. All 14 packaged synthetic caller checks pass. This does not establish a live login result or make copied code unreachable. See the 2026-10-07 guard review above. |
 
 Only two dependency versions change in the parser update. Theia and Electron
 pins stay unchanged. Run `npm run test:dependency-security` to check the URI and
@@ -385,6 +385,41 @@ buffer API. A regression resolves UUID from each dependency and checks its
 version-4 result. This limits exposure at those call sites. It does not remove
 the affected APIs from the shipped dependencies or establish every bundled
 or extension caller. The audit finding stays open.
+
+### Actual UUID caller follow-up: 2026-10-07
+
+Four additional caller fixtures pass in development and against the current
+packaged dependency files. The core fixture loads Theia's actual `uuid` utility.
+It observes six v5 calls for empty, ASCII, and Unicode input and two v4 calls.
+Each v5 call has only the value and fixed namespace. Each v4 call has no arguments.
+The hashes stay deterministic. The random identifiers stay valid and distinct.
+
+The tooltip fixtures construct the actual CommonJS and ESM components. Each
+constructor generates its ID with v4 and no arguments. A supplied ID stays
+unchanged and makes no UUID call. The ESM fixture uses an in-memory esbuild
+conversion with external React, PropTypes, and UUID imports. It is a source
+caller check, not a browser-rendering or complete frontend-bundle check.
+
+The Linux Trash fixture loads its actual caller on the local host. It replaces
+filesystem, mount discovery, directory creation, and file moves with memory-only
+functions. The caller uses v4 without arguments for the destination and metadata
+filename. No file is moved or deleted, and no real Trash or mount table is read.
+This is not native Linux or Omarchy execution evidence.
+
+These fixtures strengthen the earlier library-only checks. They do not change
+UUID versions, remove affected APIs, or clear unreviewed external and extension
+callers. The advisory and complete release security gate remain open.
+
+The combined strict dependency, sanitizer, and archive run has 42 passes and
+three failures. All failures are the previously recorded HTTP Cache Semantics
+cases. No test is skipped or pending in that strict run. The four actual UUID
+caller checks also pass separately against packaged dependencies. The
+release-age guard and package versions stay unchanged.
+
+The packaged dependency, sanitizer, and archive run has 36 passes, no failures,
+and nine skips for six development-tool cases and the three cache cases. All
+14 MCP cases and all four new UUID caller cases pass without skips. The packaged
+result does not replace the failing strict development cache gate.
 
 The VS Code proxy wrapper at `@vscode/proxy-agent/out/agent.js` has another
 Once reference. The reviewed direct branch returns the original HTTP agent.

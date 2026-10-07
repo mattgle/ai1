@@ -587,6 +587,171 @@ test("tooltip and trash UUID dependencies support their reviewed v4 caller", () 
   }
 });
 
+test("the actual Theia UUID utility uses no output buffer or offset", () => {
+  const core = createRequire(require.resolve("@theia/core/package.json"));
+  const script = `const assert = require("node:assert/strict");
+    const uuidPath = process.argv[2];
+    const uuid = require(uuidPath);
+    const calls = [];
+    require.cache[uuidPath].exports = {
+      ...uuid,
+      v4(...args) { assert.equal(args.length, 0); calls.push("v4"); return uuid.v4(...args); },
+      v5(...args) {
+        assert.equal(args.length, 2);
+        assert.equal(typeof args[0], "string");
+        assert.equal(args[1], "4c90ee4f-d952-44b1-83ca-f04121ab8e05");
+        calls.push("v5");
+        return uuid.v5(...args);
+      }
+    };
+    const utility = require(process.argv[1]);
+    for (const value of ["", "fixture", "Unicode fixture \\u03b1\\ud83d\\ude80"]) {
+      const expected = uuid.v5(value, "4c90ee4f-d952-44b1-83ca-f04121ab8e05");
+      assert.equal(utility.hashValue(value), expected);
+      assert.equal(utility.hashValue(value), expected);
+      assert.equal(utility.isUUID(expected), true);
+    }
+    const first = utility.generateUuid();
+    const second = utility.generateUuid();
+    assert.equal(utility.isUUID(first), true);
+    assert.notEqual(first, second);
+    assert.deepEqual(calls, ["v5", "v5", "v5", "v5", "v5", "v5", "v4", "v4"]);
+    console.log(JSON.stringify({ hashCalls: 6, randomCalls: 2, outputBuffers: 0 }));`;
+  const result = spawnSync(
+    process.execPath,
+    ["-e", script, core.resolve("./lib/common/uuid"), core.resolve("uuid")],
+    { encoding: "utf8", timeout: 5000 },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { hashCalls: 6, randomCalls: 2, outputBuffers: 0 });
+});
+
+for (const format of ["CommonJS", "ESM"]) {
+  test(`the actual ${format} tooltip constructor uses UUID v4 without buffer arguments`, () => {
+    const caller = createRequire(require.resolve("react-tooltip/package.json"));
+    const entry =
+      format === "CommonJS"
+        ? caller.resolve("react-tooltip")
+        : path.join(path.dirname(caller.resolve("react-tooltip/package.json")), "dist/index.es.js");
+    const script = `const assert = require("node:assert/strict");
+      const Module = require("node:module");
+      const entry = process.argv[1];
+      const uuidPath = process.argv[2];
+      const uuid = require(uuidPath);
+      const calls = [];
+      require.cache[uuidPath].exports = {
+        ...uuid,
+        v4(...args) {
+          calls.push(args.length);
+          assert.equal(args.length, 0);
+          return uuid.v4(...args);
+        },
+        v3() { throw new Error("Unexpected UUID v3 caller"); },
+        v5() { throw new Error("Unexpected UUID v5 caller"); }
+      };
+      let exported;
+      if (process.argv[3] === "ESM") {
+        const result = require(process.argv[4]).buildSync({
+          entryPoints: [entry], bundle: true, write: false, platform: "node", format: "cjs",
+          external: ["react", "prop-types", "uuid"], logLevel: "silent"
+        });
+        const fixture = new Module(entry, module);
+        fixture.filename = entry;
+        fixture.paths = Module._nodeModulePaths(require("node:path").dirname(entry));
+        fixture._compile(result.outputFiles[0].text, entry);
+        exported = fixture.exports;
+      } else exported = require(entry);
+      const Tooltip = exported.default ?? exported;
+      const first = new Tooltip({});
+      const second = new Tooltip({});
+      const pattern = /^t[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+      assert.match(first.state.uuid, pattern);
+      assert.match(second.state.uuid, pattern);
+      assert.notEqual(first.state.uuid, second.state.uuid);
+      const supplied = new Tooltip({ uuid: "fixture-owner-id" });
+      assert.equal(supplied.state.uuid, "fixture-owner-id");
+      assert.deepEqual(calls, [0, 0]);
+      console.log(JSON.stringify({ calls, generatedIds: 2, suppliedIdPreserved: true }));`;
+    const result = spawnSync(
+      process.execPath,
+      [
+        "-e",
+        script,
+        entry,
+        caller.resolve("uuid"),
+        format,
+        createRequire(import.meta.url).resolve("esbuild"),
+      ],
+      { encoding: "utf8", timeout: 5000 },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), {
+      calls: [0, 0],
+      generatedIds: 2,
+      suppliedIdPreserved: true,
+    });
+  });
+}
+
+test("the actual Linux Trash caller uses UUID v4 with memory-only filesystem operations", () => {
+  const caller = createRequire(require.resolve("trash/package.json"));
+  const entry = path.join(path.dirname(caller.resolve("trash/package.json")), "lib/linux.js");
+  const script = `const assert = require("node:assert/strict");
+    const Module = require("node:module");
+    const entry = process.argv[1];
+    const uuid = require(process.argv[2]);
+    const calls = [], writes = [], moves = [], directories = [];
+    const stubs = {
+      fs: {
+        lstat(file, callback) {
+          assert.equal(file, "/fixture/source file.txt");
+          callback(null, { dev: 17 });
+        },
+        writeFile(file, contents, callback) { writes.push({ file, contents }); callback(null); }
+      },
+      os: { cpus: () => [{}] },
+      uuid: {
+        ...uuid,
+        v4(...args) { calls.push(args.length); assert.equal(args.length, 0); return uuid.v4(...args); },
+        v3() { throw new Error("Unexpected UUID v3 caller"); },
+        v5() { throw new Error("Unexpected UUID v5 caller"); }
+      },
+      "xdg-trashdir": async mount => { assert.equal(mount, "/fixture/mount"); return "/fixture/trash"; },
+      "make-dir": async (folder, options) => { directories.push(folder); assert.equal(options.mode, 0o700); },
+      "move-file": async (source, target) => { moves.push({ source, target }); },
+      "@stroncium/procfs": { procfs: { processMountinfo: () => [{ devId: 17, mountPoint: "/fixture/mount" }] } }
+    };
+    const originalLoad = Module._load;
+    Module._load = function(request, parent, isMain) {
+      if (parent?.filename === entry) {
+        if (Object.hasOwn(stubs, request)) return stubs[request];
+        if (!["util", "path", "p-map"].includes(request)) throw new Error("Unreviewed Linux Trash dependency");
+      }
+      return originalLoad.call(this, request, parent, isMain);
+    };
+    let trash;
+    try { trash = require(entry); } finally { Module._load = originalLoad; }
+    trash(["/fixture/source file.txt"]).then(results => {
+      assert.deepEqual(calls, [0]);
+      assert.equal(results.length, 1);
+      const id = require("node:path").basename(results[0].path);
+      assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+      assert.deepEqual(moves, [{ source: "/fixture/source file.txt", target: "/fixture/trash/files/" + id }]);
+      assert.equal(writes.length, 1);
+      assert.equal(writes[0].file, "/fixture/trash/info/" + id + ".trashinfo");
+      assert.match(writes[0].contents, /Path=\\/fixture\\/source%20file.txt/);
+      assert.deepEqual(directories, ["/fixture/trash/files", "/fixture/trash/info"]);
+      assert.equal(results[0].info, writes[0].file);
+      console.log(JSON.stringify({ calls, writes: writes.length, moves: moves.length }));
+    }).catch(error => { console.error(error); process.exitCode = 1; });`;
+  const result = spawnSync(process.execPath, ["-e", script, entry, caller.resolve("uuid")], {
+    encoding: "utf8",
+    timeout: 5000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { calls: [0], writes: 1, moves: 1 });
+});
+
 for (const [label, module] of [
   ["shared cache wrapper", "cacheable-request"],
   ["downloader stream", "got"],
