@@ -9,6 +9,7 @@ import { test } from "node:test";
 import { prepareArchPackage } from "./prepare-arch-package.mjs";
 import { createHash } from "node:crypto";
 import { generateDistributionNotices } from "./distribution-notices.mjs";
+import { prepareNativeHelpers } from "./prepare-native-helpers.mjs";
 
 function fixture(root) {
   const input = path.join(root, "linux-unpacked");
@@ -66,6 +67,29 @@ test("Arch preparation accepts the Linux afterPack notice generator roots", (t) 
   assert.ok(paths.includes("LICENSES.chromium.html"));
   assert.ok(paths.includes("resources/app/node_modules/fixture-package/LICENSE"));
   assert.ok(prepareArchPackage(input, path.join(root, "output")));
+});
+
+test("copied Linux helper modes pass real Arch staging only after packaging preparation", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-arch-native-helper-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const { input } = generatedNoticeFixture(root);
+  const payload = path.join(input, "resources/app");
+  const helpers = ["lib/backend/native/rg", "lib/prebuilds/linux-x64/pty.node"];
+  for (const name of helpers) {
+    const file = path.join(payload, name);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, `fixture ${name}`);
+    fs.chmodSync(file, 0o777);
+  }
+  const output = path.join(root, "output");
+  assert.throws(() => prepareArchPackage(input, output), /writable file modes/);
+  assert.equal(fs.existsSync(output), false);
+  prepareNativeHelpers({ payload, platform: "linux", arch: "x64" });
+  assert.ok(prepareArchPackage(input, output));
+  const archive = fs.readdirSync(output).find((file) => file.endsWith(".tar.gz"));
+  const listing = execFileSync("tar", ["-tvzf", path.join(output, archive)], { encoding: "utf8" });
+  assert.match(listing, /-rwxr-xr-x[^\n]*lib\/backend\/native\/rg/);
+  assert.match(listing, /-rw-r--r--[^\n]*lib\/prebuilds\/linux-x64\/pty\.node/);
 });
 
 test("generated Linux notices still reject changed bytes, escaping paths, and unresolved entries", (t) => {

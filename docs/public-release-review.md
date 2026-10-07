@@ -29,6 +29,28 @@ archive checks retain three cache failures. Packaged guard checks are the next
 step. No push, merge, installed-app replacement, or binary publication occurs
 at this checkpoint.
 
+## Copied helper permissions follow-up: 2026-10-07
+
+The earlier local package retains mode `0777` for the native helpers copied by
+Theia. The plugin's copy function sets it; packaging preserves it. The source
+fix restricts only the known packaged helpers before signing. Executables use
+`0755`; the PTY module uses `0644`. Hash checks preserve their bytes. The Arch
+staging mode guard stays unchanged.
+
+The rebuilt local package passes signing, six language-resource checks, 17
+package-evidence checks, and one isolated persistent-terminal check. The Linux
+staging fixture rejects unsafe modes and then accepts the prepared helpers.
+These checks do not establish native Omarchy support or complete source duties.
+The installed app stays unchanged. No binary is published.
+
+The follow-up also restricts the two packaged branding logo copies to `0644`.
+Their source assets and bytes stay unchanged. The final signed package's full
+payload scan finds no unsafe modes across 16,752 files and 3,082 directories.
+All four native helper files match their lockfile-verified published archives.
+The source changes pass all 107 release-script checks. Complete build provenance
+and source duties remain separate open gates.
+All 18 final package-evidence checks pass, including the full mode regression.
+
 ## Packaged MCP guard follow-up: 2026-10-07
 
 The local test app rebuild passes production compilation, ad-hoc signing, and

@@ -392,6 +392,59 @@ repeatable checker also passes against the current local archive and signed
 package. These results do not enable the full loaded-input release gate or
 clear the source and license duties listed above.
 
+### Copied helper modes: 2026-10-07
+
+The read-only helper check finds exact installed-to-production-to-package byte
+matches for Ripgrep, macOS Trash, the PTY spawn helper, and the PTY module.
+The production and earlier signed package copies all have mode `0777`.
+The installed executables have mode `0755`; the installed PTY module has `0644`.
+The pinned Theia copy function explicitly sets `0777`. Packaging preserves it.
+The unchanged Arch staging guard rejects these group- and world-writable modes.
+
+Two failing macOS and Linux mode fixtures reproduce the defect before the fix.
+The packaging hook now calls `scripts/prepare-native-helpers.mjs` before signing.
+It validates all known helper files before any mode change. It rejects linked
+files, non-files, escaping paths, missing files, and unsupported targets.
+It checks file identity through an open descriptor before changing its mode.
+Executables use `0755`. The PTY module uses `0644`. Hash checks preserve the bytes.
+Unrelated files, installed dependencies, and the installed app stay unchanged.
+
+The helper report is `resources/release/native-helpers.json` in the app payload.
+It records relative file paths, byte counts, SHA-256, and original and packaged
+modes. All seven helper and branding fixtures pass. A Linux fixture reaches the real Arch
+staging guard: unsafe copies fail before output creation, and normalized copies
+pass. The staged archive retains the expected executable and module modes.
+This fixture does not build or run a native Linux package.
+
+The rebuilt local macOS package passes production compilation, ad-hoc signing,
+strict signature verification, six language-resource checks, and all 17 package
+evidence checks. The copied helper files retain their report hashes and safe
+modes after signing. The two existing Agents build warnings remain.
+Complete native-helper source and license duties stay open.
+
+One isolated packaged persistent-terminal check also passes. It starts the PTY
+and creates its fixture tmux session with the new modes. This is not a live
+agent-hook or native Omarchy check.
+
+The published-archive follow-up verifies lockfile SHA-512 integrity for
+`@vscode/ripgrep-darwin-arm64` 1.18.0, `trash` 7.2.0, and `node-pty` 1.2.0-beta.12.
+All four selected helper files match their published archive entries exactly.
+The check reads archive entries in memory without filesystem extraction.
+The temporary `ai1-native-source-review-P9GpwY/review.json` retains archive
+identities, integrity values, and installed and published helper hashes.
+This is byte provenance, not complete compilation inputs or source-duty clearance.
+
+The full packaged-payload mode scan then finds two group-writable branding
+copies: `resources/branding/logo-dark.png` and `logo-light.png`, both `0664`.
+The hook now restricts only these copies to `0644` and retains their hashes in
+`resources/release/branding-modes.json`. Source assets stay unchanged.
+All 107 release-script checks, lint, and the e2e type check pass. The final
+repack passes signing and the helper and logo hash and mode checks. A full
+payload scan checks 16,752 files and 3,082 directories. It finds no unsafe modes
+and no symbolic links. A packaged regression now repeats this full mode scan.
+All 18 final package-evidence checks pass, including that regression. Final
+lint, formatting, whitespace, e2e types, and redacted secret scans pass.
+
 ### Backend transformations
 
 The existing backend report has four native `node-file` wrappers. Their disk

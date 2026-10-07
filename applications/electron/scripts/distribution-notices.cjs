@@ -5,6 +5,9 @@ module.exports = async function afterPack(context) {
   const { Arch } = require("builder-util");
   const { preparePackagedFfmpeg } = await import(path.join(root, "scripts/prepare-packaged-ffmpeg.mjs"));
   const { prepareElectronNotices } = await import(path.join(root, "scripts/prepare-electron-notices.mjs"));
+  const { prepareNativeHelpers, prepareBrandingModes } = await import(
+    path.join(root, "scripts/prepare-native-helpers.mjs")
+  );
   const { generateDistributionNotices } = await import(path.join(root, "scripts/distribution-notices.mjs"));
   const app =
     context.electronPlatformName === "darwin"
@@ -17,6 +20,12 @@ module.exports = async function afterPack(context) {
     "resources",
     "notices",
   );
+  const helpers = prepareNativeHelpers({
+    payload: path.dirname(path.dirname(resources)),
+    platform: context.electronPlatformName,
+    arch: Arch[context.arch],
+  });
+  const branding = prepareBrandingModes({ payload: path.dirname(path.dirname(resources)) });
   const ffmpeg = await preparePackagedFfmpeg({
     appRoot: app,
     platform: context.electronPlatformName,
@@ -25,6 +34,8 @@ module.exports = async function afterPack(context) {
   });
   const release = path.join(path.dirname(resources), "release");
   fs.mkdirSync(release, { recursive: true });
+  fs.writeFileSync(path.join(release, "native-helpers.json"), JSON.stringify(helpers, null, 2) + "\n");
+  fs.writeFileSync(path.join(release, "branding-modes.json"), JSON.stringify(branding, null, 2) + "\n");
   fs.writeFileSync(path.join(release, "ffmpeg.json"), JSON.stringify(ffmpeg, null, 2) + "\n");
   console.log(`Packaged FFmpeg: ${ffmpeg.library.codecs.length} codecs; H.264 and AAC are absent.`);
   const runtimeNotices = prepareElectronNotices({

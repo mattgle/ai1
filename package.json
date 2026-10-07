@@ -30,7 +30,7 @@
     "test:dependency-security": "npm run build --workspace extensions/shell-layout && node --test scripts/dependency-security.spec.mjs scripts/dompurify-build-plugin.spec.mjs",
     "test:editor-release": "node --test scripts/editor-release-offline.spec.mjs scripts/editor-hover-command.spec.mjs",
     "test:hook-lifecycle": "node --test scripts/terminal-hook-lifecycle.spec.mjs",
-    "test:release-checks": "node --test scripts/scan-secrets.spec.mjs scripts/setup-linux.spec.mjs scripts/linux-build-check.spec.mjs scripts/linux-builder-config.spec.mjs scripts/prepare-arch-package.spec.mjs scripts/distribution-notices.spec.mjs scripts/review-theia-source.spec.mjs scripts/review-ffmpeg-source.spec.mjs scripts/review-polyfill-source.spec.mjs scripts/review-font-metadata.spec.mjs scripts/build-input-report.spec.mjs scripts/prepare-license-assets.spec.mjs scripts/prepare-packaged-ffmpeg.spec.mjs scripts/prepare-electron-notices.spec.mjs scripts/package-mac.spec.mjs",
+    "test:release-checks": "node --test scripts/scan-secrets.spec.mjs scripts/setup-linux.spec.mjs scripts/linux-build-check.spec.mjs scripts/linux-builder-config.spec.mjs scripts/prepare-arch-package.spec.mjs scripts/distribution-notices.spec.mjs scripts/review-theia-source.spec.mjs scripts/review-ffmpeg-source.spec.mjs scripts/review-polyfill-source.spec.mjs scripts/review-font-metadata.spec.mjs scripts/build-input-report.spec.mjs scripts/prepare-license-assets.spec.mjs scripts/prepare-packaged-ffmpeg.spec.mjs scripts/prepare-native-helpers.spec.mjs scripts/prepare-electron-notices.spec.mjs scripts/package-mac.spec.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml}\""
   },

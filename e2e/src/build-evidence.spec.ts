@@ -290,6 +290,69 @@ test("packaged MCP retains the credential guard and its backend load order", () 
   }
 });
 
+test("packaged copied helpers and logos retain exact bytes and restrictive modes", () => {
+  test.skip(!process.env.AI1_PACKAGED_RESOURCES, "This check requires a packaged dependency tree.");
+  const text = fs.readFileSync(path.join(application, "resources/release/native-helpers.json"), "utf8");
+  const report = JSON.parse(text) as {
+    platform: string;
+    arch: string;
+    files: { path: string; bytes: number; sha256: string; packagedMode: number }[];
+  };
+  expect(["darwin", "linux"]).toContain(report.platform);
+  expect(report.arch).toBe(report.platform === "darwin" ? "arm64" : "x64");
+  const expected = [
+    "lib/backend/native/rg",
+    `lib/prebuilds/${report.platform}-${report.arch}/pty.node`,
+    ...(report.platform === "darwin"
+      ? ["lib/backend/macos-trash", "lib/prebuilds/darwin-arm64/spawn-helper"]
+      : []),
+  ];
+  expect(report.files.map((entry) => entry.path).sort()).toEqual(expected.sort());
+  for (const entry of report.files) {
+    const file = path.join(application, entry.path);
+    const bytes = fs.readFileSync(file);
+    expect(bytes.length, entry.path).toBe(entry.bytes);
+    expect(createHash("sha256").update(bytes).digest("hex"), entry.path).toBe(entry.sha256);
+    expect(fs.statSync(file).mode & 0o7777, entry.path).toBe(entry.path.endsWith(".node") ? 0o644 : 0o755);
+    expect(fs.statSync(file).mode & 0o7022, entry.path).toBe(0);
+    expect(entry.packagedMode, entry.path).toBe(fs.statSync(file).mode & 0o7777);
+  }
+  expect(text).not.toContain(path.resolve(__dirname, "../.."));
+  const branding = JSON.parse(
+    fs.readFileSync(path.join(application, "resources/release/branding-modes.json"), "utf8"),
+  ) as { files: { path: string; bytes: number; sha256: string; packagedMode: number }[] };
+  expect(branding.files.map((entry) => entry.path).sort()).toEqual([
+    "resources/branding/logo-dark.png",
+    "resources/branding/logo-light.png",
+  ]);
+  for (const entry of branding.files) {
+    const file = path.join(application, entry.path);
+    const bytes = fs.readFileSync(file);
+    expect(bytes.length).toBe(entry.bytes);
+    expect(createHash("sha256").update(bytes).digest("hex")).toBe(entry.sha256);
+    expect(fs.statSync(file).mode & 0o7777).toBe(0o644);
+    expect(entry.packagedMode).toBe(0o644);
+  }
+});
+
+test("packaged payload has no special or group- or world-writable file modes", () => {
+  test.skip(!process.env.AI1_PACKAGED_RESOURCES, "This check requires a packaged dependency tree.");
+  const unsafe: { path: string; mode: string }[] = [];
+  const visit = (folder: string): void => {
+    for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
+      const file = path.join(folder, entry.name);
+      const stat = fs.lstatSync(file);
+      if (stat.isSymbolicLink()) continue;
+      if (stat.mode & 0o7022) {
+        unsafe.push({ path: path.relative(application, file), mode: (stat.mode & 0o7777).toString(8) });
+      }
+      if (stat.isDirectory()) visit(file);
+    }
+  };
+  visit(application);
+  expect(unsafe).toEqual([]);
+});
+
 test("app preserves the complete pinned Theia upstream notice", () => {
   const bytes = fs.readFileSync(path.join(application, "resources/third-party/theia/NOTICE.md"));
   expect(createHash("sha256").update(bytes).digest("hex")).toBe(
