@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { fileURLToPath, URL } from "node:url";
@@ -8,7 +9,7 @@ import * as assert from "node:assert/strict";
 import { reviewBackendExternalLoads } from "./review-backend-external-loads.mjs";
 import { assertLoadedBuildInputsCaptured } from "./build-input-report.mjs";
 
-const temporary = "/private/var/folders/hw/89fpk6ms2zdf8v1wscn5gdm00000gn/T/opencode";
+const temporary = os.tmpdir();
 const workspace = fileURLToPath(new URL("../", import.meta.url));
 const targets = [
   "bufferutil",

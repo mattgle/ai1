@@ -44,6 +44,49 @@ watcher's nonliteral platform-package load remains outside this static inventory
 Complete loaded inputs, runtime branch checks, source duties, and license duties
 stay open.
 
+## Offline generator tooling review: 2026-10-07
+
+The checker verifies the current macOS arm64 tooling candidates. It reads local
+archives and the existing production report. It performs no network request,
+extraction, generator execution, binary launch, or production build.
+
+```sh
+node scripts/review-generator-tooling.mjs <local-archive-folder> <build-input-report.json>
+```
+
+The real offline run verifies 59 selected files against 19 lockfile-verified
+npm archives. It verifies 33 static module candidates and 43 parent-relative
+resolution records, including the host esbuild binary. Both generator identities
+match their production records: 14 polyfill captures and eight Theia captures.
+Selected source maps, TypeScript source files, package manifests, and runtime
+tooling modules match exact archive entries. Local file reads have a 16 MiB
+limit. Archive decompression has a separate 64 MiB limit.
+
+The reviewed `mlly` caller selects its nested `pkg-types` 1.3.1 and `confbox`
+0.1.8. A root-level substitute fails. Changed generators, wrong capture counts,
+changed manifests, missing or duplicate archive entries, changed bytes, links,
+escaping paths, and unreviewed registries also fail. All ten focused checks
+pass. The tooling and external-load fixtures now use the standard temporary
+directory API, not a Mac-specific path. Their portable fixtures do not prove
+native Omarchy execution. The full tooling check explicitly supports only the
+reviewed macOS arm64 capture set.
+
+This is a fixed candidate set, not a complete runtime-loaded dependency closure.
+The checker keeps two optional `pnpapi` resolution paths unresolved. It does not
+resolve nonliteral loads or establish the original tooling environment, selected
+binary overrides, importer manifests, default-loader snapshots, or source
+compilation. The Linux `detect-libc` candidate's bytes are checked without
+executing its conditional branch. The sanitizer generator's current hash is
+reported, but its identity is not recorded in the production report. That gap
+remains open. Complete compilation, corresponding-source, and license gates
+stay unchanged. No production capture or generator behavior changes.
+
+The integrated macOS run passes all 133 release-script checks, with no skips
+or pending markers. Lint, formatting, end-to-end types, whitespace, and both
+redacted secret scans pass. The lockfile hash stays unchanged. The existing
+local app also passes strict deep signature verification after the runtime
+checks. No app rebuild, installed-app replacement, or binary publication occurs.
+
 ## Five unresolved package notices
 
 Each registry archive passes the exact current lockfile SHA-512 check.
