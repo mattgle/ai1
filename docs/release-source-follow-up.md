@@ -513,6 +513,83 @@ and no symbolic links. A packaged regression now repeats this full mode scan.
 All 18 final package-evidence checks pass, including that regression. Final
 lint, formatting, whitespace, e2e types, and redacted secret scans pass.
 
+### Native compilation-input follow-up: 2026-10-07
+
+The three lockfile-verified helper archives contain 49 Node PTY entries,
+11 Trash entries, and four platform Ripgrep entries. The archive inventory
+uses in-memory reads, not extraction or install scripts. The exact Node PTY
+and platform Ripgrep registry records have no `gitHead`. This absence does not
+identify the original compilation revision. Trash's registry record identifies
+`74bed3edf34826595cf4a990b01b2b9b10733238`, but its `lib/macos.js` points to a
+separate `sindresorhus/macos-trash` repository without a pinned helper revision.
+
+These Node PTY build candidates match their installed archive bytes:
+
+| File | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `src/unix/pty.cc` | 23,075 | `19210adfdaba3cd09809b56bb3281b14e74a8e5efc1f35d467d3c423c30856db` |
+| `src/unix/spawn-helper.cc` | 494 | `22195de1710b574d5904fc89be5624c25e531de20d5e17e5998a2fd19d86e0e6` |
+| `binding.gyp` | 4,657 | `60087f9bc86f372a5ad49d15d7854140c29fac959aaa1fb2c8ffd0dc021595dd` |
+| `scripts/prebuild.js` | 1,172 | `7e604b10f7769d7dc95947d3481c00513b9e3bb6c561d5264506350a16a0381a` |
+| `scripts/post-install.js` | 2,401 | `98b3f6379debdab20eea21f216e0d09fa38c7757ddc3411f1a743eae7f5be14a` |
+
+The GYP specification names the two Unix C++ inputs and Node Addon API.
+The install script selects prebuilds or runs Node GYP. Its build-from-source
+option removes prebuilds. The post-install script cleans build files.
+Neither script runs in this review. The current resolved Node Addon API is
+7.1.1; that local resolution does not establish the publisher's exact inputs.
+The current app omits Node PTY's `src/unix` directory. Archive source presence
+therefore does not establish complete distributed source or a tested build.
+
+The packaged Ripgrep executable's `--version` output identifies Ripgrep 15.0.0,
+revision prefix `3a612f88b8`, PCRE2 10.45, and JIT availability. It searches
+no file. Mach-O inspection lists only `libiconv.2.dylib` and `libSystem.B.dylib`,
+not a separately named PCRE2 dynamic library. These observations identify
+runtime declarations and load commands, not every original compilation input.
+
+The official Ripgrep 15.0.0 tag resolves to
+`3a612f88b805e14aef45bfa43e25a54abc6297fc`. The prebuilt project's `v15.0.0`
+tag resolves to `5c302c331f59f578fd90e024a8f374012c40e8b4`. Its `config.json`
+selects Ripgrep 15.0.0 and a retained upstream patch. Its build specification
+selects the PCRE2 feature and static PCRE2 for the macOS target. The archive
+packaging script includes only `rg`. These source declarations are candidates,
+not a verified connection from this workflow to the copied npm binary.
+
+The official release's macOS arm64 archive has 1,851,052 bytes and SHA-256
+`16ded8d87db15333e8c06188ea2635dcde7f9869412f843e463a290f9d7493f3`.
+It matches the release API's asset digest. The archive's `rg`, the npm archive's
+`bin/rg`, and the packaged helper have identical bytes and SHA-256
+`6ef40346bf31fcce79d9614c7745c198542925a0c7d4911e1ffe794c53392ac1`.
+This establishes publication byte identity, not a verified original build.
+The linked Azure build-log endpoint requires sign-in. No authenticated request
+occurs. No original build log is verified. The release is not marked immutable;
+the retained digest identifies the exact reviewed archive bytes.
+
+The Ripgrep source lockfile names `pcre2-sys` 0.2.10 with checksum
+`18b9073c1a2549bd409bf4a32c94d903bb1a09bf845bc306ae148897fa0760a4`.
+The downloaded crate passes that SHA-256 check. Its bundled `pcre2.h` declares
+PCRE2 **10.46**, not the executable's reported **10.45**. Its build script can
+select a system library or bundled source. Do not substitute this crate for
+the original matching PCRE2 source. Original build records, resolved crates,
+toolchain, SDK, patches, and matching native inputs remain unverified.
+
+The existing Chromium notice contains PCRE release-8 terms. It does not
+establish matching PCRE2 10.45 notice coverage. The official PCRE2 10.45 tag
+resolves to `2dce7761b1831fd3f82a9c2bd5476259d945da4d`. Its `LICENCE.md`
+declares `BSD-3-Clause WITH PCRE2-exception`, including a binary-package
+exemption. The review does not decide that exemption's application, substitute
+older PCRE terms, or apply the Rust wrapper's terms to PCRE2. Complete native
+notice coverage remains a separate review item. No notice mapping changes.
+
+Authoritative source candidates:
+
+- [Ripgrep source lockfile](https://github.com/BurntSushi/ripgrep/blob/3a612f88b805e14aef45bfa43e25a54abc6297fc/Cargo.lock)
+- [Prebuilt configuration](https://github.com/microsoft/ripgrep-prebuilt/blob/5c302c331f59f578fd90e024a8f374012c40e8b4/config.json)
+- [Prebuilt build specification](https://github.com/microsoft/ripgrep-prebuilt/blob/5c302c331f59f578fd90e024a8f374012c40e8b4/build/build.sh)
+- [Prebuilt patch](https://github.com/microsoft/ripgrep-prebuilt/blob/5c302c331f59f578fd90e024a8f374012c40e8b4/patches/0001-resolve-binskim-issues.patch)
+- [Official prebuilt release](https://github.com/microsoft/ripgrep-prebuilt/releases/tag/v15.0.0)
+- [PCRE2 10.45 terms](https://github.com/PCRE2Project/pcre2/blob/2dce7761b1831fd3f82a9c2bd5476259d945da4d/LICENCE.md)
+
 ### Backend transformations
 
 The existing backend report has four native `node-file` wrappers. Their disk
