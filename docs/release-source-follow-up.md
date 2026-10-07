@@ -59,6 +59,28 @@ unresolved. Obtain an upstream notice that expressly covers the exact shipped
 release, or select a separately approved dependency change. Do not borrow a
 newer package's terms or use AI1's MIT license to fill these gaps.
 
+### Font Awesome version-specific declaration follow-up: 2026-10-07
+
+The [official version-4 license page](https://fontawesome.com/v4/license/)
+identifies its version as 4.7.0. It declares SIL OFL 1.1 for files in `fonts/`,
+MIT for CSS, LESS, and SCSS, and CC BY 3.0 for the other project files.
+The exact source revision's root
+[`_config.yml`](https://github.com/FortAwesome/Font-Awesome/blob/a8386aae19e200ddb0f6845b5feeee5eb7013687/_config.yml)
+also identifies version 4.7.0 and those three licenses. The source configuration
+is at the repository root, not `src/_config.yml`.
+
+The same revision's
+[`src/_includes/brand-license.html`](https://github.com/FortAwesome/Font-Awesome/blob/a8386aae19e200ddb0f6845b5feeee5eb7013687/src/_includes/brand-license.html)
+states that brand icons are their owners' trademarks. It limits their use to
+representation of the named company, product, brand, or service. This declaration
+does not establish rights for every glyph or give a general trademark grant.
+
+These exact declarations narrow the applicable scope. They still link to license
+terms rather than supplying a complete release-specific notice for all three
+groups. No supplement mapping changes. The mixed-license package, copied-font
+terms, and brand rights remain open. Do not assign the font copyright string to
+the package's code or documentation.
+
 ## Modified fonts
 
 The pinned MFixx README identifies the font as an optimized MFizz derivative.
