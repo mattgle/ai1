@@ -456,6 +456,27 @@ The temporary `ai1-native-source-review-P9GpwY/review.json` retains archive
 identities, integrity values, and installed and published helper hashes.
 This is byte provenance, not complete compilation inputs or source-duty clearance.
 
+The offline checker is now `scripts/review-native-helper-source.mjs`. Supply the
+packaged app's resource folder and a folder of local npm archives. Use each
+archive's original registry filename. The checker performs no network request,
+filesystem extraction, package install, helper execution, or permission change.
+
+```sh
+node scripts/review-native-helper-source.mjs <packaged-app-resources> <local-archive-folder>
+```
+
+It requires every reviewed helper for the named target. The payload file size,
+SHA-256, and mode must match the packaging manifest. The copied dependency's
+name and version must match the lockfile. Each archive must pass SHA-512
+integrity before decompression. Required archive entries must be regular files
+with the exact helper bytes. Missing, duplicate, linked, or changed entries fail.
+Unreviewed targets, registries, escaping paths, and changed package versions fail.
+
+The command passes against all four helpers in the current signed macOS package.
+All seven offline helper-review fixtures and all 114 release-script checks pass.
+The Linux fixtures do not establish native Linux execution. The report keeps
+complete compilation inputs, source duties, and license duties explicitly open.
+
 The full packaged-payload mode scan then finds two group-writable branding
 copies: `resources/branding/logo-dark.png` and `logo-light.png`, both `0664`.
 The hook now restricts only these copies to `0644` and retains their hashes in
