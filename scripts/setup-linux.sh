@@ -25,7 +25,7 @@ if [ "$MODE" = "--check" ]; then
   exit 0
 fi
 
-if [ -e "$ROOT/node_modules" ]; then
+if [ -e "$ROOT/node_modules" ] || [ -L "$ROOT/node_modules" ]; then
   echo "Use a fresh checkout with no node_modules directory. Existing dependencies are not removed." >&2
   exit 1
 fi

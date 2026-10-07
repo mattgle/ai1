@@ -1,0 +1,196 @@
+{
+  "schemaVersion": 1,
+  "reviewDate": "2026-10-07",
+  "scope": "Exact installed and pinned font bytes, name records, and optional metadata blocks. This is not legal approval, glyph-rights approval, or a complete source release.",
+  "standards": [
+    "https://learn.microsoft.com/en-us/typography/opentype/spec/name",
+    "https://www.w3.org/TR/WOFF/",
+    "https://www.w3.org/TR/2024/REC-WOFF2-20240808/"
+  ],
+  "archives": [
+    {
+      "name": "font-awesome",
+      "version": "4.7.0",
+      "url": "https://registry.npmjs.org/font-awesome/-/font-awesome-4.7.0.tgz",
+      "bytes": 671527,
+      "sha256": "92042b715919e17499ded134884b0318fd88041efac9b0f3204069df52222a61",
+      "integrity": "sha512-U6kGnykA/6bFmg1M/oT9EkFeIYv7JlX3bozwQJWiiLz6L0w3F5vBVPxHlwyX/vtNq1ckcpRKOB9f2Qal/VtFpg==",
+      "lockfileIntegrityCheck": "pass",
+      "registryGitHead": "a8386aae19e200ddb0f6845b5feeee5eb7013687"
+    },
+    {
+      "name": "file-icons-js",
+      "version": "1.0.3",
+      "url": "https://registry.npmjs.org/file-icons-js/-/file-icons-js-1.0.3.tgz",
+      "bytes": 295024,
+      "sha256": "5dc01b1e46b96667a248ec86a5400551f0c3b5d8c2e1f13b257b3c10186b651f",
+      "integrity": "sha512-n4zoKEpMaAxBTUB7wtgrFBa4dM3b7mBLLA1VI/Q5Cdk/k2UA8S8oaxvnECp3QOzg0Dn+KKRzfIHF7qSdRkA65Q==",
+      "lockfileIntegrityCheck": "pass",
+      "registryGitHead": "984e737370a5ce97b250b09f33f2571c585b8667",
+      "sourceManifestVersion": "1.0.2",
+      "scope": "The source manifest version differs from the registry version. Font byte matches do not remove this mismatch."
+    }
+  ],
+  "fontFiles": [
+    {
+      "package": "font-awesome",
+      "version": "4.7.0",
+      "path": "fonts/fontawesome-webfont.ttf",
+      "bytes": 165548,
+      "sha256": "aa58f33f239a0fb02f5c7a6c45c043d7a9ac9a093335806694ecd6d4edc0d6a8",
+      "nameTable": "font-awesome-4.7.0",
+      "archiveBytesEqual": true,
+      "sourceBytesEqual": true,
+      "sourceUrl": "https://raw.githubusercontent.com/FortAwesome/Font-Awesome/a8386aae19e200ddb0f6845b5feeee5eb7013687/fonts/fontawesome-webfont.ttf"
+    },
+    {
+      "package": "font-awesome",
+      "version": "4.7.0",
+      "path": "fonts/fontawesome-webfont.woff",
+      "bytes": 98024,
+      "sha256": "ba0c59deb5450f5cb41b3f93609ee2d0d995415877ddfa223e8a8a7533474f07",
+      "nameTable": "font-awesome-4.7.0",
+      "archiveBytesEqual": true,
+      "sourceBytesEqual": true,
+      "sourceUrl": "https://raw.githubusercontent.com/FortAwesome/Font-Awesome/a8386aae19e200ddb0f6845b5feeee5eb7013687/fonts/fontawesome-webfont.woff"
+    },
+    {
+      "package": "font-awesome",
+      "version": "4.7.0",
+      "path": "fonts/fontawesome-webfont.woff2",
+      "bytes": 77160,
+      "sha256": "2adefcbc041e7d18fcf2d417879dc5a09997aa64d675b7a3c4b6ce33da13f3fe",
+      "nameTable": "font-awesome-4.7.0",
+      "archiveBytesEqual": true,
+      "sourceBytesEqual": true,
+      "sourceUrl": "https://raw.githubusercontent.com/FortAwesome/Font-Awesome/a8386aae19e200ddb0f6845b5feeee5eb7013687/fonts/fontawesome-webfont.woff2"
+    },
+    {
+      "package": "file-icons-js",
+      "version": "1.0.3",
+      "path": "fonts/fontawesome.woff2",
+      "bytes": 77160,
+      "sha256": "2adefcbc041e7d18fcf2d417879dc5a09997aa64d675b7a3c4b6ce33da13f3fe",
+      "nameTable": "font-awesome-4.7.0",
+      "archiveBytesEqual": true,
+      "sourceBytesEqual": true,
+      "sourceUrl": "https://raw.githubusercontent.com/websemantics/file-icons-js/984e737370a5ce97b250b09f33f2571c585b8667/fonts/fontawesome.woff2",
+      "equalTo": "font-awesome@4.7.0/fonts/fontawesome-webfont.woff2"
+    },
+    {
+      "package": "file-icons-js",
+      "version": "1.0.3",
+      "path": "fonts/mfixx.woff2",
+      "bytes": 24412,
+      "sha256": "3c43a6381718ebb2f903d3e3d1b565905445b1779c8cb190da923b07483e0931",
+      "nameTable": "mfixx",
+      "archiveBytesEqual": true,
+      "sourceBytesEqual": true,
+      "sourceUrl": "https://raw.githubusercontent.com/file-icons/MFixx/d0eac9f7ebc837e954dd98b784f5d2efd07f7e2f/dist/MFixx.woff2",
+      "packageSourceUrl": "https://raw.githubusercontent.com/websemantics/file-icons-js/984e737370a5ce97b250b09f33f2571c585b8667/fonts/mfixx.woff2"
+    },
+    {
+      "package": "file-icons-js",
+      "version": "1.0.3",
+      "path": "fonts/devopicons.woff2",
+      "bytes": 49764,
+      "sha256": "a8fff171e045fabdbe8420baeb3519105dec0ff51094e43d6fbc55ab6bb59434",
+      "nameTable": "devopicons",
+      "archiveBytesEqual": true,
+      "sourceBytesEqual": true,
+      "sourceUrl": "https://raw.githubusercontent.com/file-icons/DevOpicons/23fffde69c4a0395bfb2c3ede95084e2c46e6abf/dist/DevOpicons.woff2",
+      "packageSourceUrl": "https://raw.githubusercontent.com/websemantics/file-icons-js/984e737370a5ce97b250b09f33f2571c585b8667/fonts/devopicons.woff2"
+    },
+    {
+      "package": "file-icons-js",
+      "version": "1.0.3",
+      "path": "fonts/octicons.woff2",
+      "bytes": 20248,
+      "sha256": "256719a0ef15b92047b9eb3e3557509b9bf8177c5b76c6f4614004344bc333b9",
+      "nameTable": "octicons",
+      "archiveBytesEqual": true,
+      "sourceBytesEqual": true,
+      "sourceUrl": "https://raw.githubusercontent.com/websemantics/file-icons-js/984e737370a5ce97b250b09f33f2571c585b8667/fonts/octicons.woff2",
+      "scope": "Exact package-source match only. The original Octicons font release remains unidentified."
+    }
+  ],
+  "nameTables": {
+    "font-awesome-4.7.0": {
+      "bytes": 1158,
+      "sha256": "ed07d5717e0b343ba2ddaab21cb3b63e4f4f597b41c8a0c0683413008c5afe93",
+      "recordIDs": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 14],
+      "fields": {
+        "0": "Copyright Dave Gandy 2016. All rights reserved.",
+        "1": "FontAwesome",
+        "5": "Version 4.7.0 2016",
+        "7": "Please refer to the Copyright section for the font trademark attribution notices.",
+        "8": "Fort Awesome",
+        "9": "Dave Gandy",
+        "11": "http://fontawesome.io",
+        "14": "http://fontawesome.io/license/"
+      },
+      "absentFieldIDs": [10, 12, 13],
+      "extendedMetadataPresent": false,
+      "privateDataPresent": false,
+      "noticeGap": "No license-description record. The URL alone does not supply complete terms."
+    },
+    "mfixx": {
+      "bytes": 366,
+      "sha256": "f85fb3f3190c370c634d223d4c7e0c27215c4ada98a83130fecfa620ae7cb947",
+      "recordIDs": [1, 2, 3, 4, 5, 6, 10],
+      "fields": { "1": "MFixx", "5": "Version 1.0", "10": "Font generated by IcoMoon." },
+      "absentFieldIDs": [0, 7, 8, 9, 11, 12, 13, 14],
+      "extendedMetadataPresent": false,
+      "privateDataPresent": false,
+      "noticeGap": "Copyright and license-description records are absent. IcoMoon's generator description is not a font license."
+    },
+    "devopicons": {
+      "bytes": 426,
+      "sha256": "797d13bc18f3f5bdf8674ac5f87ad49c52e683c9b36d38cf9c9221955a1e7ede",
+      "recordIDs": [1, 2, 3, 4, 5, 6, 10],
+      "fields": { "1": "DevOpicons", "5": "Version 1.0", "10": "Font generated by IcoMoon." },
+      "absentFieldIDs": [0, 7, 8, 9, 11, 12, 13, 14],
+      "extendedMetadataPresent": false,
+      "privateDataPresent": false,
+      "noticeGap": "Copyright and license-description records are absent. IcoMoon's generator description is not a font license."
+    },
+    "octicons": {
+      "bytes": 399,
+      "sha256": "8ebd0afcba3899a241350b00271351857dc9e5a7407d60a1e7e268637a55b919",
+      "recordIDs": [1, 2, 3, 4, 5, 6],
+      "fields": { "1": "octicons", "5": "Version 001.000 " },
+      "absentFieldIDs": [0, 7, 8, 9, 10, 11, 12, 13, 14],
+      "extendedMetadataPresent": false,
+      "privateDataPresent": false,
+      "noticeGap": "Copyright and license-description records are absent. The internal version does not identify the original upstream release."
+    }
+  },
+  "additionalPinnedInputs": [
+    {
+      "sourceUrl": "https://raw.githubusercontent.com/file-icons/MFixx/d0eac9f7ebc837e954dd98b784f5d2efd07f7e2f/dist/MFixx.ttf",
+      "bytes": 38796,
+      "sha256": "fba880bb4809f7ca38b7a1c1e89d6ada8174e85ffd710fe64e6fecd762d5a5d7",
+      "nameTable": "mfixx"
+    },
+    {
+      "sourceUrl": "https://raw.githubusercontent.com/file-icons/MFixx/d0eac9f7ebc837e954dd98b784f5d2efd07f7e2f/dist/MFixx.woff",
+      "bytes": 38872,
+      "sha256": "a1c5688bffa5fd2218ba08a22aba0a16a31f03ed5a393cc8740ab4583ea3ae70",
+      "nameTable": "mfixx"
+    },
+    {
+      "sourceUrl": "https://raw.githubusercontent.com/file-icons/DevOpicons/23fffde69c4a0395bfb2c3ede95084e2c46e6abf/dist/DevOpicons.ttf",
+      "bytes": 83144,
+      "sha256": "a1d934892c51347590df65649f1d9980b319d9fc587a7614e74bac15edb372a7",
+      "nameTable": "devopicons"
+    },
+    {
+      "sourceUrl": "https://raw.githubusercontent.com/file-icons/DevOpicons/23fffde69c4a0395bfb2c3ede95084e2c46e6abf/dist/DevOpicons.woff",
+      "bytes": 83220,
+      "sha256": "754020885ce2fd7a14850d95dd47504738a3d4d2a90e736087a8d55cb3e0b28b",
+      "nameTable": "devopicons"
+    }
+  ],
+  "proposedLicenseSupplementMappings": [],
+  "scopeLimit": "Absence is established only for the inspected name records and optional metadata blocks. Other tables, glyph rights, trademark rights, modified-font permission, and complete corresponding source remain separate checks."
+}

@@ -8,13 +8,35 @@ import { electronOptions } from "./gen-esbuild.electron.mjs";
 import esbuild from "esbuild";
 import { createRequire } from "node:module";
 import dompurifyPlugin from "../../scripts/dompurify-build-plugin.cjs";
-import { buildInputReport } from "../../scripts/build-input-report.mjs";
+import { buildInputReport, captureBuildPlugin } from "../../scripts/build-input-report.mjs";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
 const sanitizerTransformations = new Map();
+const browserLoadedSources = [];
+const nodeLoadedSources = [];
+for (const [options, pluginName, loadedSources, generatorPath] of [
+  [
+    browserOptions,
+    "node-modules-polyfills",
+    browserLoadedSources,
+    require.resolve("esbuild-plugins-node-modules-polyfill"),
+  ],
+  [
+    nodeOptions,
+    "@theia/esbuild-plugin",
+    nodeLoadedSources,
+    require.resolve("@theia/bundle-plugin/lib/esbuild-plugin"),
+  ],
+]) {
+  if (options.plugins.filter((plugin) => plugin.name === pluginName).length !== 1)
+    throw new Error(`The build requires one source capture plugin: ${pluginName}`);
+  options.plugins = options.plugins.map((plugin) =>
+    plugin.name === pluginName ? captureBuildPlugin(plugin, loadedSources, generatorPath) : plugin,
+  );
+}
 browserOptions.plugins.unshift(
   dompurifyPlugin.dompurifyBuildPlugin(require.resolve("dompurify"), (record) => {
     sanitizerTransformations.set(record.path, record);
@@ -43,8 +65,9 @@ if (watch) {
           name: "browser",
           metafile: browser.metafile,
           transformations: [...sanitizerTransformations.values()],
+          loadedSources: browserLoadedSources,
         },
-        { name: "node", metafile: node.metafile },
+        { name: "node", metafile: node.metafile, loadedSources: nodeLoadedSources },
         { name: "electron", metafile: electron.metafile },
       ],
       path.resolve(directory, "../.."),
@@ -55,7 +78,8 @@ if (watch) {
       path.join(directory, "resources/release/build-inputs.json"),
       JSON.stringify(report, null, 2) + "\n",
     );
-  } catch {
+  } catch (error) {
+    console.error(error);
     process.exit(1);
   }
 }

@@ -27,6 +27,9 @@ test("Linux configuration passes the pinned builder schema and keeps shared pack
     assert.deepEqual(linux[field], shared[field], field);
   }
   assert.equal(linux.afterPack, "./scripts/distribution-notices.cjs");
+  assert.ok(
+    linux.files.some((entry) => entry.filter.includes("!**/node_modules/fast-uri/benchmark{,/**/*}")),
+  );
   assert.deepEqual(linux.linux.target, [{ target: "deb", arch: ["x64"] }]);
   assert.equal(linux.linux.artifactName, "AI1-${version}-linux-${arch}.${ext}");
   assert.equal(linux.linux.icon, "resources/branding/icon-dark.png");

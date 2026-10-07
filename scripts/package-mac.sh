@@ -12,6 +12,12 @@ if [ "$NODE_MAJOR" -lt 24 ]; then
   exit 1
 fi
 
+NPM_MAJOR="$(npm --version | sed -E 's/^([0-9]+).*$/\1/')"
+if ! [[ "$NPM_MAJOR" =~ ^[0-9]+$ ]] || [ "$NPM_MAJOR" -lt 11 ]; then
+  echo "Error: npm 11 or later is required. Older npm can hide failed workspace builds." >&2
+  exit 1
+fi
+
 export CC=/usr/bin/cc CXX=/usr/bin/c++
 export CSC_IDENTITY_AUTO_DISCOVERY=false
 

@@ -18,6 +18,7 @@ files:
       - "!**/*.map"
   - resources
   - "!**/*.map"
+  - "!**/node_modules/fast-uri/benchmark{,/**/*}"
 mac:
   icon: resources/branding/AI1.icns
   target:

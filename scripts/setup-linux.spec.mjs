@@ -16,7 +16,7 @@ function fixture(t) {
   fs.copyFileSync(script, path.join(root, "scripts/setup-linux.sh"));
   fs.writeFileSync(
     path.join(root, "scripts/package-linux.sh"),
-    'printf "package %s\\n" "$1" >> "$SETUP_TEST_LOG"\nif [ "$SETUP_TEST_FAIL_CHECK" = "1" ]; then exit 1; fi\n',
+    'printf "package %s\\n" "$1" >> "$SETUP_TEST_LOG"\nif [ "$SETUP_TEST_FAIL_CHECK" = "1" ] || [ "$1" = "$SETUP_TEST_FAIL_PACKAGE" ]; then exit 1; fi\n',
   );
   fs.writeFileSync(
     path.join(root, "bin/npm"),
@@ -36,6 +36,7 @@ function fixture(t) {
           SETUP_TEST_LOG: log,
           SETUP_TEST_FAIL_CHECK: "",
           SETUP_TEST_FAIL_NPM: "",
+          SETUP_TEST_FAIL_PACKAGE: "",
           ...env,
         },
       }),
@@ -71,6 +72,15 @@ test("an existing dependency directory remains untouched", (t) => {
   assert.deepEqual(f.calls(), ["package --check"]);
 });
 
+test("an existing broken dependency link remains untouched", (t) => {
+  const f = fixture(t);
+  const dependencies = path.join(f.root, "node_modules");
+  fs.symlinkSync("missing-owner-directory", dependencies);
+  assert.equal(f.run(["--build"]).status, 1);
+  assert.equal(fs.readlinkSync(dependencies), "missing-owner-directory");
+  assert.deepEqual(f.calls(), ["package --check"]);
+});
+
 test("a build uses locked dependencies and checks code before packaging", (t) => {
   const f = fixture(t);
   assert.equal(f.run(["--build"]).status, 0);
@@ -96,4 +106,23 @@ test("a failed archive security check prevents packaging", (t) => {
   assert.equal(f.run(["--build"], { SETUP_TEST_FAIL_NPM: "run test:archive-security" }).status, 1);
   assert.equal(f.calls().at(-1), "npm run test:archive-security");
   assert.equal(f.calls().includes("package --dir"), false);
+});
+
+test("each dependency and code check failure stops later commands", (t) => {
+  for (const command of ["ci", "run lint", "run typecheck", "test", "run test:archive-security"]) {
+    const f = fixture(t);
+    const result = f.run(["--build"], { SETUP_TEST_FAIL_NPM: command });
+    assert.equal(result.status, 1);
+    assert.equal(f.calls().at(-1), `npm ${command}`);
+    assert.equal(f.calls().includes("package --dir"), false);
+    assert.doesNotMatch(result.stdout, /Test app directory:/);
+  }
+});
+
+test("a package failure does not report a complete build", (t) => {
+  const f = fixture(t);
+  const result = f.run(["--build"], { SETUP_TEST_FAIL_PACKAGE: "--dir" });
+  assert.equal(result.status, 1);
+  assert.equal(f.calls().at(-1), "package --dir");
+  assert.doesNotMatch(result.stdout, /Test app directory:/);
 });

@@ -1,0 +1,157 @@
+{
+  "schemaVersion": 1,
+  "reviewDate": "2026-10-07",
+  "scope": "Verified source archive, patch application, and publication provenance. This is not a complete corresponding-source release or legal approval.",
+  "electron": {
+    "version": "42.11.8",
+    "revision": "b50ff46306a0bc5b4849cb2384c217c8f4c790da",
+    "depsSha256": "7714310ae2fb993616becc272990856109b50697650423afee7f5d35c5d4321b"
+  },
+  "chromium": {
+    "version": "148.0.7778.280",
+    "revision": "bfe29217d60b6ee25ce4e4b2c0abcd6361ae6eb6",
+    "depsSha256": "113c2b1f1d787067ce6ebea9105b4c16233b49aff679fd44a1eead1930ccebfb"
+  },
+  "ffmpeg": {
+    "revision": "f45bab87ce4c5fafc67fd53fcde777578d01bfa0",
+    "archiveUrl": "https://chromium.googlesource.com/chromium/third_party/ffmpeg/+archive/f45bab87ce4c5fafc67fd53fcde777578d01bfa0.tar.gz",
+    "archiveBytes": 18247011,
+    "archiveSha256": "d89f18948ffd25e78fab4cd43b56818ee72a4e9d73f5ed447fc87b1c016aae5a",
+    "archiveEntries": 10989,
+    "directUpstreamFileComparison": "All six reviewed source files match the immutable upstream revision.",
+    "files": [
+      {
+        "path": "BUILD.gn",
+        "bytes": 15021,
+        "sha256": "d03401c0c03d68b8daec386bfdc9262e2d8072aa0f8c419a8f99761b7446773c"
+      },
+      {
+        "path": "COPYING.LGPLv2.1",
+        "bytes": 26517,
+        "sha256": "246041b6ecf9bc32d718a62c57877c78b5eb397b6467e74ed7ae2626ab189c30"
+      },
+      {
+        "path": "CREDITS.chromium",
+        "bytes": 46468,
+        "sha256": "a4f057d42d8a93077a37d2381a8ebf47e9e0ce2a80336d6ba1534767634ce0d1"
+      },
+      {
+        "path": "README.chromium",
+        "bytes": 1229,
+        "sha256": "1423fcd3dfe2f3dbcec14874f3e38e48ed10ef7140fee178012e6620f36c3081"
+      },
+      {
+        "path": "chromium/config/Chromium/mac/arm64/config.h",
+        "bytes": 26473,
+        "sha256": "74d460e2b7276a72af21494d002e9a20379410b27da9964d9257e81f7af7f3d9"
+      },
+      {
+        "path": "chromium/config/Chromium/linux/x64/config.h",
+        "bytes": 25130,
+        "sha256": "692cb5f127f37533220d01c9dc7c9585016113da7b67d875cd026f82c1985f51"
+      }
+    ],
+    "patchedBuildFile": {
+      "bytes": 15027,
+      "sha256": "a4a8becf7c3013e11a0b1a941ddaae27774250701a39bd6fd9968647602d7db3",
+      "gitApplyCheck": "pass",
+      "gitApply": "pass",
+      "scope": "An isolated copy of BUILD.gn only. No binary build occurs."
+    }
+  },
+  "retainedInputs": [
+    {
+      "path": "patch-series.txt",
+      "upstreamPath": "patches/ffmpeg/.patches",
+      "bytes": 28,
+      "sha256": "eb2ff86699f3aa0f6ac1b484a8c8a117a3149465273699e136e132024e38e7c6"
+    },
+    {
+      "path": "link_with_loader_path.patch",
+      "upstreamPath": "patches/ffmpeg/link_with_loader_path.patch",
+      "bytes": 1219,
+      "sha256": "acdd60ed59e0be46b6e0a018c14623a6122ed861262912a30798d79e6e6e2bcf"
+    },
+    {
+      "path": "clean-ffmpeg.gn",
+      "upstreamPath": "build/args/ffmpeg.gn",
+      "bytes": 195,
+      "sha256": "17335efaaf176bdbc1e329206ff610591b7fab0082b6ff267d567416d7611327"
+    }
+  ],
+  "buildReferences": [
+    {
+      "path": "build/args/all.gn",
+      "bytes": 3449,
+      "sha256": "5fdd7cf990b015702f17d872e5bfc74b4280c9fa1cdcd9715e177bd2d766f284"
+    },
+    {
+      "path": "docs/development/build-instructions-gn.md",
+      "bytes": 14591,
+      "sha256": "78e7bfc7648f93d3e619330fa71f9f20dbbb147a80b83b0ef5d6dfaa0b99f3e9"
+    },
+    {
+      "path": "docs/development/build-instructions-macos.md",
+      "bytes": 4167,
+      "sha256": "00c4a3fbf6fc9f5911fe9148ca95907b69753a659d06228a92ea303541d9c752"
+    },
+    {
+      "path": "docs/development/build-instructions-linux.md",
+      "bytes": 2788,
+      "sha256": "c6f4c4c5b8d1aa5464fe64a1d0e980d54ce1e982288097d7ae5db190342abe80"
+    },
+    {
+      "path": "patches/config.json",
+      "bytes": 1583,
+      "sha256": "475be6f1d93bfdb95318dcb4e80ae193774efc4920387c58fb46b3f8395ab75f"
+    },
+    {
+      "path": ".github/actions/build-electron/action.yml",
+      "bytes": 19079,
+      "sha256": "baf09c6835752e2ae6fc10d07032309ed3c0442f4ff41dc6b1b0d895ae67a815"
+    }
+  ],
+  "linuxLinkEvidence": {
+    "scope": "Static ELF inspection of verified official archives. No native execution occurs.",
+    "runtimeArchiveSha256": "2bb665f0884f4ce6b7eb4fa7e23435616458e61c6548c9bfcc69816126684e83",
+    "runtime": {
+      "path": "electron",
+      "bytes": 220122328,
+      "sha256": "9ce81865c4d67453cfc35fa4e9b5e900fa1d9eb9a995958dbd6f8ee9ab0a4feb",
+      "ffmpegNeededEntry": "libffmpeg.so",
+      "rpath": "$ORIGIN"
+    },
+    "cleanLibrary": {
+      "path": "libffmpeg.so",
+      "bytes": 4389568,
+      "sha256": "982b54151885b5ff9561451fe6235e0ffc869d84b2ff3e0ce362ef922eacf2e8",
+      "soname": "libffmpeg.so",
+      "runpath": "$ORIGIN"
+    }
+  },
+  "publicationAttestations": {
+    "verifier": "gh 2.86.0",
+    "predicateType": "https://slsa.dev/provenance/v1",
+    "certificateIdentity": "https://github.com/electron/electron/.github/workflows/pipeline-segment-electron-publish.yml@refs/tags/v42.11.8",
+    "oidcIssuer": "https://token.actions.githubusercontent.com",
+    "sourceRevision": "b50ff46306a0bc5b4849cb2384c217c8f4c790da",
+    "sourceRef": "refs/tags/v42.11.8",
+    "scope": "Cryptographic publication provenance. This does not verify the complete compilation inputs.",
+    "archives": [
+      {
+        "name": "ffmpeg-v42.11.8-darwin-arm64.zip",
+        "sha256": "ac0ee66fa9416ff93b06124a2ea89868b393d1388276ce963a9706889c142a21",
+        "verification": "pass",
+        "runnerEnvironment": "github-hosted",
+        "invocation": "https://github.com/electron/electron/actions/runs/35817086231/attempts/1"
+      },
+      {
+        "name": "ffmpeg-v42.11.8-linux-x64.zip",
+        "sha256": "c6585e86f3980291c1b598a47c338439ea400bce5f5198149f9706962caa4b7b",
+        "verification": "pass",
+        "runnerEnvironment": "self-hosted",
+        "invocation": "https://github.com/electron/electron/actions/runs/35817086252/attempts/1"
+      }
+    ]
+  }
+}

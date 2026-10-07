@@ -1,6 +1,22 @@
 {
   "schemaVersion": 1,
   "sources": {
+    "codicons-readme": {
+      "license": "CC-BY-4.0",
+      "text": "generated/codicons/NOTICE-README.md",
+      "sha256": "940627a4abfb7b8616b495fbdda353ea4401b154c890b1327b7e180dddf69294",
+      "revision": "dbb6555160650624bb1719d6264910b1cbe528f2",
+      "url": "https://raw.githubusercontent.com/microsoft/vscode-codicons/dbb6555160650624bb1719d6264910b1cbe528f2/README.md",
+      "download": true
+    },
+    "file-icons-font": {
+      "license": "ISC",
+      "text": "generated/file-icons-font/LICENSE.md",
+      "sha256": "1ab89e3af343bb0239ce4ca74802e335b33b0181569f753bddb7a7534e09396e",
+      "revision": "1733e5a1db30ae00d63a285676b0c51d12262033",
+      "url": "https://raw.githubusercontent.com/Alhadis/FileIcons/1733e5a1db30ae00d63a285676b0c51d12262033/LICENSE.md",
+      "download": true
+    },
     "vscode-language-servers": {
       "license": "MIT",
       "text": "generated/vscode-language-servers/LICENSE.txt",

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "scope": "Exact reviewed font bytes and their source notice. This does not clear other fonts, third-party icon designs, or trademark duties.",
+  "fonts": [
+    {
+      "package": "file-icons-js",
+      "version": "1.0.3",
+      "path": "node_modules/file-icons-js/fonts/file-icons.woff2",
+      "sha256": "6f75c29f3206c61d1c3217f31693e8c071578a30f4c832a476ae951d51ec48ae",
+      "revision": "1733e5a1db30ae00d63a285676b0c51d12262033",
+      "url": "https://raw.githubusercontent.com/Alhadis/FileIcons/1733e5a1db30ae00d63a285676b0c51d12262033/dist/file-icons.woff2",
+      "licenseSource": "file-icons-font"
+    }
+  ]
+}
