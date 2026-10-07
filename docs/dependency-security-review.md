@@ -471,6 +471,28 @@ All traffic stays on loopback. No remote proxy, real credential, owner setting,
 or extension session is used. Successful tunnels and real extension exposure
 remain unverified. Pending handshake cancellation is an open release gate.
 
+The source trace establishes a plugin-host setup path. Theia's
+`plugin-host-rpc.ts` calls `connectProxyResolver`; `plugin-host-proxy.ts` reads
+proxy configuration and patches Node HTTP, HTTPS, and bare CommonJS module
+loads. The reviewed wrapper preserves request options, including `signal`,
+but adds no cancellation link while its resolver or protocol callback waits.
+The configured proxy-support mode and any caller-supplied agent affect whether
+the patch selects this path. No owner setting is read in this review.
+
+This is not a verified extension request. The fixture creates the library
+agent directly, not through Theia's settings patch. The HTTP controls cancel
+after TCP connect and socket assignment; they do not establish cancellation
+safety during pending TCP connect. Bare CommonJS interception does not establish
+identical behavior for `node:http`, ESM, `fetch`, or custom transports.
+
+The default Electron host-resolution chain ends at
+`electron-backend-request-service.ts`, whose `resolveProxy` returns `undefined`.
+Do not infer system/PAC proxy results from the library's resolver API. Setting-
+and environment-based proxy selection are separate paths. The settings schema
+accepts HTTP(S) proxy URLs; library SOCKS support does not establish a
+schema-approved SOCKS setting. Theia's Undici backend request service is a
+different caller and is not covered by this wrapper fixture.
+
 ### Fresh audit and release-age checks: 2026-10-07
 
 The audit before the MCP SDK update has 64 entries: four low, 47 moderate, and 13 high. The
