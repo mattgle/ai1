@@ -434,6 +434,43 @@ These checks do not clear request cancellation, HTTPS or SOCKS behavior,
 other extension callers, or the Once advisory. The cache regression still
 fails under its pending marker for development 4.2.0 and skips in the payload.
 
+### Pending proxy handshake cancellation: 2026-10-07
+
+`npm run test:proxy-cancellation` runs eight isolated checks through the actual
+VS Code proxy wrapper. The development review repeats twice. The packaged
+dependency review also has four passes and four hard failures. No failure has
+a pending marker or skip. Dependencies and app behavior stay unchanged.
+
+The HTTP signal and `request.destroy()` controls pass. Each request emits its
+cancellation error, closes, and releases both socket ends. In contrast, both
+cancellation methods fail while a CONNECT or SOCKS5 handshake is pending.
+At the 200 ms observation point, the request is marked destroyed but emits
+neither error nor close. The proxy callback stays pending. Both socket ends
+stay open with handshake listeners. This is a bounded observation, not proof
+that a socket stays open forever.
+
+The fixture sends a protocol refusal only after that snapshot. CONNECT then
+releases the callback and emits the original cancellation error. SOCKS5 rejects
+with a proxy error instead. Its request has no close event in the next 50 ms.
+Forced socket teardown follows the recorded evidence and cannot satisfy the
+cleanup assertions. A four-second child deadline bounds each fixture.
+
+The wrapper is 0.13.2. Its reviewed dependencies are Agent Base 6.0.2, HTTP
+Proxy Agent 4.0.1, HTTPS Proxy Agent 5.0.1, and SOCKS Proxy Agent 5.0.1. The
+Agent Base callback wait has no cancellation link in the reviewed source.
+Its `destroy()` method provides no pending-socket cleanup. These observations
+identify a missing cleanup path, not a tested app fix or a new advisory ID.
+
+Neither failing handshake calls Once. The HTTP control observes one completed
+two-argument Once call. Separate checks establish that installed Once 1.1.2
+ignores an AbortSignal options argument. Its `.cancel()` removes listeners but
+leaves its promise pending. This does not reproduce the signal-specific Once
+advisory. Keep that advisory separate from the proxy cleanup failure.
+
+All traffic stays on loopback. No remote proxy, real credential, owner setting,
+or extension session is used. Successful tunnels and real extension exposure
+remain unverified. Pending handshake cancellation is an open release gate.
+
 ### Fresh audit and release-age checks: 2026-10-07
 
 The audit before the MCP SDK update has 64 entries: four low, 47 moderate, and 13 high. The
