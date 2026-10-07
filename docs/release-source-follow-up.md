@@ -19,6 +19,31 @@ Existing notice mappings and font attribution files stay unchanged.
 The inventory result of 571 notice files and five unresolved entries is the
 earlier packaged result. This review does not regenerate that inventory.
 
+## Offline backend external-load inventory: 2026-10-07
+
+The following command compares the current packaged and production build
+reports without loading or executing the reviewed modules:
+
+```sh
+node scripts/review-backend-external-loads.mjs <packaged-app-resources> <production-app-folder>
+```
+
+Both reports match. All 13 recorded backend output hashes match packaged bytes.
+The checker inventories 12 external-load occurrences across seven targets.
+Both copied Agents helper files match pinned byte identities and the current
+compiled workspace files. This verifies identity, not their dependency closure
+or complete TypeScript compilation provenance. Nine offline fixtures pass.
+One fixture confirms that the complete-loaded-input gate still rejects the
+report. No production capture or generator behavior changes.
+
+Five targets return `MODULE_NOT_FOUND` from their recorded output locations:
+`bufferutil`, `utf-8-validate`, `pnpapi`, `./build/Debug/watcher.node`, and
+`@vscode/windows-ca-certs`. They remain unresolved. Their absence does not
+establish safety or prove that their caller branches are unreachable. The
+watcher's nonliteral platform-package load remains outside this static inventory.
+Complete loaded inputs, runtime branch checks, source duties, and license duties
+stay open.
+
 ## Five unresolved package notices
 
 Each registry archive passes the exact current lockfile SHA-512 check.
