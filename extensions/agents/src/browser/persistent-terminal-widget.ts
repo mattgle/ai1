@@ -11,6 +11,24 @@ export interface PersistentTerminalOptions extends TerminalWidgetOptions {
 
 @injectable()
 export class PersistentTerminalWidget extends TerminalWidgetImpl {
+  protected override customKeyHandler(event: KeyboardEvent): boolean {
+    if (
+      event.key === "Enter" &&
+      event.shiftKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.metaKey &&
+      !event.isComposing &&
+      !this.term.options.disableStdin &&
+      !this.isAttachedCloseListener
+    ) {
+      event.preventDefault();
+      if (event.type === "keydown") this.sendText("\n");
+      return false;
+    }
+    return super.customKeyHandler(event);
+  }
+
   get agentSessionId(): string | undefined {
     return (this.options as Partial<PersistentTerminalOptions>).ai1AgentSessionId;
   }

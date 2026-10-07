@@ -466,3 +466,47 @@ test("Command-Backspace sends Ghostty's Control-U input in Bash and Zsh", async 
     fs.unlinkSync(path.join(root, "shell-exited"));
   }
 });
+
+test("Shift+Enter sends the OpenCode newline key while Enter retains its submit key", async () => {
+  const page = app.page;
+  const sessions = (): string[] => {
+    const result = spawnSync(tmux, ["-S", socket, "list-sessions", "-F", "#{session_name}"], {
+      encoding: "utf8",
+      timeout: 5000,
+    });
+    return result.status === 0 ? result.stdout.trim().split("\n") : [];
+  };
+  const previous = new Set(sessions());
+  const reader = path.join(root, "read-terminal-keys.cjs");
+  const ready = path.join(root, "terminal-keys-ready");
+  const output = path.join(root, "terminal-keys.json");
+  fs.writeFileSync(
+    reader,
+    `const fs = require("node:fs");
+    process.stdin.setRawMode(true);
+    fs.writeFileSync(${JSON.stringify(ready)}, "ready");
+    let bytes = Buffer.alloc(0);
+    process.stdin.on("data", chunk => {
+      bytes = Buffer.concat([bytes, chunk]);
+      if (bytes.length >= 2) {
+        fs.writeFileSync(${JSON.stringify(output)}, JSON.stringify([...bytes]));
+        process.stdin.setRawMode(false);
+        process.exit(0);
+      }
+    });`,
+  );
+  await page.keyboard.press("Meta+t");
+  await chooseRepository();
+  await expect.poll(() => sessions().filter((name) => !previous.has(name)).length).toBe(1);
+  const target = sessions().find((name) => !previous.has(name))!;
+  const input = page.locator(".xterm-helper-textarea:focus");
+  execFileSync(tmux, ["-S", socket, "send-keys", "-t", target, "-l", `'${process.execPath}' '${reader}'`], {
+    timeout: 5000,
+  });
+  execFileSync(tmux, ["-S", socket, "send-keys", "-t", target, "Enter"], { timeout: 5000 });
+  await expect.poll(() => fs.existsSync(ready)).toBe(true);
+  await input.press("Shift+Enter");
+  await input.press("Enter");
+  await expect.poll(() => fs.existsSync(output)).toBe(true);
+  expect(JSON.parse(fs.readFileSync(output, "utf8"))).toEqual([10, 13]);
+});
