@@ -65,9 +65,9 @@ lint, workspace type checks, formatting, and whitespace checks pass. The local
 production build passes. Its generated backend loads Theia's
 MCP module before the guard module. Its build-input report includes the guard
 provider, factory, and backend module. Two existing Agents `require.resolve`
-warnings remain. No app launch, live login, installed-app replacement, or binary
-publication occurs. The local packaged app still needs a rebuild and checks
-before it can provide packaged evidence for this guard.
+warnings remain. These initial guard checks use no app launch or live login.
+The packaged follow-up below records the later rebuild. No installed-app
+replacement or binary publication occurs.
 
 Strict dependency, sanitizer, and archive checks have 38 passes and three
 failures. All three failures concern HTTP Cache Semantics. No MCP case is
@@ -98,6 +98,29 @@ The shell-layout manifest and lockfile declare the already reviewed SDK 1.31.0
 and Theia AI MCP 1.75.0 as direct dependencies. No package resolution changes
 in this guard work. The offline lock update disables install scripts. The
 seven-day release-age rule stays unchanged.
+
+### Packaged guard follow-up: 2026-10-07
+
+The local macOS arm64 test app now includes the guard. Its production build,
+ad-hoc signature, and strict signature verification pass. All six
+language-resource checks pass. All 14 strict MCP caller checks pass against
+the packaged provider and SDK. All 16 package-evidence checks pass.
+
+The new package-evidence regression checks the generated backend module order.
+It verifies the copied provider, factory, and backend module against the
+build-input hashes. All three modules contribute bytes to the backend bundle.
+This is package and synthetic caller evidence, not a live OAuth login check.
+The MCP checks use a memory store and synthetic discovery responses. They do
+not read or change real credentials.
+
+One isolated Agents startup check also passes with the packaged executable and
+the normal forked backend. Its main process exits with code 0 and no signal.
+This smoke check does not replace the full UI or live-authentication gates.
+
+The package still has 571 notice files and five unresolved entries. Its clean
+FFmpeg library still excludes H.264 and AAC. The installed app stays unchanged.
+Cache security, complete license duties, native Omarchy checks, and other
+release gates remain open. No binary is published.
 
 ## Proxy trust fix and new formatter finding: 2026-10-06
 

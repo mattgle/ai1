@@ -255,6 +255,41 @@ test("packaged MCP uses the compatible fixed SDK without removing the Theia exte
   expect(startup).toContain("@theia/ai-mcp/lib/node/mcp-backend-module");
 });
 
+test("packaged MCP retains the credential guard and its backend load order", () => {
+  test.skip(!process.env.AI1_PACKAGED_RESOURCES, "This check requires a packaged dependency tree.");
+  const require = createRequire(path.join(application, "package.json"));
+  const startup = fs.readFileSync(path.join(application, "src-gen/backend/server.js"), "utf8");
+  const upstream = startup.indexOf("@theia/ai-mcp/lib/node/mcp-backend-module");
+  const guard = startup.indexOf("ai1-shell-layout/lib/node/shell-layout-backend-module");
+  expect(upstream).toBeGreaterThanOrEqual(0);
+  expect(guard).toBeGreaterThan(upstream);
+  const report = JSON.parse(
+    fs.readFileSync(path.join(application, "resources/release/build-inputs.json"), "utf8"),
+  ) as {
+    builds: {
+      name: string;
+      inputs: { path: string; source: { sha256?: string } }[];
+      outputs: { inputs: { path: string; bytesInOutput: number }[] }[];
+    }[];
+  };
+  const backend = report.builds.find((build) => build.name === "node")!;
+  for (const name of [
+    "guarded-mcp-oauth-client-provider",
+    "guarded-mcp-oauth-client-provider-factory",
+    "shell-layout-backend-module",
+  ]) {
+    const source = `extensions/shell-layout/lib/node/${name}.js`;
+    const input = backend.inputs.find((candidate) => candidate.path === source)!;
+    const file = require.resolve(`ai1-shell-layout/lib/node/${name}`);
+    expect(path.relative(application, file).startsWith("..")).toBe(false);
+    expect(createHash("sha256").update(fs.readFileSync(file)).digest("hex")).toBe(input.source.sha256);
+    const contributions = backend.outputs
+      .flatMap((output) => output.inputs)
+      .filter((entry) => entry.path === source);
+    expect(contributions.some((entry) => entry.bytesInOutput > 0)).toBe(true);
+  }
+});
+
 test("app preserves the complete pinned Theia upstream notice", () => {
   const bytes = fs.readFileSync(path.join(application, "resources/third-party/theia/NOTICE.md"));
   expect(createHash("sha256").update(bytes).digest("hex")).toBe(

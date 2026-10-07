@@ -29,6 +29,23 @@ archive checks retain three cache failures. Packaged guard checks are the next
 step. No push, merge, installed-app replacement, or binary publication occurs
 at this checkpoint.
 
+## Packaged MCP guard follow-up: 2026-10-07
+
+The local test app rebuild passes production compilation, ad-hoc signing, and
+strict signature verification. Six language-resource checks, 14 strict
+packaged MCP caller checks, and 16 package-evidence checks pass. The package
+contains the guard's exact compiled modules. Its generated backend loads the
+guard module after Theia's MCP module. All six source commit signatures verify
+against the configured public key with a temporary allowed-signers file. The
+verification does not change Git settings.
+
+These MCP checks use a memory store and synthetic responses. They do not
+establish a live login result. One isolated packaged Agents startup check also
+passes with the normal backend, exit code 0, and no signal. This is not a full
+UI run. The package retains 571 notice files and five
+unresolved entries. Cache security and the other recorded release gates stay
+open. The installed app stays unchanged. No binary is published.
+
 ## Startup failure evidence: 2026-10-05
 
 The Changes settings test now records launch phases, process IDs, process
