@@ -86,6 +86,47 @@ pass the local path and credential-field check. No failure appears in this
 measurement, so it does not identify a cause or establish a fix. The earlier
 second-launch timeout and cleanup timeout remain open release risks.
 
+## Lifecycle and teardown follow-up: 2026-10-07
+
+The initial packaged lifecycle baseline passes five launches in each backend
+mode. A failing pure regression then establishes a teardown coverage gap:
+global teardown selects the development plugin-host path even for a packaged
+run. The resolver now selects the supplied packaged resource folder. It keeps
+the existing orphan and suite-start filters. Tests exclude the installed app,
+development app, and older processes. Teardown still stops no process.
+
+Lifecycle records now include the phase and separate stdout/stderr byte counts.
+The observer records fixed error markers and bounded stack-symbol names from
+both streams. It retains no raw output, paths, arguments, or credentials.
+Native fatal output fails the verdict even when the main process exits zero.
+The documented shared-mode exit code 1 remains valid only without a signal
+or native fatal marker. All nine pure diagnostic and process-selection fixtures
+pass. End-to-end types and lint pass.
+
+The longer mixed-mode run passes four five-launch groups, then records a
+shared-mode `SIGABRT` with `FATAL ERROR` and `napi_fatal_error` during quit.
+The following forked group completes one launch and stops at the next
+`first-window` phase when the command reaches its 120-second outer limit.
+That group has no complete test verdict. This is not evidence of a new
+first-window cause or a successful 30-launch run. The saved mixed-mode records
+contain 11 shared launches, including the abort, and 12 forked attempts,
+including one incomplete attempt.
+
+A separate forked-only run has sufficient time for the existing test and
+cleanup deadlines. All three groups pass: 15 ready launches and clean normal
+exits, with no recorded native fatal marker or termination signal. First-window
+times range from 689 to 944 ms. No app timeout, launch retry, dependency,
+or production behavior changes. The shared native shutdown failure, incomplete
+mixed run, and original startup cause remain open. Passing isolated repetitions
+do not establish complete startup reliability.
+
+The same parallel review adds an offline external-load checker and pending
+proxy cancellation regressions. All 123 release-script fixtures pass. The
+separate cancellation command has four passes and four hard failures in the
+package. Source identity success does not clear that runtime gate. See
+`release-source-follow-up.md` and `dependency-security-review.md` for scope.
+The installed app stays unchanged. No binary is published.
+
 ## Pinned notice assets: 2026-10-05
 
 Source commit `dec015f` is on `feat/release-readiness` in the public repository.

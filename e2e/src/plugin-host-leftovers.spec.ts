@@ -1,7 +1,33 @@
 import { expect, test } from "@playwright/test";
-import { findLeftoverPluginHosts, parsePsOutput } from "./plugin-host-leftovers";
+import { findLeftoverPluginHosts, getPluginHostPath, parsePsOutput } from "./plugin-host-leftovers";
 
 const pluginHostPath = "/repo/applications/electron/lib/backend/plugin-host";
+
+test("packaged cleanup selects the packaged plugin host and excludes development and installed apps", () => {
+  const development = "/repo/applications/electron";
+  const packaged = "/repo/applications/electron/dist/mac-arm64/AI1.app/Contents/Resources/app";
+  const selected = getPluginHostPath(development, packaged);
+  expect(selected).toBe(`${packaged}/lib/backend/plugin-host`);
+  const suiteStartMs = new Date(2026, 9, 7, 14, 0, 0).getTime();
+  const host = {
+    pid: 500,
+    ppid: 1,
+    startMs: suiteStartMs,
+    command: `node ${packaged}/lib/backend/plugin-host.js`,
+  };
+  const processes = [
+    host,
+    { ...host, pid: 501, command: `node ${development}/lib/backend/plugin-host.js` },
+    {
+      ...host,
+      pid: 502,
+      command: "node /Applications/AI1.app/Contents/Resources/app/lib/backend/plugin-host.js",
+    },
+    { ...host, pid: 503, startMs: suiteStartMs - 1000 },
+  ];
+  expect(findLeftoverPluginHosts(processes, { suiteStartMs, pluginHostPath: selected })).toEqual([host]);
+  expect(getPluginHostPath(development)).toBe(pluginHostPath);
+});
 
 test("parsePsOutput reads the pid, the parent pid, the start time, and the command", () => {
   const output = [

@@ -1,3 +1,9 @@
+import * as path from "node:path";
+
+export function getPluginHostPath(developmentApplication: string, packagedResources?: string): string {
+  return path.resolve(packagedResources || developmentApplication, "lib/backend/plugin-host");
+}
+
 export interface ProcessInfo {
   pid: number;
   ppid: number;

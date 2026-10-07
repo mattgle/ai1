@@ -1,16 +1,15 @@
 import { execFileSync } from "node:child_process";
 import * as path from "node:path";
-import { findLeftoverPluginHosts, parsePsOutput, type ProcessInfo } from "./plugin-host-leftovers";
+import {
+  findLeftoverPluginHosts,
+  getPluginHostPath,
+  parsePsOutput,
+  type ProcessInfo,
+} from "./plugin-host-leftovers";
 
-const pluginHostPath = path.resolve(
-  __dirname,
-  "..",
-  "..",
-  "applications",
-  "electron",
-  "lib",
-  "backend",
-  "plugin-host",
+const pluginHostPath = getPluginHostPath(
+  path.resolve(__dirname, "..", "..", "applications", "electron"),
+  process.env.AI1_PACKAGED_RESOURCES,
 );
 
 // A plugin host can need a moment to see that its app closed and to stop.

@@ -2,10 +2,15 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
-import { _electron as electron, expect, test } from "@playwright/test";
+import { _electron as electron, test } from "@playwright/test";
 import { TheiaApp, TheiaWorkspace } from "@theia/playwright";
 import { FakeOpenCodeServer } from "../../extensions/agents/lib/node/fake-opencode-server";
 import { removeTempDir } from "./remove-temp-dir";
+import {
+  assertStartupExit,
+  createStartupOutputObserver,
+  type StartupLifecycleRecord,
+} from "./startup-lifecycle-diagnostics";
 
 for (const mode of ["shared", "forked"] as const) {
   test(`normal quit closes the ${mode} backend mode without a native crash`, async () => {
@@ -15,14 +20,7 @@ for (const mode of ["shared", "forked"] as const) {
       process.env.AI1_PACKAGED_RESOURCES ?? path.resolve(__dirname, "../../applications/electron");
     const server = new FakeOpenCodeServer();
     let running: Awaited<ReturnType<typeof electron.launch>> | undefined;
-    const records: {
-      launch: number;
-      windowMs?: number;
-      exitCode?: number | null;
-      signal?: string | null;
-      errorMarkers: string[];
-      stackSymbols: string[];
-    }[] = [];
+    const records: StartupLifecycleRecord[] = [];
     for (const directory of [
       workspace,
       path.join(root, "home"),
@@ -68,7 +66,14 @@ for (const mode of ["shared", "forked"] as const) {
       // Reuse the profile so each launch tests the normal restart path.
       for (let launch = 1; launch <= 5; launch++) {
         const started = performance.now();
-        const record: (typeof records)[number] = { launch, errorMarkers: [], stackSymbols: [] };
+        const record: StartupLifecycleRecord = {
+          launch,
+          phase: "launch",
+          stdoutBytes: 0,
+          stderrBytes: 0,
+          errorMarkers: [],
+          stackSymbols: [],
+        };
         records.push(record);
         running = await electron.launch({
           executablePath: process.env.AI1_E2E_EXECUTABLE,
@@ -90,45 +95,32 @@ for (const mode of ["shared", "forked"] as const) {
             TMUX: "",
           },
         });
+        record.phase = "connected";
         const child = running.process();
-        let stderrTail = "";
-        child.stderr?.on("data", (chunk: Buffer) => {
-          stderrTail = (stderrTail + chunk.toString()).slice(-8192);
-          for (const marker of [
-            "napi_fatal_error",
-            "FATAL ERROR",
-            "Cannot create a handle without a HandleScope",
-            "Channel closed",
-            "ERR_IPC_CHANNEL_CLOSED",
-            "UnhandledPromiseRejection",
-            "EADDRINUSE",
-            "TypeError",
-            "ReferenceError",
-          ])
-            if (stderrTail.includes(marker) && !record.errorMarkers.includes(marker))
-              record.errorMarkers.push(marker);
-          for (const match of stderrTail.matchAll(/^\s+at ([A-Za-z_][A-Za-z0-9_.]*)\s*\(/gm))
-            if (!record.stackSymbols.includes(match[1]) && record.stackSymbols.length < 30)
-              record.stackSymbols.push(match[1]);
-        });
+        const observe = createStartupOutputObserver(record);
+        child.stdout?.on("data", (chunk: Buffer) => observe("stdout", chunk));
+        child.stderr?.on("data", (chunk: Buffer) => observe("stderr", chunk));
         child.on("exit", (code, signal) => {
           record.exitCode = code;
           record.signal = signal;
         });
+        record.phase = "first-window";
         const page = await running.firstWindow();
         record.windowMs = Math.round(performance.now() - started);
+        record.phase = "shell";
         const app = new TheiaApp(page, new TheiaWorkspace(), true);
         await app.waitForShellAndInitialized();
+        record.phase = "ready";
         // Pending watcher events can expose native shutdown races.
         for (let index = 0; index < 80; index++)
           fs.writeFileSync(path.join(workspace, `file-${index}.ts`), `export const value = ${launch};\n`);
         const closed = running.waitForEvent("close");
+        record.phase = "quit";
         await running.evaluate(({ app }) => app.quit());
         await closed;
+        record.phase = "closed";
         running = undefined;
-        expect(record.signal).toBeNull();
-        // The shared backend uses Theia's documented shutdown exit code 1.
-        expect(mode === "shared" ? [0, 1] : [0]).toContain(record.exitCode);
+        assertStartupExit(record, mode);
       }
     } finally {
       const report = test.info().outputPath("startup-lifecycle.json");
