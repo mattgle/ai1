@@ -15,6 +15,111 @@ let server: FakeOpenCodeServer;
 let electronApp: Awaited<ReturnType<typeof electron.launch>>;
 let app: TheiaApp;
 
+async function checkSubagentRows(): Promise<void> {
+  const page = app.page;
+  const panel = page.locator("#ai1-agents");
+  const parent = server.sessions.find((session) => session.id === "layout_0")!;
+  const now = Date.now();
+  // Add reported parent links. Titles alone do not identify sub-agents.
+  server.sessions.push(
+    {
+      ...parent,
+      id: "child_fixture",
+      title: "Child fixture",
+      parentID: parent.id,
+      time: { created: now, updated: now + 1 },
+    },
+    {
+      ...parent,
+      id: "grandchild_fixture",
+      title: "Grandchild fixture",
+      parentID: "child_fixture",
+      time: { created: now, updated: now + 2 },
+    },
+    {
+      ...parent,
+      id: "orphan_fixture",
+      title: "Orphan fixture",
+      parentID: "missing_parent",
+      time: { created: now, updated: now },
+    },
+  );
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  const child = panel.locator(".theia-TreeNode", {
+    has: page.locator(".ai1-agents-title", { hasText: /^Child fixture$/ }),
+  });
+  const grandchild = panel.locator(".theia-TreeNode", {
+    has: page.locator(".ai1-agents-title", { hasText: /^Grandchild fixture$/ }),
+  });
+  const main = panel.locator(".theia-TreeNode", {
+    has: page.locator(".ai1-agents-title", { hasText: new RegExp(`^${parent.title}$`) }),
+  });
+  await expect(child.locator(".ai1-agents-subagent-badge")).toHaveText("Sub-agent");
+  await expect(child.locator(".ai1-agents-card")).toHaveAttribute("title", `Sub-agent of: ${parent.title}`);
+  await expect(grandchild.locator(".ai1-agents-card")).toHaveAttribute(
+    "title",
+    "Sub-agent of: Child fixture",
+  );
+  await expect(main.locator(".ai1-agents-subagent-badge")).toHaveCount(0);
+  // Only rows with visible child sessions have a collapse control.
+  await expect(main.locator(".theia-ExpansionToggle")).toHaveCount(1);
+  await expect(child.locator(".theia-ExpansionToggle")).toHaveCount(1);
+  await expect(grandchild.locator(".theia-ExpansionToggle")).toHaveCount(0);
+  const mainBounds = (await main.boundingBox())!;
+  const childBounds = (await child.boundingBox())!;
+  const mainTitle = (await main.locator(".ai1-agents-title").boundingBox())!;
+  const childTitle = (await child.locator(".ai1-agents-title").boundingBox())!;
+  expect(childBounds.y).toBeGreaterThan(mainBounds.y);
+  expect(childTitle.x).toBeGreaterThan(mainTitle.x);
+
+  // Selecting a parent changes only the tree selection.
+  const terminals = await page.locator("#theia-main-content-panel .xterm").count();
+  await child.click({ button: "right" });
+  await expect
+    .poll(() =>
+      electronApp.evaluate(() =>
+        (globalThis as typeof globalThis & { sessionMenu?: Electron.Menu }).sessionMenu?.items.map(
+          (item) => item.label,
+        ),
+      ),
+    )
+    .toContain("Select Parent Session");
+  await electronApp.evaluate(({ BrowserWindow }) => {
+    const menu = (globalThis as typeof globalThis & { sessionMenu?: Electron.Menu }).sessionMenu!;
+    menu.items
+      .find((item) => item.label === "Select Parent Session")!
+      .click(undefined, BrowserWindow.getAllWindows()[0], undefined);
+  });
+  await expect(main).toHaveClass(/theia-mod-selected/);
+  await expect(page.locator("#theia-main-content-panel .xterm")).toHaveCount(terminals);
+  // Keep a collapsed family closed after the next load.
+  await main.locator(".theia-ExpansionToggle").click();
+  await expect(child).toHaveCount(0);
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(child).toHaveCount(0);
+  await main.locator(".theia-ExpansionToggle").click();
+  await expect(child).toBeVisible();
+  await expect(grandchild).toBeVisible();
+  await expect(page.locator("#theia-main-content-panel .xterm")).toHaveCount(terminals);
+  const orphan = panel.locator(".theia-TreeNode", { hasText: "Orphan fixture" });
+  await expect(orphan.locator(".theia-ExpansionToggle")).toHaveCount(0);
+  await expect(orphan.locator(".ai1-agents-card")).toHaveAttribute(
+    "title",
+    "Sub-agent of: missing_parent (parent unavailable)",
+  );
+  await orphan.click({ button: "right" });
+  await expect
+    .poll(() =>
+      electronApp.evaluate(
+        () =>
+          (globalThis as typeof globalThis & { sessionMenu?: Electron.Menu }).sessionMenu?.items.find(
+            (item) => item.label === "Select Parent Session",
+          )?.enabled,
+      ),
+    )
+    .toBe(false);
+}
+
 test.beforeAll(async () => {
   root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ai1-agent-layout-")));
   const workspace = path.join(root, "workspace");
@@ -216,6 +321,7 @@ test("Agents rows align status markers with titles and keep controls clear of th
   const dotColor = await done.evaluate((node) => getComputedStyle(node, "::before").backgroundColor);
   expect(dotColor).not.toBe("rgba(0, 0, 0, 0)");
   const failedRow = panel.locator(".theia-TreeNode", { hasText: "Update PR 456" });
+  await expect(failedRow.locator(".theia-ExpansionToggle")).toHaveCount(0);
   await failedRow.hover();
   const button = failedRow.getByRole("button", { name: "Delete session", exact: true });
   const bounds = await button.boundingBox();
@@ -370,3 +476,5 @@ test("Enter on an Agents session opens its terminal in the last focused center p
   await expect(bars.nth(0).locator(".lm-TabBar-tab", { hasText: `sh · ${title}` })).toHaveCount(0);
   await expect(page.locator("#theia-main-content-panel .xterm-helper-textarea:focus")).toHaveCount(1);
 });
+
+test("Sub-agent rows show their parent and select it without opening a terminal", checkSubagentRows);

@@ -41,6 +41,15 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.ai1-agents .ai1-agents-subagent-badge {
+  flex: 0 0 auto;
+  border: 1px solid var(--theia-widget-border, var(--theia-descriptionForeground));
+  border-radius: 3px;
+  padding: 0 4px;
+  color: var(--theia-descriptionForeground);
+  font-size: var(--theia-ui-font-size0);
+  line-height: 16px;
+}
 .ai1-agents .theia-TreeNode {
   height: auto;
   align-items: flex-start;

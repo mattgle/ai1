@@ -36,6 +36,7 @@ export const AgentsCommands = {
   OPEN_SESSION: { id: "ai1.agents.openSession", label: "Open Session", category: "Agents" },
   DELETE_SESSION: { id: "ai1.agents.deleteSession", label: "Delete Session", category: "Agents" },
   RENAME_SESSION: { id: "ai1.agents.renameSession", label: "Rename Session", category: "Agents" },
+  SELECT_PARENT: { id: "ai1.agents.selectParent", label: "Select Parent Session", category: "Agents" },
   CLOSE_IDLE_TERMINALS: {
     id: "ai1.agents.closeIdleTerminals",
     label: "Close Idle Terminals",
@@ -268,6 +269,15 @@ export class AgentsContribution
       isVisible: (node?: SessionNode) => isSessionNode(node),
       execute: (node?: SessionNode) => (isSessionNode(node) ? this.renameSession(node.session) : undefined),
     });
+    commands.registerCommand(AgentsCommands.SELECT_PARENT, {
+      isVisible: (node?: SessionNode) => isSessionNode(node) && !!node.session.parentId,
+      isEnabled: (node?: SessionNode) =>
+        isSessionNode(node) &&
+        node.session.parentId !== node.session.id &&
+        !!this.tryGetWidget()?.parentSession(node),
+      execute: (node?: SessionNode) =>
+        isSessionNode(node) ? this.tryGetWidget()?.selectParentSession(node) : undefined,
+    });
     commands.registerCommand(AgentsCommands.CLOSE_IDLE_TERMINALS, {
       execute: () => this.closeIdleTerminals(),
     });
@@ -335,6 +345,11 @@ export class AgentsContribution
       commandId: AgentsCommands.DELETE_SESSION.id,
       label: "Delete Session",
       order: "0",
+    });
+    menus.registerMenuAction([...SESSION_CONTEXT_MENU, "1-session"], {
+      commandId: AgentsCommands.SELECT_PARENT.id,
+      label: "Select Parent Session",
+      order: "2",
     });
   }
 

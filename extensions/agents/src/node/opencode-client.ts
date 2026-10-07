@@ -17,6 +17,7 @@ export interface Connection {
 
 export interface RawSession {
   id: string;
+  parentId?: string;
   title: string;
   directory: string;
   model: { id: string; providerID: string };
@@ -26,6 +27,7 @@ export interface RawSession {
 
 interface SessionRecord {
   id: string;
+  parentID?: string;
   title?: string;
   location?: { directory?: string };
   model?: { id?: string; providerID?: string };
@@ -586,6 +588,7 @@ export class OpenCodeClient {
 function toRawSession(record: SessionRecord): RawSession {
   return {
     id: record.id,
+    ...(typeof record.parentID === "string" && record.parentID.trim() ? { parentId: record.parentID } : {}),
     title: record.title ?? "(no title)",
     directory: record.location?.directory ?? "",
     model: { id: record.model?.id ?? "?", providerID: record.model?.providerID ?? "?" },

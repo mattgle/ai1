@@ -555,6 +555,9 @@ export class AgentsServiceImpl implements AgentsService {
     const tracked: Tracked = {
       raw: {
         id: sessionID,
+        ...(typeof properties.parentID === "string" && properties.parentID.trim()
+          ? { parentId: properties.parentID }
+          : {}),
         title: typeof properties.title === "string" ? properties.title : "(no title)",
         directory,
         model: { id: "?", providerID: "?" },
@@ -588,6 +591,7 @@ export class AgentsServiceImpl implements AgentsService {
   protected summary(tracked: Tracked): SessionSummary {
     return {
       id: tracked.raw.id,
+      ...(tracked.raw.parentId ? { parentId: tracked.raw.parentId } : {}),
       directory: tracked.raw.directory,
       title: tracked.raw.title,
       status: computeStatus(tracked.facts),

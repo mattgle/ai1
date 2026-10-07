@@ -3,6 +3,7 @@ import { AddressInfo } from "node:net";
 
 export interface FakeSession {
   id: string;
+  parentID?: string;
   title: string;
   directory: string;
   model: { id: string; providerID: string };

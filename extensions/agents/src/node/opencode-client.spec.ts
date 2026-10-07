@@ -64,6 +64,13 @@ describe("OpenCodeClient", () => {
     assert.strictEqual(truncated, false);
   });
 
+  it("preserves the reported parent ID and does not infer one from a title", async () => {
+    server.sessions[1].parentID = "ses_a";
+    const { sessions } = await client.listSessions();
+    assert.strictEqual(sessions.find((session) => session.id === "ses_b")?.parentId, "ses_a");
+    assert.strictEqual(sessions.find((session) => session.id === "ses_a")?.parentId, undefined);
+  });
+
   it("renames a session through the title update API", async () => {
     await client.renameSession("ses_a", "  New session name  ");
     assert.strictEqual(server.sessions[0].title, "New session name");

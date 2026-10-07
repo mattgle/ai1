@@ -14,6 +14,7 @@ import { inject, injectable, postConstruct } from "@theia/core/shared/inversify"
 import * as React from "@theia/core/shared/react";
 import { Message } from "@theia/core/shared/@lumino/messaging";
 import { cardThirdLine, oneLine } from "../common/card-text";
+import { SessionSummary } from "../common/agents-protocol";
 import { clampVisiblePerGroup, DEFAULT_VISIBLE_PER_GROUP } from "../common/visible-per-group";
 import { AgentsModel } from "./agents-model";
 import { renderEmptyState, renderErrorState, renderSummary, renderSessionStatus } from "./agents-status-view";
@@ -42,6 +43,7 @@ export class AgentsWidget extends TreeWidget {
   // the Refresh command.
   onRetry: () => void = () => undefined;
   visiblePerGroup = DEFAULT_VISIBLE_PER_GROUP;
+  protected revealSessionId?: string;
 
   constructor(
     @inject(TreeProps) props: TreeProps,
@@ -84,6 +86,7 @@ export class AgentsWidget extends TreeWidget {
         return ExpandableTreeNode.is(previous) ? previous.expanded : undefined;
       },
       this.visiblePerGroup,
+      this.revealSessionId,
     );
   }
 
@@ -151,7 +154,33 @@ export class AgentsWidget extends TreeWidget {
   }
 
   protected override getPaddingLeft(node: TreeNode, props: NodeProps): number {
-    return isSessionNode(node) ? 18 : super.getPaddingLeft(node, props);
+    return isSessionNode(node) ? 18 + Math.min(node.depth, 8) * 12 : super.getPaddingLeft(node, props);
+  }
+
+  parentSession(node: SessionNode): SessionSummary | undefined {
+    return this.agents.groups
+      .flatMap((group) => group.sessions)
+      .find((session) => session.id === node.session.parentId);
+  }
+
+  async selectParentSession(node: SessionNode): Promise<void> {
+    const parent = this.parentSession(node);
+    if (!parent || parent.id === node.session.id) return;
+    this.revealSessionId = parent.id;
+    this.rebuild();
+    const group = this.agents.groups.find((group) =>
+      group.sessions.some((session) => session.id === parent.id),
+    );
+    const target = this.model.getNode(`${AgentsWidget.ID}:${group?.directory}:${parent.id}`);
+    if (!isSessionNode(target)) return;
+    let ancestor = target.parent;
+    while (ancestor) {
+      if (ExpandableTreeNode.is(ancestor)) await this.model.expandNode(ancestor);
+      ancestor = ancestor.parent;
+    }
+    this.activate();
+    this.model.selectNode(target);
+    this.scrollToSelected();
   }
 
   protected override renderCaption(node: TreeNode, _props: NodeProps): React.ReactNode {
@@ -178,13 +207,22 @@ export class AgentsWidget extends TreeWidget {
     const session = node.session;
     void this.agents.ensureLastMessage(session.id);
     const last = this.agents.lastMessageOf(session.id);
+    const parent = session.parentId ? this.parentSession(node) : undefined;
+    const parentLabel = session.parentId
+      ? `Sub-agent of: ${parent?.title ?? session.parentId}${parent ? "" : " (parent unavailable)"}`
+      : undefined;
     return (
-      <div className="ai1-agents-caption ai1-agents-card">
+      <div className="ai1-agents-caption ai1-agents-card" title={parentLabel}>
         <div className="ai1-agents-heading">
           {renderSessionStatus(session.status)}
           <div className="ai1-agents-title" title={session.title}>
             {oneLine(session.title, 80)}
           </div>
+          {session.parentId ? (
+            <span className="ai1-agents-subagent-badge" title={parentLabel}>
+              Sub-agent
+            </span>
+          ) : null}
           <div className="ai1-agents-tail ai1-agents-row-actions">
             {this.renderAction("terminal", "Open terminal", () => this.onOpenSession(node))}
             {this.renderAction("trash", "Delete session", () => this.onDeleteSession(node))}

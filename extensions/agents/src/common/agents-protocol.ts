@@ -9,6 +9,7 @@ export type SessionStatus = "working" | "blocked" | "done" | "failed" | "idle";
 
 export interface SessionSummary {
   id: string;
+  parentId?: string;
   directory: string;
   title: string;
   status: SessionStatus;

@@ -111,6 +111,25 @@ describe("AgentsServiceImpl", () => {
     );
   });
 
+  it("keeps parent links in loaded summaries and live created sessions", async () => {
+    server.sessions[1].parentID = "ses_a";
+    const snapshot = await service.load(["file:///m"]);
+    assert.strictEqual(
+      snapshot.groups.flatMap((group) => group.sessions).find((session) => session.id === "ses_b")?.parentId,
+      "ses_a",
+    );
+    await until(() => client.connection.includes(true));
+    // Read the same parent field from a live session notification.
+    server.pushEvent("session.created", {
+      sessionID: "ses_child",
+      parentID: "ses_a",
+      location: { directory: "/m/alpha" },
+      title: "Child",
+    });
+    await until(() => client.changed.some((session) => session.id === "ses_child"));
+    assert.strictEqual(client.changed.find((session) => session.id === "ses_child")?.parentId, "ses_a");
+  });
+
   it("does not change local titles when rename fails or the name is empty", async () => {
     await service.load(["file:///m"]);
     client.changed = [];
