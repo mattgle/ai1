@@ -248,6 +248,84 @@ groups. No supplement mapping changes. The mixed-license package, copied-font
 terms, and brand rights remain open. Do not assign the font copyright string to
 the package's code or documentation.
 
+### Font Awesome file-scope review: 2026-10-08
+
+The annotated `v4.7.0` tag resolves to the recorded registry source revision
+`a8386aae19e200ddb0f6845b5feeee5eb7013687`. Its complete public tree has 1,204
+entries. Notice-path candidates include the version-4 license page, brand
+declaration, CSS header template, and the older 3.2.1 license page and ZIP.
+Do not use the 3.2.1 files as exact 4.7.0 notices.
+
+The current 4.x branch resolves to
+`bdfa9823c8b1e25a5c822f6c719ec0e38ead7f71`. Its tree has 1,207 entries. The
+comparison from the release contains 51 later commits and 35 changed paths,
+but no license-path change. The notice candidates retain their release blob
+identities. This does not find a later matching complete notice for 4.7.0.
+
+The official [version-4 download page](https://fontawesome.com/v4/get-started/)
+links this archive:
+
+<https://fontawesome.com/v4/assets/font-awesome-4.7.0.zip>
+
+The downloaded ZIP has 669,808 bytes and SHA-256
+`c722e928fee108e807a8481b88922b46c3e0946415e85e5b4818a24ed721406c`.
+It has 42 entries: five directories and 37 regular files. All regular files
+match the installed release bytes. It has no complete license-text file.
+Its only notice-name candidate is `HELP-US-OUT.txt`, not a license grant.
+The ZIP contains no README. This official ZIP is a separately hashed public
+download, not an npm integrity record or signed compilation attestation.
+
+The read-only packaged inventory has these groups:
+
+| Group | Files | Declared version-4 terms |
+| --- | ---: | --- |
+| `fonts/` | 6 | SIL OFL 1.1 |
+| `css/`, `less/`, `scss/` | 30 | MIT |
+| Other project files | 2 | Residual CC BY 3.0 scope needs review |
+
+All 37 packaged non-manifest files match the official ZIP. The manifest's
+`keywords`, `bugs`, and `contributors` differ from the installed manifest.
+Name, version, and the `(OFL-1.1 AND MIT)` expression remain unchanged.
+The two residual files are `HELP-US-OUT.txt` and `package.json`. The package
+omits README. The upstream blanket residual declaration is not a determination
+that each metadata field is copyrightable. Do not infer complete file coverage
+from the two-license npm expression or from README removal alone.
+
+The retained release configuration again identifies 4.7.0 and all three
+licenses. Its `_config.yml` has 1,643 bytes and SHA-256
+`e199710aaa3f4a0f2f18386420ebe1fd84b8c44a875c35a81b15525a1c481003`.
+The CSS banner identifies Font Awesome 4.7.0 and its author, but links to terms
+rather than including complete MIT terms. The SVG font also retains the exact
+copyright string `Copyright Dave Gandy 2016. All rights reserved.` This font
+string does not supply the code copyright notice or third-party brand rights.
+
+The license stewards' texts establish separate distribution conditions:
+
+- [OFL 1.1, condition 2](https://openfontlicense.org/open-font-license-official-text/)
+  requires the font copyright notice and license in each redistributed copy.
+  Do not fill its example copyright or Reserved Font Name placeholders from
+  newer Font Awesome terms.
+- [MIT](https://opensource.org/license/mit) requires the copyright and permission
+  notices. Its template does not establish release-specific copyright ownership.
+- [CC BY 3.0 Unported, sections 4(a) and 4(b)](https://creativecommons.org/licenses/by/3.0/legalcode.en)
+  require license information, retained notices, and attribution as specified.
+  The version-4 site's general attribution statement is not treated as a blanket
+  waiver of all these conditions. Do not substitute CC BY 4.0 from version 7.x.
+
+The offline notice-generator fixture rejects both an OFL-only and an MIT-only
+supplement for the mixed package. It checks the existing exact-license-expression
+guard, not legal adequacy or file-level scope. A composite metadata string alone
+still cannot prove that a notice covers the package's three declared groups.
+No Font Awesome supplement or font-source mapping changes. The complete
+package terms, required font notices, residual-file scope, and brand rights
+remain open. The approved Once change remains separate. No app launch, package
+install, build, native execution, installed-app change, or binary publication
+occurs in this review.
+
+All 135 integrated release-script checks pass with no skips or pending checks.
+Lint, formatting, whitespace, and both redacted secret scans pass. The lockfile
+hash stays unchanged. These results do not resolve the Font Awesome notice gap.
+
 ## Modified fonts
 
 The pinned MFixx README identifies the font as an optimized MFizz derivative.

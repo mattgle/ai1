@@ -264,6 +264,23 @@ test("unreviewed package names, versions, and licenses stay unresolved", () => {
   }
 });
 
+test("Font Awesome mixed package does not accept a font-only or code-only supplement", () => {
+  for (const license of ["OFL-1.1", "MIT"]) {
+    supplementFixture(({ payload, config, generate }) => {
+      fs.writeFileSync(
+        path.join(payload, "node_modules/example/package.json"),
+        JSON.stringify({ name: "font-awesome", version: "4.7.0", license: "(OFL-1.1 AND MIT)" }),
+      );
+      config.packages = [{ name: "font-awesome", version: "4.7.0", source: "reviewed" }];
+      config.sources.reviewed.license = license;
+      const report = generate();
+      assert.equal(report.unresolved.length, 1);
+      assert.deepEqual(report.packages[0].notices, []);
+      assert.equal(report.packages[0].licenseSupplement, undefined);
+    });
+  }
+});
+
 test("supplements reject changed license bytes and duplicate review entries", () => {
   supplementFixture(({ resources, generate }) => {
     fs.writeFileSync(path.join(resources, "LICENSE.txt"), "Changed text");
