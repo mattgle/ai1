@@ -127,6 +127,71 @@ package. Source identity success does not clear that runtime gate. See
 `release-source-follow-up.md` and `dependency-security-review.md` for scope.
 The installed app stays unchanged. No binary is published.
 
+## Offline shutdown review: 2026-10-08
+
+The owner stops foreground lifecycle testing because each app launch takes
+keyboard focus and makes the computer unusable. Do not repeat GUI launches
+without separate owner approval. Continue with source review and offline tests.
+This restriction does not waive runtime gates or establish a focus fix.
+
+Before that stop, a complete shared-only run passes five five-launch groups.
+All 25 records reach `closed` without a signal or native fatal marker. A second
+planned 50-launch run is interrupted. It retains 35 closed records without a
+signal or fatal marker, but has no complete suite verdict. The 60 saved closed
+records do not explain the earlier shared-mode SIGABRT. Do not report a complete
+75-launch success or a shutdown fix. No further app launch occurs in this
+offline continuation.
+
+The source review identifies distinct cleanup paths:
+
+- Electron's `onWillQuit` calls main contributions synchronously. It does not
+  call the backend's signal-driven `gracefulShutdown` method at this boundary.
+- The backend constructor registers `onStop` for process exit and
+  `gracefulShutdown` for SIGINT and SIGTERM. `onStop` starts contribution cleanup
+  without awaiting its promise, then requests process-tree termination.
+  The process exit event cannot wait for asynchronous cleanup.
+- The signal-driven method waits for contributions, then container unbinding,
+  before requesting exit code one. Each phase has a five-second budget. This
+  is not proof that normal Electron quit follows the same path.
+- `ParcelWatcher._dispose` marks disposal and emits the disposal notice, then
+  calls `stopWatcher` without awaiting it. Its own promise can resolve while
+  `unsubscribe` is still pending. The singleton watcher service's `dispose`
+  method does not stop its handles.
+- `ProcessManager.onStop` unregisters managed processes. `TerminalProcess.kill`
+  requests PTY termination without returning an exit-completion promise. The
+  manager can remove the process before its exit callback occurs. This concerns
+  the managed PTY connection, not permission to terminate persistent tmux shells.
+
+`scripts/shutdown-source-review.spec.mjs` selects the exact method text from
+the installed or packaged source with the TypeScript parser. It executes only
+those methods in isolated VM contexts with in-memory dependencies. It does not
+load Electron, native modules, service constructors, or process-tree helpers.
+No real signal, process termination, network request, or window occurs.
+Five checks pass against development and packaged source. They confirm the
+cleanup order and the different signal-driven path. They are characterization
+checks, not a native crash reproduction or a fix regression. The graceful
+shutdown check tests ordering, not timeout behavior.
+
+All five reviewed files match their packaged copies byte-for-byte: Electron
+main application, backend application, Parcel watcher service, process manager,
+and terminal process. Source identity does not show which callback causes the
+abort. Earlier crash records identify watcher and PTY callbacks during Node
+cleanup. The review still lacks a causal native reproduction and an approved
+runtime seam. No upstream dependency, app shutdown method, timeout, retry,
+native library, or installed app changes.
+
+Run the separate offline checks with:
+
+```sh
+node --test scripts/shutdown-source-review.spec.mjs
+AI1_PACKAGED_RESOURCES=/absolute/package/Contents/Resources/app node --test scripts/shutdown-source-review.spec.mjs
+```
+
+Do not add a delay, stop persistent shells, or change the default backend mode
+to hide the abort. Any fix must preserve normal quit, persistent shell survival,
+and clean restart. Native callback completion and normal Electron quit still
+need an approved non-disruptive runtime test before this gate can close.
+
 ## Pinned notice assets: 2026-10-05
 
 Source commit `dec015f` is on `feat/release-readiness` in the public repository.
