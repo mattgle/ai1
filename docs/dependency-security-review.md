@@ -479,7 +479,7 @@ but adds no cancellation link while its resolver or protocol callback waits.
 The configured proxy-support mode and any caller-supplied agent affect whether
 the patch selects this path. No owner setting is read in this review.
 
-This is not a verified extension request. The fixture creates the library
+This is not a verified extension request. The earlier fixture creates the library
 agent directly, not through Theia's settings patch. The HTTP controls cancel
 after TCP connect and socket assignment; they do not establish cancellation
 safety during pending TCP connect. Bare CommonJS interception does not establish
@@ -492,6 +492,60 @@ and environment-based proxy selection are separate paths. The settings schema
 accepts HTTP(S) proxy URLs; library SOCKS support does not establish a
 schema-approved SOCKS setting. Theia's Undici backend request service is a
 different caller and is not covered by this wrapper fixture.
+
+### Actual Theia request patch review: 2026-10-08
+
+The cancellation fixture now loads Theia's actual `connectProxyResolver`.
+It supplies an in-memory HTTP configuration with a loopback proxy,
+`proxySupport: override`, and system certificates disabled. It fires the
+configuration-change callback and uses the patched bare CommonJS HTTP and
+HTTPS modules without a caller-supplied agent. The fixture observes the real
+agent factory and callback without changing their arguments or results.
+The Theia caller resolves the same reviewed wrapper module. Its configuration
+reads select the explicit proxy path. No host-resolver call occurs.
+
+Both HTTP cancellation controls pass. Both CONNECT checks fail: AbortSignal
+and request destruction leave the callback pending, the request without an
+error or close event, and both socket ends open at the 200 ms snapshot.
+Thus, the pending-callback defect also exists at Theia's request-patch boundary.
+This does not establish a real extension request or an Electron plugin-host
+bundle execution result. SOCKS remains covered by the direct-agent fixture
+only. Do not infer a supported Electron system/PAC or SOCKS setting path.
+
+The first patch-fixture run reaches the child deadline even for passing HTTP
+controls. Its complete snapshot precedes that deadline. The resolver source
+creates a ten-minute telemetry timer. The fixture now records that exact timer
+and clears it only after the evidence snapshot, during teardown. It does not
+change request or socket lifetime before the assertions. The original
+four-second child bound stays unchanged. Child environments pass only PATH,
+the temporary directory, and the optional packaged-resource root. Owner proxy,
+certificate, debug, and Node options do not select the fixture behavior.
+
+Two complete development runs and one packaged run each have six passes and
+six hard failures across 12 checks. Four failures are the earlier direct-agent
+CONNECT and SOCKS cases. Two are the new Theia CONNECT cases. No check is
+skipped or pending. No child reaches its deadline. HTTP cleanup and both Once
+characterization checks pass. All traffic stays on loopback. No owner settings,
+credentials, live extensions, remote proxy, or installed app change occurs.
+
+The October 8 registry review finds no newer release within the declared ranges:
+
+| Dependency | Declared range | Highest published compatible version |
+| --- | --- | --- |
+| `@vscode/proxy-agent` | `^0.13.2` | 0.13.2 |
+| `agent-base` | `^6.0.2` | 6.0.2 |
+| `https-proxy-agent` | `^5.0.0` | 5.0.1 |
+| `socks-proxy-agent` | `^5.0.0` | 5.0.1 |
+
+These are the installed reviewed versions. Latest releases outside those
+ranges are not verified fixes or approved overrides. No package is installed,
+no dependency resolution changes, and no release-age guard is bypassed.
+A tested runtime design or an upstream compatible fix is still needed.
+Do not weaken cancellation assertions to pass this release gate.
+
+The separate release-script suite passes all 133 checks. Lint, formatting,
+whitespace, and both redacted secret scans pass. The lockfile hash stays
+unchanged. Those results do not replace the six failing cancellation checks.
 
 ### Fresh audit and release-age checks: 2026-10-07
 

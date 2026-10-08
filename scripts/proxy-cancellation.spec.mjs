@@ -5,7 +5,7 @@ import { EventEmitter, getEventListeners, once } from "node:events";
 import * as http from "node:http";
 import * as https from "node:https";
 import * as net from "node:net";
-import { createRequire } from "node:module";
+import { createRequire, Module } from "node:module";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
@@ -17,7 +17,7 @@ const require = process.env.AI1_PACKAGED_RESOURCES
 const entry = require.resolve("@vscode/proxy-agent/out/agent");
 const caller = createRequire(entry);
 
-async function probe(type, cancellation) {
+async function probe(type, cancellation, route = "agent") {
   const helperPath = caller.resolve("@tootallnate/once");
   const helper = require(helperPath);
   const helperCalls = [];
@@ -54,21 +54,78 @@ async function probe(type, cancellation) {
     clients.push(this);
     return originalConnect.apply(this, args);
   };
-  const agent = createAgent(() => `${type === "SOCKS5" ? "SOCKS5" : "PROXY"} 127.0.0.1:${port}`);
-  const originalCallback = agent.callback;
+  let agent;
   let callbackState = "pending";
-  agent.callback = function (...args) {
-    const pending = originalCallback.apply(this, args);
-    pending.then(
-      () => {
-        callbackState = "resolved";
+  const observeAgent = (...args) => {
+    agent = createAgent(...args);
+    const originalCallback = agent.callback;
+    agent.callback = function (...values) {
+      const pending = originalCallback.apply(this, values);
+      pending.then(
+        () => {
+          callbackState = "resolved";
+        },
+        () => {
+          callbackState = "rejected";
+        },
+      );
+      return pending;
+    };
+    return agent;
+  };
+  const configurationReads = [];
+  const telemetryTimers = [];
+  const originalSetTimeout = globalThis.setTimeout;
+  let hostResolverCalls = 0;
+  const originalLoad = Module._load;
+  const originalHttp = { get: require("http").get, request: require("http").request };
+  const originalHttps = { get: require("https").get, request: require("https").request };
+  const tls = require("tls");
+  const originalTlsContext = tls.createSecureContext;
+  if (route === "theia") {
+    assert.notEqual(type, "SOCKS5", "The actual Electron host resolver does not provide SOCKS results");
+    const theiaEntry = require.resolve("@theia/plugin-ext/lib/hosted/node/plugin-host-proxy");
+    const theiaProxy = createRequire(theiaEntry).resolve("@vscode/proxy-agent");
+    assert.equal(createRequire(theiaProxy).resolve("./agent"), entry);
+    // Observe factory and callback completion without changing their arguments or results.
+    require.cache[entry].exports = Object.assign(observeAgent, createAgent);
+    globalThis.setTimeout = function (callback, milliseconds, ...args) {
+      const timer = originalSetTimeout(callback, milliseconds, ...args);
+      if (callback.name === "logEvent" && milliseconds === 600_000) telemetryTimers.push(timer);
+      return timer;
+    };
+    let configurationChanged;
+    require(theiaEntry).connectProxyResolver(
+      {
+        resolveProxy: async () => {
+          hostResolverCalls++;
+          throw new Error("Unexpected host proxy lookup");
+        },
       },
-      () => {
-        callbackState = "rejected";
+      {
+        getConfiguration: (section) => {
+          assert.equal(section, "http");
+          return {
+            get: (key) => {
+              configurationReads.push(key);
+              return {
+                proxy: `http://127.0.0.1:${port}`,
+                proxySupport: "override",
+                systemCertificates: false,
+              }[key];
+            },
+          };
+        },
+        onDidChangeConfiguration: (listener) => {
+          configurationChanged = listener;
+        },
       },
     );
-    return pending;
-  };
+    assert.equal(typeof configurationChanged, "function");
+    configurationChanged();
+  } else {
+    observeAgent(() => `${type === "SOCKS5" ? "SOCKS5" : "PROXY"} 127.0.0.1:${port}`);
+  }
   const controller = new globalThis.AbortController();
   const errors = [];
   let closed = false;
@@ -98,9 +155,10 @@ async function probe(type, cancellation) {
       });
     });
   });
-  const client = type === "CONNECT" ? https : http;
+  const client =
+    route === "theia" ? require(type === "CONNECT" ? "https" : "http") : type === "CONNECT" ? https : http;
   const request = client.get(`${type === "CONNECT" ? "https" : "http"}://example.invalid/fixture`, {
-    agent,
+    ...(route === "agent" ? { agent } : {}),
     ...(cancellation === "signal" ? { signal: controller.signal } : {}),
   });
   request.on("error", (error) => errors.push({ name: error.name, code: error.code, message: error.message }));
@@ -124,6 +182,10 @@ async function probe(type, cancellation) {
     await delay(200);
     const record = {
       type,
+      route,
+      configurationReads,
+      telemetryTimerCount: telemetryTimers.length,
+      hostResolverCalls,
       cancellation,
       handshake,
       before,
@@ -177,11 +239,17 @@ async function probe(type, cancellation) {
     for (const socket of clients) socket.destroy();
     for (const socket of peers) socket.destroy();
     server.close();
+    Module._load = originalLoad;
+    Object.assign(require("http"), originalHttp);
+    Object.assign(require("https"), originalHttps);
+    tls.createSecureContext = originalTlsContext;
+    globalThis.setTimeout = originalSetTimeout;
+    for (const timer of telemetryTimers) globalThis.clearTimeout(timer);
   }
 }
 
 if (process.argv[2] === "--probe") {
-  await probe(process.argv[3], process.argv[4]);
+  await probe(process.argv[3], process.argv[4], process.argv[5]);
 } else {
   test("legacy Once does not support an AbortSignal options argument", async () => {
     const helper = caller("@tootallnate/once");
@@ -226,52 +294,66 @@ if (process.argv[2] === "--probe") {
     assert.equal(helper.length, 2);
   });
 
-  for (const type of ["HTTP", "CONNECT", "SOCKS5"]) {
-    for (const cancellation of ["signal", "destroy"]) {
-      test(`VS Code ${type} request ${cancellation} settles and closes proxy sockets`, (t) => {
-        const result = spawnSync(
-          process.execPath,
-          [fileURLToPath(import.meta.url), "--probe", type, cancellation],
-          {
-            encoding: "utf8",
-            timeout: 4000,
-            maxBuffer: 16384,
-          },
-        );
-        assert.equal(result.error, undefined, "Isolated probe exceeds its process bound");
-        assert.equal(result.status, 0, result.stderr);
-        assert.equal(result.stderr, "");
-        const record = JSON.parse(result.stdout);
-        t.diagnostic(JSON.stringify(record));
-        assert.deepEqual(record.before, {
-          callbackState: type === "HTTP" ? "resolved" : "pending",
-          socketEvents: type === "HTTP" ? 1 : 0,
+  for (const route of ["agent", "theia"]) {
+    for (const type of route === "theia" ? ["HTTP", "CONNECT"] : ["HTTP", "CONNECT", "SOCKS5"]) {
+      for (const cancellation of ["signal", "destroy"]) {
+        test(`${route === "theia" ? "Theia patched" : "VS Code"} ${type} request ${cancellation} settles and closes proxy sockets`, (t) => {
+          const result = spawnSync(
+            process.execPath,
+            [fileURLToPath(import.meta.url), "--probe", type, cancellation, route],
+            {
+              encoding: "utf8",
+              timeout: 4000,
+              maxBuffer: 16384,
+              env: {
+                PATH: process.env.PATH,
+                TMPDIR: process.env.TMPDIR,
+                AI1_PACKAGED_RESOURCES: process.env.AI1_PACKAGED_RESOURCES,
+              },
+            },
+          );
+          assert.equal(result.error, undefined, "Isolated probe exceeds its process bound");
+          assert.equal(result.status, 0, result.stderr);
+          assert.equal(result.stderr, "");
+          const record = JSON.parse(result.stdout);
+          t.diagnostic(JSON.stringify(record));
+          assert.equal(record.route, route);
+          assert.equal(record.hostResolverCalls, 0);
+          assert.equal(record.telemetryTimerCount, route === "theia" ? 1 : 0);
+          assert.deepEqual(
+            record.configurationReads,
+            route === "theia" ? ["proxySupport", "systemCertificates", "proxy"] : [],
+          );
+          assert.deepEqual(record.before, {
+            callbackState: type === "HTTP" ? "resolved" : "pending",
+            socketEvents: type === "HTTP" ? 1 : 0,
+          });
+          assert.deepEqual(
+            record.helperCalls,
+            type === "HTTP" ? [{ event: "connect", arguments: 2, state: "resolved" }] : [],
+          );
+          assert.equal(record.request.destroyed, true);
+          assert.equal(
+            record.request.errors.length,
+            1,
+            "Cancellation must settle the actual request, not only mark it destroyed",
+          );
+          assert.equal(
+            record.request.errors[0].code,
+            cancellation === "signal" ? "ABORT_ERR" : "FIXTURE_CANCEL",
+          );
+          assert.equal(record.request.closed, true);
+          assert.notEqual(
+            record.callbackState,
+            "pending",
+            "Proxy callback remains pending after request cancellation",
+          );
+          assert.equal(record.peerSockets, 0, "Proxy peer remains open before fixture teardown");
+          assert.equal(record.clientSockets.length, 1);
+          assert.equal(record.clientSockets[0].destroyed, true);
+          assert.equal(record.abortListeners, 0);
         });
-        assert.deepEqual(
-          record.helperCalls,
-          type === "HTTP" ? [{ event: "connect", arguments: 2, state: "resolved" }] : [],
-        );
-        assert.equal(record.request.destroyed, true);
-        assert.equal(
-          record.request.errors.length,
-          1,
-          "Cancellation must settle the actual request, not only mark it destroyed",
-        );
-        assert.equal(
-          record.request.errors[0].code,
-          cancellation === "signal" ? "ABORT_ERR" : "FIXTURE_CANCEL",
-        );
-        assert.equal(record.request.closed, true);
-        assert.notEqual(
-          record.callbackState,
-          "pending",
-          "Proxy callback remains pending after request cancellation",
-        );
-        assert.equal(record.peerSockets, 0, "Proxy peer remains open before fixture teardown");
-        assert.equal(record.clientSockets.length, 1);
-        assert.equal(record.clientSockets[0].destroyed, true);
-        assert.equal(record.abortListeners, 0);
-      });
+      }
     }
   }
 }
