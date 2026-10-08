@@ -122,10 +122,74 @@ The tree also contains `src/3.2.1/license/index.html`. That older version's
 page is not an exact 4.7.0 notice. Do not assign its earlier copyright notice
 to the 4.7.0 font or code.
 
-Proposed package supplement mappings: **none**. Keep all five entries
+At the October 7 checkpoint, proposed package supplement mappings are **none**. Keep all five entries
 unresolved. Obtain an upstream notice that expressly covers the exact shipped
 release, or select a separately approved dependency change. Do not borrow a
 newer package's terms or use AI1's MIT license to fill these gaps.
+
+### Public notice history and Once candidate: 2026-10-08
+
+Unauthenticated public checks find current MIT notices for Once, East Asian
+Width, and Resolve Package Path. All three notice paths return 404 at the
+recorded release revisions. File history identifies these later additions:
+
+| Package | Notice addition revision | File | Addition date | Manifest version at addition |
+| --- | --- | --- | --- | --- |
+| Once | `de4a704b54936d83c8d6347d28665fe3b66c6de6` | `LICENSE` | 2020-11-04 | 1.1.2 |
+| East Asian Width | `1d41951a59d63fb2d77cda021050fc070cae424a` | `MIT-LICENSE.txt` | 2024-06-05 | 0.3.0 |
+| Resolve Package Path | `92fd81dd39785bee876c3fa6970b6f4508527323` | `LICENSE` | 2022-12-02 | 4.0.3 |
+
+The East Asian Width comparison includes changed JavaScript and a version
+change from the shipped 0.2.0. The Resolve Package Path comparison includes
+changed TypeScript and declarations despite its unchanged version. Neither
+comparison establishes an exact unchanged release covered by the later notice.
+Do not clear these gaps from the current repository license endpoint alone.
+
+The current Font Awesome notice belongs to branch 7.x. It declares CC BY 4.0
+for icons and a 2026 font copyright. It is not a matching notice for shipped
+4.7.0. The Use Composed Ref license endpoint returns 404. That response does
+not prove the absence of notices at every path or an absence of permission.
+
+Once has a stronger candidate. The public comparison from release revision
+`3948afcb5803013e184861943e0018e37830fcfe` to notice revision
+`de4a704b54936d83c8d6347d28665fe3b66c6de6` contains four commits. Its complete
+file list adds only README and LICENSE. Direct immutable raw-file reads confirm
+these three files match byte-for-byte at both revisions:
+
+| File | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `package.json` | 1,209 | `91391dee2904a0bb0de498cc0a41e020338d671a4c85f5bcafa15dde73eb26fe` |
+| `src/index.ts` | 1,253 | `515a841a42afadf7a70669eb603353b08f2ee849cee2294b6c5346654a9ff9f7` |
+| `tsconfig.json` | 354 | `53bf7c711830860ba79a4405a5bc3a2e02ecb52a8901ef3bd773fdd068feee28` |
+
+The manifest still declares `@tootallnate/once` 1.1.2 with MIT metadata.
+The complete later notice names the package author as copyright holder. Its
+exact bytes are available at this immutable URL:
+
+<https://raw.githubusercontent.com/TooTallNate/once/de4a704b54936d83c8d6347d28665fe3b66c6de6/LICENSE>
+
+The notice has 1,071 bytes and SHA-256
+`737a723fe0ef2b0e337e330b9f42f6b9f50d13d9b1087c2b2c6fc2486b68f8c2`.
+This identifies a complete notice associated with unchanged 1.1.2 source, not
+a newer package release's license selected solely by name.
+
+The 1,693-byte npm archive again passes the current lockfile SHA-512 check.
+Its SHA-256 matches the earlier table. All four installed archive files match:
+the manifest, JavaScript, declaration, and source map. The packaged executable
+`dist/index.js` also matches that archive. It has 1,096 bytes and SHA-256
+`b9d3770080970a3e2923463bd5f5dc4e5f15493cc4d4d762eb60b7cd3eaeca14`.
+The packaged manifest is not a byte match: `scripts`, `keywords`, and `bugs`
+differ. Package name, version, and license match. The package omits the
+declaration and source map. Record those transformations rather than claiming
+that every installed file appears unchanged in the package.
+
+This review proposes the pinned Once notice as a version-specific supplement
+candidate. It does not add a mapping or replace any packaged notice. All five
+entries therefore remain unresolved in the unchanged package. Original
+compilation provenance remains separate from source and notice identity.
+No app, native helper, package install, dependency resolution, authenticated
+request, or GUI test occurs. The Once cancellation advisory remains open and
+is not affected by a notice candidate.
 
 ### Font Awesome version-specific declaration follow-up: 2026-10-07
 
