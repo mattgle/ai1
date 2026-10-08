@@ -191,6 +191,41 @@ No app, native helper, package install, dependency resolution, authenticated
 request, or GUI test occurs. The Once cancellation advisory remains open and
 is not affected by a notice candidate.
 
+### Approved Once supplement: 2026-10-08
+
+The owner approves adding the pinned Once notice for version 1.1.2 only.
+`resources/third-party/once/LICENSE.txt` retains all 1,071 upstream bytes with
+the reviewed SHA-256. The supplement configuration maps only
+`@tootallnate/once@1.1.2` with MIT metadata to notice revision
+`de4a704b54936d83c8d6347d28665fe3b66c6de6`. The checked-in file needs no build-time
+download. No package upgrade or notice-generator policy change occurs.
+
+The regression first fails at the absent mapping, then passes after the notice
+and mapping are added. It checks the exact revision, immutable URL, byte count,
+hash, and generated notice bytes. Another Once version, mismatched license
+metadata, and the four unrelated packages remain unresolved. All 16 focused
+notice and asset-preparation checks pass.
+
+An isolated copy contains the signed package's 614 package manifests and 571
+notice files. Its generated baseline exactly matches the packaged inventory.
+Paths use the package's `Contents` root, not its JavaScript resources folder.
+Adding the source supplement produces 572 notice files and four unresolved
+entries. Every other package record stays unchanged. The remaining entries
+are East Asian Width, Font Awesome, Resolve Package Path, and Use Composed Ref.
+This is a notice-generation check, not a rebuild or a new signed artifact.
+
+The existing package stays unchanged with 571 notice files and five unresolved
+entries. A separately approved future build must include and verify the new
+notice. This source change addresses Once's package-level notice gap only.
+Its cancellation advisory, complete source provenance, and all other release
+gates remain open. No app launch, GUI test, installed-app change, or binary
+publication occurs.
+
+The integrated offline suite passes all 134 release-script checks with no skips
+or pending checks. Lint, formatting, whitespace, and both redacted secret scans
+pass. The lockfile hash stays unchanged. These checks do not replace the open
+runtime, security, source, font, or native Omarchy release gates.
+
 ### Font Awesome version-specific declaration follow-up: 2026-10-07
 
 The [official version-4 license page](https://fontawesome.com/v4/license/)

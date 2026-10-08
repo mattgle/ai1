@@ -51,6 +51,55 @@ test("Theia supplements keep the pinned EPL bytes and source statement", () => {
   assert.match(statement, /does not complete the source-duty review/);
 });
 
+test("Once supplement retains the pinned notice and applies only to reviewed 1.1.2 metadata", () => {
+  const resources = new URL("../applications/electron/resources/third-party/", import.meta.url);
+  const config = JSON.parse(fs.readFileSync(new URL("supplements.json", resources), "utf8"));
+  assert.deepEqual(
+    config.packages.filter((entry) => entry.name === "@tootallnate/once"),
+    [{ name: "@tootallnate/once", version: "1.1.2", source: "once-1.1.2" }],
+  );
+  const source = config.sources["once-1.1.2"];
+  assert.equal(source.license, "MIT");
+  assert.equal(source.revision, "de4a704b54936d83c8d6347d28665fe3b66c6de6");
+  assert.equal(source.url, `https://raw.githubusercontent.com/TooTallNate/once/${source.revision}/LICENSE`);
+  const bytes = fs.readFileSync(new URL(source.text, resources));
+  assert.equal(bytes.length, 1071);
+  assert.equal(source.sha256, "737a723fe0ef2b0e337e330b9f42f6b9f50d13d9b1087c2b2c6fc2486b68f8c2");
+  assert.equal(createHash("sha256").update(bytes).digest("hex"), source.sha256);
+  supplementFixture(({ payload, resources: fixtureResources, config: fixtureConfig, output }) => {
+    fixtureConfig.sources = { "once-1.1.2": { ...source, text: "LICENSE.txt" } };
+    fixtureConfig.packages = config.packages.filter((entry) => entry.source === "once-1.1.2");
+    fs.writeFileSync(path.join(fixtureResources, "LICENSE.txt"), bytes);
+    const cases = [
+      ["reviewed", "@tootallnate/once", "1.1.2", "MIT", true],
+      ["other-version", "@tootallnate/once", "1.1.3", "MIT", false],
+      ["other-license", "@tootallnate/once", "1.1.2", "ISC", false],
+      ["east-asian-width", "eastasianwidth", "0.2.0", "MIT", false],
+      ["font-awesome", "font-awesome", "4.7.0", "OFL-1.1 AND MIT", false],
+      ["resolve-package-path", "resolve-package-path", "4.0.3", "MIT", false],
+      ["use-composed-ref", "use-composed-ref", "1.4.0", "MIT", false],
+    ];
+    for (const [folder, name, version, license] of cases) {
+      const directory = path.join(payload, "node_modules", folder);
+      fs.mkdirSync(directory, { recursive: true });
+      fs.writeFileSync(path.join(directory, "package.json"), JSON.stringify({ name, version, license }));
+    }
+    const file = path.join(fixtureResources, "supplements.json");
+    fs.writeFileSync(file, JSON.stringify(fixtureConfig));
+    const report = generateDistributionNotices(payload, output, path.join(payload, "../LICENSE"), file);
+    for (const [folder, , , , reviewed] of cases) {
+      const entry = report.packages.find((entry) => entry.path === `node_modules/${folder}/package.json`);
+      assert.equal(Boolean(entry.licenseSupplement), reviewed);
+      assert.equal(
+        report.unresolved.some((entry) => entry.path === `node_modules/${folder}/package.json`),
+        !reviewed,
+      );
+    }
+    const notice = report.notices.find((entry) => entry.path === "resources/third-party/LICENSE.txt");
+    assert.ok(fs.readFileSync(path.join(output, notice.text)).equals(bytes));
+  });
+});
+
 test("notices preserve text bytes and use only relative paths", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-notices-"));
   try {
