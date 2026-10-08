@@ -5,6 +5,7 @@ import { EventEmitter, getEventListeners, once } from "node:events";
 import * as http from "node:http";
 import * as https from "node:https";
 import * as net from "node:net";
+import * as fs from "node:fs";
 import { createRequire, Module } from "node:module";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,17 +15,39 @@ import { test } from "node:test";
 const require = process.env.AI1_PACKAGED_RESOURCES
   ? createRequire(path.resolve(process.env.AI1_PACKAGED_RESOURCES, "package.json"))
   : createRequire(import.meta.url);
-const entry = require.resolve("@vscode/proxy-agent/out/agent");
+const candidateResources =
+  process.argv[2] === "--probe" ? process.env.AI1_PROXY_CANDIDATE_RESOURCES : undefined;
+const proxyRequire = candidateResources
+  ? createRequire(path.resolve(candidateResources, "package.json"))
+  : require;
+const entry = proxyRequire.resolve("@vscode/proxy-agent/out/agent");
 const caller = createRequire(entry);
 
+function dependencyVersion(name) {
+  if (!candidateResources) return caller(`${name}/package.json`).version;
+  let folder = path.dirname(caller.resolve(name));
+  const root = fs.realpathSync(candidateResources);
+  while (folder.startsWith(root + path.sep)) {
+    const file = path.join(folder, "package.json");
+    if (fs.existsSync(file)) {
+      const metadata = JSON.parse(fs.readFileSync(file, "utf8"));
+      if (metadata.name === name) return metadata.version;
+    }
+    folder = path.dirname(folder);
+  }
+  throw new Error("A candidate dependency resolves outside the isolated review.");
+}
+
 async function probe(type, cancellation, route = "agent") {
+  assert.ok(!candidateResources || route === "agent", "Use the separate candidate adapter review");
   const helperPath = caller.resolve("@tootallnate/once");
   const helper = require(helperPath);
+  const onceFunction = typeof helper === "function" ? helper : helper.default;
   const helperCalls = [];
-  require.cache[helperPath].exports = (...args) => {
+  const observedOnce = (...args) => {
     const record = { event: args[1], arguments: args.length, state: "pending" };
     helperCalls.push(record);
-    const pending = helper(...args);
+    const pending = onceFunction(...args);
     pending.then(
       () => {
         record.state = "resolved";
@@ -35,7 +58,11 @@ async function probe(type, cancellation, route = "agent") {
     );
     return pending;
   };
-  const createAgent = require(entry);
+  require.cache[helperPath].exports =
+    typeof helper === "function" ? observedOnce : { ...helper, default: observedOnce };
+  const agentExports = require(entry);
+  const createAgent = typeof agentExports === "function" ? agentExports : agentExports.createPacProxyAgent;
+  assert.equal(typeof createAgent, "function", "The reviewed agent factory is unavailable");
   const peers = new Set();
   const clients = [];
   const server = net.createServer((socket) => {
@@ -55,11 +82,14 @@ async function probe(type, cancellation, route = "agent") {
     return originalConnect.apply(this, args);
   };
   let agent;
+  let agentMethod;
   let callbackState = "pending";
   const observeAgent = (...args) => {
     agent = createAgent(...args);
-    const originalCallback = agent.callback;
-    agent.callback = function (...values) {
+    agentMethod = typeof agent.callback === "function" ? "callback" : "connect";
+    const originalCallback = agent[agentMethod];
+    assert.equal(typeof originalCallback, "function", "The reviewed connection method is unavailable");
+    agent[agentMethod] = function (...values) {
       const pending = originalCallback.apply(this, values);
       pending.then(
         () => {
@@ -183,6 +213,8 @@ async function probe(type, cancellation, route = "agent") {
     const record = {
       type,
       route,
+      dependencySelection: candidateResources ? "isolated-candidate" : "installed",
+      agentMethod,
       configurationReads,
       telemetryTimerCount: telemetryTimers.length,
       hostResolverCalls,
@@ -211,7 +243,7 @@ async function probe(type, cancellation, route = "agent") {
           "http-proxy-agent",
           "https-proxy-agent",
           "socks-proxy-agent",
-        ].map((name) => [name, caller(`${name}/package.json`).version]),
+        ].map((name) => [name, dependencyVersion(name)]),
       ),
     };
     // Release the protocol wait only after recording cancellation behavior.

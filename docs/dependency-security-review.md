@@ -547,6 +547,70 @@ The separate release-script suite passes all 133 checks. Lint, formatting,
 whitespace, and both redacted secret scans pass. The lockfile hash stays
 unchanged. Those results do not replace the six failing cancellation checks.
 
+### Isolated newer proxy wrappers: 2026-10-08
+
+The review selects the nearest newer wrapper, 0.14.0, and the newest eligible
+wrapper, 0.45.0. Their publication dates are June 14, 2023 and September 2,
+2026. Selection uses a conservative October 1 cutoff. npm 12.2.0 installs
+each candidate in a separate temporary folder with `min-release-age=7`.
+Scripts, audit requests, and optional dependencies stay disabled. Empty user
+and global npm configuration files and isolated HOME directories keep owner
+configuration out of the install. The wrapper lockfile integrity matches the
+selected registry metadata. An initial command uses minutes instead of npm's
+documented days. It stops with ETARGET before installation. The corrected
+command uses seven days. No release-age exclusion occurs.
+
+| Wrapper | Once | Agent Base | HTTP Proxy Agent | HTTPS Proxy Agent | SOCKS Proxy Agent |
+| --- | --- | --- | --- | --- | --- |
+| 0.14.0 | 1.1.2 | 6.0.2 | 4.0.1 | 5.0.1 | 5.0.1 |
+| 0.45.0 | 3.0.1 | 7.1.4 | 7.0.2 | 7.0.6 | 8.0.5 |
+
+`scripts/proxy-candidate-review.spec.mjs` uses the same bounded loopback
+handshake probe as the installed suite. It observes `callback` in 0.14.0 and
+`connect` in 0.45.0 without changing their arguments or results. It preserves
+the newer Once module's ESM default export shape. Candidate version lookup
+uses package files inside the isolated root because newer package exports
+restrict direct package.json imports.
+
+Each candidate has two passing HTTP controls and four failing cancellation
+checks. Both CONNECT and SOCKS stay pending for AbortSignal and request
+destruction at the 200 ms snapshot. The request has no error or close event.
+Both socket ends stay open. Evidence precedes handshake refusal and teardown.
+The newer Once version does not fix these handshake paths; neither calls Once.
+
+A separate no-network probe injects only the candidate wrapper into Theia's
+unchanged `connectProxyResolver`. Both candidates fail during setup. Version
+0.14.0 changes `createTlsPatch` to take parameters and originals separately;
+Theia supplies only originals. Setup fails while reading `connect` from an
+undefined value. Version 0.45.0 requires `loadSystemCertificatesFromNode`,
+which this Theia adapter does not supply. No connection occurs in either
+adapter probe. Version 0.45.0 also requires Node 22.15.0 or later. The isolated
+tests use Node 24.15.0, not the packaged Electron Node runtime.
+
+Two final repeats per candidate each have seven checks: two passes and five
+hard failures, with no skips or pending checks. Four failures concern request
+cleanup; one concerns adapter initialization. An earlier 0.14.0 run also tries
+four patched requests, which fail at the same adapter setup boundary. The
+final runner separates that API failure from handshake results. No child
+reaches its four-second deadline. These results do not show cancellation
+through an adapted newer Theia patch or a real extension.
+
+Repeat against an already installed isolated candidate with:
+
+```sh
+AI1_PROXY_CANDIDATE_RESOURCES=/absolute/candidate/folder node --test scripts/proxy-candidate-review.spec.mjs
+```
+
+The candidate suite stays separate from normal release checks. It requires
+explicit input and keeps the defects as failures. Candidate selection applies
+only to a probe child. The ordinary suite does not pass that input to its
+children. Development and packaged baseline runs confirm this isolation:
+each retains six passes and six hard failures with the installed 0.13.2 stack.
+The app, installed dependencies, project lockfile, and release-age policy stay
+unchanged. No adapter shim or forced upgrade occurs. A wrapper-only upgrade
+is not a verified fix. A cancellation design with explicit handshake ownership
+still needs review and regression tests before an app change.
+
 ### Fresh audit and release-age checks: 2026-10-07
 
 The audit before the MCP SDK update has 64 entries: four low, 47 moderate, and 13 high. The
