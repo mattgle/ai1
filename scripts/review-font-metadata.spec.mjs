@@ -248,3 +248,39 @@ test("reviewed installed font bytes and embedded fields match the retained evide
   }
   assert.deepEqual(review.proposedLicenseSupplementMappings, []);
 });
+
+test("Octicons source evidence keeps font terms separate from the release's root MIT notice", () => {
+  const resources = new URL("../applications/electron/resources/third-party/", import.meta.url);
+  const review = JSON.parse(readFileSync(new URL("font-metadata/review.json", resources), "utf8"));
+  const followUp = review.octiconsSourceFollowUp;
+  const font = review.fontFiles.find((entry) => entry.path === "fonts/octicons.woff2");
+  const readme = readFileSync(new URL(`font-metadata/${followUp.readme.text}`, resources));
+  assert.equal(readme.length, followUp.readme.bytes);
+  assert.equal(createHash("sha256").update(readme).digest("hex"), followUp.readme.sha256);
+  assert.equal(followUp.readme.sha256, "86005d3639cb81f162a69b4a6cbe648515ad0ff356403e9b9307cef30f55471c");
+  assert.equal(followUp.readme.fontLicense, "OFL-1.1");
+  assert.equal(followUp.readme.codeLicense, "MIT");
+  assert.ok(readme.includes(Buffer.from(followUp.readme.copyright)));
+  assert.match(
+    readme.toString(),
+    /_Font License:_ \[SIL OFL 1\.1\].*\nApplies to all font files and SVG files/,
+  );
+  assert.match(readme.toString(), /_Code License:_ \[MIT\]\(\.\/LICENSE\).*\nApplies to all other files/);
+  assert.equal(followUp.font.bytes, font.bytes);
+  assert.equal(followUp.font.sha256, font.sha256);
+  assert.deepEqual(followUp.font.matches, [
+    { tag: "v4.3.0", revision: "8ebdd11def514478a355837621e83a2f8e7ef06c" },
+    { tag: "v4.4.0", revision: "62c672732695b6429678bcd321520c41af109475" },
+  ]);
+  assert.equal(
+    font.sourceUrl,
+    `https://raw.githubusercontent.com/primer/octicons/${followUp.annotatedTag.commit}/${followUp.font.path}`,
+  );
+  assert.equal(followUp.annotatedTag.signatureVerified, false);
+  const mappings = JSON.parse(readFileSync(new URL("font-sources.json", resources), "utf8"));
+  assert.equal(
+    mappings.fonts.some((entry) => entry.path.endsWith("/octicons.woff2")),
+    false,
+  );
+  assert.deepEqual(review.proposedLicenseSupplementMappings, []);
+});

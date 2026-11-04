@@ -38,9 +38,13 @@ for (const [options, pluginName, loadedSources, generatorPath] of [
   );
 }
 browserOptions.plugins.unshift(
-  dompurifyPlugin.dompurifyBuildPlugin(require.resolve("dompurify"), (record) => {
-    sanitizerTransformations.set(record.path, record);
-  }),
+  captureBuildPlugin(
+    dompurifyPlugin.dompurifyBuildPlugin(require.resolve("dompurify"), (record) => {
+      sanitizerTransformations.set(record.path, record);
+    }),
+    browserLoadedSources,
+    require.resolve("../../scripts/dompurify-build-plugin.cjs"),
+  ),
 );
 for (const options of [browserOptions, nodeOptions, electronOptions]) options.metafile = true;
 

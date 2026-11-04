@@ -110,8 +110,9 @@
       "nameTable": "octicons",
       "archiveBytesEqual": true,
       "sourceBytesEqual": true,
-      "sourceUrl": "https://raw.githubusercontent.com/websemantics/file-icons-js/984e737370a5ce97b250b09f33f2571c585b8667/fonts/octicons.woff2",
-      "scope": "Exact package-source match only. The original Octicons font release remains unidentified."
+      "sourceUrl": "https://raw.githubusercontent.com/primer/octicons/62c672732695b6429678bcd321520c41af109475/build/font/octicons.woff2",
+      "packageSourceUrl": "https://raw.githubusercontent.com/websemantics/file-icons-js/984e737370a5ce97b250b09f33f2571c585b8667/fonts/octicons.woff2",
+      "scope": "Exact upstream bytes also appear in v4.3.0 and v4.4.0. Complete font terms, compilation provenance, and trademark rights remain unverified."
     }
   ],
   "nameTables": {
@@ -191,6 +192,71 @@
       "nameTable": "devopicons"
     }
   ],
+  "octiconsSourceFollowUp": {
+    "reviewDate": "2026-10-08",
+    "scope": "Direct public font bytes match the installed and current signed-package copies. This does not identify a unique originating release or verify original font compilation.",
+    "font": {
+      "path": "build/font/octicons.woff2",
+      "gitBlob": "69e7b2a4044aab1229fb72eee8379df10f82e4cf",
+      "bytes": 20248,
+      "sha256": "256719a0ef15b92047b9eb3e3557509b9bf8177c5b76c6f4614004344bc333b9",
+      "matches": [
+        { "tag": "v4.3.0", "revision": "8ebdd11def514478a355837621e83a2f8e7ef06c" },
+        { "tag": "v4.4.0", "revision": "62c672732695b6429678bcd321520c41af109475" }
+      ]
+    },
+    "annotatedTag": {
+      "name": "v4.4.0",
+      "object": "bbfe39fc1a8c9998221a331ece2c788998a04730",
+      "commit": "62c672732695b6429678bcd321520c41af109475",
+      "signatureVerified": false
+    },
+    "readme": {
+      "text": "octicons-4.4.0-readme.txt",
+      "url": "https://raw.githubusercontent.com/primer/octicons/62c672732695b6429678bcd321520c41af109475/README.md",
+      "bytes": 2992,
+      "sha256": "86005d3639cb81f162a69b4a6cbe648515ad0ff356403e9b9307cef30f55471c",
+      "copyright": "(c) 2012-2016 GitHub, Inc.",
+      "fontLicense": "OFL-1.1",
+      "fontScope": "Applies to all font files and SVG files",
+      "codeLicense": "MIT",
+      "codeScope": "Applies to all other files"
+    },
+    "rootCodeNotice": {
+      "url": "https://raw.githubusercontent.com/primer/octicons/62c672732695b6429678bcd321520c41af109475/LICENSE",
+      "bytes": 1074,
+      "sha256": "1cacc79d63b38724210accc569e7a07c8644a799477c5591025cfa9868d557e4",
+      "scope": "The release README assigns this MIT notice to non-font, non-SVG files. It does not cover the shipped font."
+    },
+    "sourceManifest": {
+      "name": "octicons",
+      "version": "4.4.0",
+      "license": "(OFL-1.1 OR MIT)",
+      "bytes": 1060,
+      "sha256": "f8d67e6b7046112f8cd97eea1a540eaeeba959016493107e060d9aa4f2d83b60",
+      "scope": "Package metadata does not override the release README's file-specific license declaration."
+    },
+    "registryArchive": {
+      "name": "octicons",
+      "version": "4.4.0",
+      "gitHead": "62c672732695b6429678bcd321520c41af109475",
+      "url": "https://registry.npmjs.org/octicons/-/octicons-4.4.0.tgz",
+      "integrity": "sha512-I/NKRKeHEbF+8y6VmJw9pcQ6IBXDuu+F8mJYN10dpaZrl95MOxn+9xRiss1SYkIZ5+2p1xbUl7GuWd+8mNZb8Q==",
+      "integritySource": "Public registry metadata, not the workspace lockfile.",
+      "bytes": 944733,
+      "sha256": "aa4b336e5a7200851dfa2ec17c2e794b3591dcece6b7c9ceb0afaee693842d85",
+      "entries": 368,
+      "fontBytesEqual": true,
+      "readmeBytesEqual": true,
+      "rootCodeNoticeBytesEqual": true,
+      "scope": "Selected archive entries match pinned release and installed font bytes. The two notice-named candidates contain no complete OFL text. No archive extraction, installation, or execution occurs."
+    },
+    "remainingGaps": [
+      "The release tree has no complete OFL text in its notice-named files; the README supplies a link and copyright declaration.",
+      "Complete matching font notices and GitHub logo conditions still need review.",
+      "No production font-source or license-supplement mapping changes."
+    ]
+  },
   "proposedLicenseSupplementMappings": [],
   "scopeLimit": "Absence is established only for the inspected name records and optional metadata blocks. Other tables, glyph rights, trademark rights, modified-font permission, and complete corresponding source remain separate checks."
 }

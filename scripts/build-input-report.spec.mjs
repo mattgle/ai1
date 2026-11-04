@@ -4,6 +4,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { Buffer } from "node:buffer";
+import { createRequire } from "node:module";
+import { URL } from "node:url";
 import { build, context } from "esbuild";
 import { test } from "node:test";
 import {
@@ -11,7 +13,107 @@ import {
   buildInputReport,
   captureBuildPlugin,
 } from "./build-input-report.mjs";
-import sanitizerPlugin from "./dompurify-build-plugin.cjs";
+import { verifySanitizerGeneratorReport } from "./review-generator-tooling.mjs";
+
+test("isolated file-capture prototype preserves default output, plugin priority, and rebuild bytes", async (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ai1-file-capture-")));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const files = {
+    "entry.js":
+      'import data from "./data.json"; import value from "./value.cjs"; import extra from "./extra.mjs"; import custom from "./custom.js"; import asset from "./native.node"; import "./style.css"; console.log(data, value, extra, custom, asset);',
+    "data.json": '{"value":1}',
+    "value.cjs": "module.exports = 2;",
+    "extra.mjs": "export default 3;",
+    "custom.js": "This file must be handled by the earlier plugin.",
+    "style.css": '@font-face { font-family: fixture; src: url("./font.woff2?v=1#font"); }',
+    "font.woff2": Buffer.from([0, 255, 1, 128]),
+    "native.node": Buffer.from([255, 0, 128, 1]),
+  };
+  for (const [name, contents] of Object.entries(files)) fs.writeFileSync(path.join(root, name), contents);
+  const records = [];
+  const loaders = { ".js": "js", ".mjs": "js", ".cjs": "js", ".json": "json", ".css": "css" };
+  const capture = {
+    name: "isolated-file-capture-prototype",
+    setup(build) {
+      build.onStart(() => {
+        records.length = 0;
+      });
+      build.onLoad({ filter: /.*/, namespace: "file" }, (args) => {
+        const real = fs.realpathSync(args.path);
+        if (!real.startsWith(root + path.sep) || !fs.statSync(real).isFile())
+          throw new Error("Prototype file capture escapes the fixture.");
+        const extension = path.extname(args.path);
+        const loader = build.initialOptions.loader?.[extension] ?? loaders[extension];
+        if (!loader) throw new Error("Prototype file capture has an unknown loader.");
+        const contents = fs.readFileSync(real);
+        records.push({ path: args.path, suffix: args.suffix, loader, contents: Buffer.from(contents) });
+        return { contents, loader, resolveDir: path.dirname(args.path) };
+      });
+    },
+  };
+  const custom = {
+    name: "earlier-plugin",
+    setup(build) {
+      build.onLoad({ filter: /custom\.js$/ }, () => ({ contents: "export default 4;", loader: "js" }));
+    },
+  };
+  const options = {
+    absWorkingDir: root,
+    entryPoints: ["entry.js"],
+    outdir: "output",
+    bundle: true,
+    write: false,
+    metafile: true,
+    loader: { ".woff2": "dataurl", ".node": "file" },
+    plugins: [custom],
+    logLevel: "silent",
+  };
+  const outputs = (result) =>
+    result.outputFiles.map((file) => ({ path: file.path, contents: Buffer.from(file.contents) }));
+  const baseline = await build(options);
+  const ctx = await context({ ...options, plugins: [custom, capture] });
+  try {
+    const captured = await ctx.rebuild();
+    assert.deepEqual(outputs(captured), outputs(baseline));
+    assert.deepEqual(captured.metafile, baseline.metafile);
+    assert.equal(records.length, Object.keys(files).length - 1);
+    assert.equal(
+      records.some((record) => record.path.endsWith("custom.js")),
+      false,
+    );
+    const font = records.find((record) => record.path.endsWith("font.woff2"));
+    assert.equal(font.suffix, "?v=1#font");
+    assert.equal(font.loader, "dataurl");
+    assert.deepEqual(font.contents, files["font.woff2"]);
+    assert.equal(records.find((record) => record.path.endsWith("native.node")).loader, "file");
+    const first = records.find((record) => record.path.endsWith("data.json"));
+    fs.writeFileSync(path.join(root, "data.json"), '{"value":9}');
+    const rebuilt = await ctx.rebuild();
+    assert.equal(records.length, Object.keys(files).length - 1);
+    assert.deepEqual(first.contents, Buffer.from(files["data.json"]));
+    assert.deepEqual(
+      records.find((record) => record.path.endsWith("data.json")).contents,
+      Buffer.from('{"value":9}'),
+    );
+    assert.deepEqual(outputs(rebuilt), outputs(await build(options)));
+    assert.notDeepEqual(outputs(rebuilt), outputs(baseline));
+  } finally {
+    await ctx.dispose();
+  }
+  fs.writeFileSync(path.join(root, "unknown.xyz"), "unknown");
+  await assert.rejects(
+    build({ ...options, entryPoints: ["unknown.xyz"], plugins: [capture] }),
+    /unknown loader/,
+  );
+  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ai1-file-capture-outside-")));
+  t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(outside, "external.js"), "export default 1;");
+  fs.symlinkSync(path.join(outside, "external.js"), path.join(root, "linked.js"));
+  await assert.rejects(
+    build({ ...options, entryPoints: ["linked.js"], plugins: [capture] }),
+    /escapes the fixture/,
+  );
+});
 
 test("sanitizer evidence records the exact loaded transformation and rejects inconsistent inputs", async () => {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ai1-transformed-evidence-")));
@@ -33,18 +135,31 @@ test("sanitizer evidence records the exact loaded transformation and rejects inc
       path.join(root, "entry.js"),
       `import sanitizer from ${JSON.stringify(original)}; console.log(sanitizer);`,
     );
+    const generatorPath = path.join(root, "scripts/dompurify-build-plugin.cjs");
+    fs.mkdirSync(path.dirname(generatorPath), { recursive: true });
+    fs.copyFileSync(new URL("./dompurify-build-plugin.cjs", import.meta.url), generatorPath);
+    const sanitizerPlugin = createRequire(import.meta.url)(generatorPath);
     const transformations = [];
-    const result = await build({
+    const loadedSources = [];
+    const options = {
       absWorkingDir: root,
       entryPoints: ["entry.js"],
       outfile: "bundle.js",
       bundle: true,
       metafile: true,
       plugins: [sanitizerPlugin.dompurifyBuildPlugin(replacement, (record) => transformations.push(record))],
+    };
+    await build(options);
+    const baseline = fs.readFileSync(path.join(root, "bundle.js"));
+    transformations.length = 0;
+    const result = await build({
+      ...options,
+      plugins: [captureBuildPlugin(options.plugins[0], loadedSources, generatorPath)],
     });
+    assert.ok(fs.readFileSync(path.join(root, "bundle.js")).equals(baseline));
     const run = (records) =>
       buildInputReport(
-        [{ name: "browser", metafile: result.metafile, transformations: records }],
+        [{ name: "browser", metafile: result.metafile, transformations: records, loadedSources }],
         root,
         root,
       );
@@ -56,8 +171,18 @@ test("sanitizer evidence records the exact loaded transformation and rejects inc
     assert.equal(originalInput.source.sha256, evidence.original.sha256);
     assert.equal(originalInput.source.bytes, evidence.original.bytes);
     assert.notEqual(originalInput.source.bytes, originalInput.bytes);
-    assert.equal(originalInput.loadedSource.status, "captured-transformation");
+    assert.equal(originalInput.loadedSource.status, "captured-plugin-load");
     assert.equal(originalInput.loadedSource.sha256, evidence.transformed.sha256);
+    assert.equal(originalInput.loadedSource.generator?.path, "scripts/dompurify-build-plugin.cjs");
+    assert.equal(originalInput.loadedSource.plugin, "ai1-monaco-dompurify");
+    assert.equal(originalInput.loadedSource.generator.sha256, hash(fs.readFileSync(generatorPath)));
+    assert.equal(originalInput.loadedSource.generator.bytes, fs.statSync(generatorPath).size);
+    assert.equal(
+      verifySanitizerGeneratorReport(root, report).productionReportIdentity,
+      "recorded-byte-match",
+    );
+    assert.match(originalInput.loadedSource.dependencyScope, /not captured/);
+    assert.throws(() => assertLoadedBuildInputsCaptured(report), /unverified/);
     assert.equal(evidence.transformed.sha256, hash(transformations[0].contents));
     assert.equal(evidence.transformed.contents, transformations[0].contents);
     assert.equal(evidence.replacement.sha256, hash(fs.readFileSync(replacement)));
@@ -73,6 +198,8 @@ test("sanitizer evidence records the exact loaded transformation and rejects inc
     assert.throws(() => run([{ ...transformations[0], contents: root }]), /local path/);
     assert.throws(() => run([{ ...transformations[0], original: "not bytes" }]), /Invalid/);
     assert.ok(fs.readFileSync(original).equals(transformations[0].original));
+    fs.appendFileSync(generatorPath, "\n// Changed generator fixture.\n");
+    assert.throws(() => run(transformations), /generator changes/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

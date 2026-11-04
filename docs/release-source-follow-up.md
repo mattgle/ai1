@@ -44,6 +44,94 @@ watcher's nonliteral platform-package load remains outside this static inventory
 Complete loaded inputs, runtime branch checks, source duties, and license duties
 stay open.
 
+## Offline optional-module caller checks: 2026-10-09
+
+Five new caller fixtures run the exact installed JavaScript with controlled
+module loaders in separate VM contexts. Fixed SHA-256 values match the five
+disk identities in the current production report. The fixtures reject changed
+caller bytes. They do not run the backend bundle or native modules.
+
+- WebSocket 8.21.3 uses JavaScript masking when `bufferutil` is missing.
+  Round trips cover both native-selection size thresholds and output boundaries.
+- WebSocket UTF-8 validation skips `utf-8-validate` when Node supplies `isUtf8`.
+  Without that builtin, a missing optional module leaves the JavaScript validator.
+  Valid text, overlong encodings, surrogates, truncated sequences, and out-of-range
+  code points agree with Node's validator across the selection thresholds.
+- Watcher 2.6.0 tries its simulated macOS arm64 package, Release binding, then
+  Debug binding. All missing bindings produce the documented failure.
+  A native-load error at any step stops fallback and retains the original error.
+  Synthetic successful bindings do not start a watcher.
+- Resolve Package Path 4.0.3 catches the missing `pnpapi` import and uses its
+  standard resolver. Present and absent package results use a memory-only
+  resolver and cache. This does not test real filesystem resolution or Yarn.
+- Proxy Agent 0.13.2 catches a missing Windows certificate module, logs one error,
+  and completes the certificate callback without changing request options.
+  A repeated call reuses the cached result. The fixture exposes the private
+  certificate caller only in memory. It reads no certificate store.
+
+All 14 focused external-load checks pass, including the nine inventory checks.
+No host module-loader, environment, dependency, or installed-app setting changes.
+No GUI launch, native binding, certificate command, or network request occurs.
+The source hashes are report-time disk evidence, not original loaded-byte capture.
+The five inventory targets remain unresolved. These results establish behavior
+under injected failures, not complete source coverage or platform validation.
+
+The integrated checkpoint passes all 143 release checks, lint, focused formatting,
+whitespace checks, and both fully redacted secret scans.
+
+## Default-loader capture assessment: 2026-10-09
+
+A read-only count of the current production report gives:
+
+| Build | Inputs | Captured inputs | Uncaptured inputs | Unique external path/kind pairs |
+| --- | ---: | ---: | ---: | ---: |
+| Browser | 3,370 | 15 | 3,355 | 3 |
+| Backend | 2,329 | 8 | 2,321 | 70 |
+| Electron | 17 | 0 | 17 | 1 |
+
+The 5,693 uncaptured inputs have no report-time disk-size mismatches. This does
+not establish loaded-byte identity. The strict loaded-input gate still rejects
+the report with `Loaded build sources or external runtime sources remain unverified.`
+
+Browser uncaptured inputs include 3,058 JS, two MJS, 72 JSON, 208 CSS, and
+15 font, image, or WASM files. Backend inputs include 2,175 JS, one MJS,
+96 CJS, 45 JSON, and four native `.node` files. Electron has 17 JS files.
+The generated build options share explicit asset loader overrides. Native
+transformations and virtual polyfill loads already have separate captures.
+
+The existing `captureBuildPlugin` wraps registered plugin callbacks only.
+It does not observe esbuild's default file reads. Reading files again after
+the build cannot close this gap. A file-capture plugin must supply the bytes
+that esbuild loads, after existing plugins have their chance to handle each file.
+This changes who supplies input contents, even if output bytes stay unchanged.
+
+The next local test scope is an isolated capture prototype, not production
+integration. It must preserve configured and default loader selection, CSS asset
+resolution and suffixes, plugin precedence, binary contents, path containment,
+and per-rebuild resets. It must compare actual esbuild output bytes with the
+default-loader control. Unknown loaders must fail rather than guess. Production
+integration requires a later full-build comparison. External runtime imports,
+resolution provenance, and complete source duties remain separate gates.
+
+This assessment changes no build plugin, dependency, generated file, or package.
+
+### Isolated prototype result
+
+The test-only file-capture prototype passes a real-esbuild comparison. JS, MJS,
+CJS, JSON, CSS, a data-URL font, and a file-loader binary produce exactly the
+default control's output bytes and metafile. An earlier plugin still supplies
+its own module contents. The font keeps its query and fragment suffix.
+Rebuilds reset records, retain the first byte snapshot, and capture changed JSON
+bytes. The rebuilt output matches a fresh default-loader control. Unknown
+extensions and links outside the fixture fail. All ten build-report checks pass.
+
+This is a small synthetic fixture, not the 5,693 production inputs. The prototype
+lives only in `scripts/build-input-report.spec.mjs`. It does not extend the
+production report schema or capture plugin. Production loader coverage, watch
+invalidation, full-output equivalence, and runtime source gates remain open.
+The final checkpoint passes all 144 release checks, lint, focused formatting,
+whitespace, and both redacted secret scans. The lockfile stays unchanged.
+
 ## Offline generator tooling review: 2026-10-07
 
 The checker verifies the current macOS arm64 tooling candidates. It reads local
@@ -87,7 +175,91 @@ redacted secret scans pass. The lockfile hash stays unchanged. The existing
 local app also passes strict deep signature verification after the runtime
 checks. No app rebuild, installed-app replacement, or binary publication occurs.
 
+### Sanitizer generator capture follow-up: 2026-10-08
+
+The sanitizer evidence previously records transformed contents and replacement
+bytes but not its generator identity. A failing regression reproduces that
+missing field. The production build configuration now wraps the sanitizer
+plugin with the existing `captureBuildPlugin` helper. It keeps the sanitizer's
+separate transformation callback and shares the browser capture array with the
+polyfill wrapper. No sanitizer implementation or dependency changes.
+
+The actual production build passes. Its report records one sanitizer plugin
+load with generator path `scripts/dompurify-build-plugin.cjs`, 1,193 bytes, and
+SHA-256 `b57199ae6384e976520b39af15209f54606c4ff0f36d7a5aab0d427fbc85b71c`.
+The offline checker verifies that record against the current local generator.
+It checks the exact input, browser build, plugin, loader, byte count, hash, and
+absence of dependency-package identity for this workspace script. Old reports
+still return `not-recorded`; they do not acquire evidence from current bytes.
+Malformed or changed captures fail instead of clearing the missing-identity gap.
+
+The isolated real-esbuild fixture produces identical bundle bytes with and
+without the wrapper. It checks report-time rejection of a changed generator.
+The actual report retains 14 polyfill captures and eight backend captures.
+It has 3,370 browser inputs, 2,329 backend inputs, and 17 Electron inputs.
+Its serialized content contains no workspace-root path. The complete-loaded-input
+gate still rejects it because default-loader snapshots and external runtime
+sources remain unverified. Generator dependencies, original module-load identity,
+complete compilation provenance, source duties, and license duties stay open.
+
+The wider offline run exposes macOS temporary-path aliases in the tooling and
+polyfill fixtures. Node resolves the correct nested package through the canonical
+path, while the fixture compares it with the alias. Canonicalizing only the
+fixture roots fixes the mismatch. Production containment checks stay strict.
+Both repeated six-test polyfill runs pass, including the actual external-import
+and workspace-boundary checks.
+
+The build verifies 18 cached notice assets without downloads. It reports the
+two existing Agents helper `require.resolve` warnings. No Electron GUI launch,
+signed-package rebuild, installed-app replacement, or binary publication occurs.
+
+Final verification passes all 136 release-script checks and both sanitizer
+behavior tests, with no skips or pending checks. Lint, focused formatting, and
+whitespace checks pass. Both fully redacted secret scans pass with the existing
+cached Gitleaks executable supplied through `GITLEAKS_BIN`; no scanner is
+installed. These results do not replace native, GUI, security, or legal review.
+
+### Computed tooling require follow-up: 2026-10-08
+
+The fixed `local-pkg` 1.2.1 source contains one computed direct `require` call:
+`require('u' + 'rl')`. The checker now uses the already installed Acorn parser
+to identify that actual call. It accepts only the reviewed binary concatenation
+of the two string literals. Comments and strings that resemble a call do not
+count. Missing calls, duplicate calls, dynamic arguments, different constants,
+template expressions, and extra arguments fail. It evaluates no reviewed code.
+
+The static specifier is `url`. Parent-relative Node resolution selects that
+builtin, not an npm file. The report keeps its source as `not-captured` with
+kind `node-runtime`. The original conditional Plug'n'Play path does not run in
+this check. The check does not establish the `require` binding at runtime,
+dynamic resolver targets, original Node runtime bytes, or branch reachability.
+
+The real offline run uses the cached 19 lockfile-verified archives. All 59
+selected files and 33 static module candidates match. The 42 recorded file
+resolutions and separate host-esbuild resolution pass. Both original generator
+capture sets remain unchanged, and the sanitizer generator returns
+`recorded-byte-match` against the current production report.
+The reviewed `local-pkg/dist/index.cjs` has 6,123 bytes and SHA-256
+`d67f7cddbd2aea5b71b2c5f604684379b657533b211d2642335a54263558468b`.
+Both optional `pnpapi` paths remain unresolved. Complete tooling closure,
+loaded inputs, compilation provenance, and source duties stay open.
+
+All 12 focused tooling checks pass, including the real installed-source check
+and synthetic full-review archive fixtures. No network request, tool install,
+dependency change, app build, GUI launch, or reviewed-tool execution occurs in
+the real cached-archive run.
+
+The integrated Octicons and tooling checkpoint passes all 138 release-script
+checks, lint, focused formatting, whitespace checks, and both fully redacted
+secret scans. The lockfile stays unchanged. The upstream README byte regression
+passes with its narrow whitespace exception. These checks do not clear the
+remaining font, security, runtime, or complete-source release gates.
+
 ## Five unresolved package notices
+
+The sections below retain the earlier five-entry package checkpoint. The approved
+Once source supplement later reduces source generation to four entries without
+changing that signed package.
 
 Each registry archive passes the exact current lockfile SHA-512 check.
 The registry `gitHead` identifies each checked source tree.
@@ -326,6 +498,38 @@ All 135 integrated release-script checks pass with no skips or pending checks.
 Lint, formatting, whitespace, and both redacted secret scans pass. The lockfile
 hash stays unchanged. These results do not resolve the Font Awesome notice gap.
 
+### Use Composed Ref notice follow-up: 2026-10-08
+
+The current `main` branch still resolves to the exact registry source revision
+`ea2c9d969f2f90a349f4c99338b806423824cea2`. Its complete recursive tree has
+15 entries and no license, copying, or notice path. Its 107-byte README contains
+only the package name and purpose. The public default-branch history returns
+16 commits, with no later notice addition after release 1.4.0.
+
+Upstream [issue 7](https://github.com/Andarist/use-composed-ref/issues/7) requests
+a license file. The maintainer welcomes PRs but supplies no copyright notice
+or complete terms in that discussion.
+[PR 8](https://github.com/Andarist/use-composed-ref/pull/8) proposes an MIT
+notice from a different contributor. It remains open and unmerged, with no
+approval review. Its base is the older 1.3.0 revision
+`8132edb9c39e4b5690121a525f9978439b6989b4`; its head is
+`6b1ad811f166e848a1f82aef405542b7b0d17b3b`. Do not treat this unaccepted
+proposal as a publisher-approved notice for shipped 1.4.0.
+
+The exact 1,997-byte npm archive again passes the current lockfile SHA-512
+check. Its SHA-256 remains
+`e96570f537b0911cfcfdacb026d5680df679edd4747602d027ad451412501cae`.
+All ten archive files match the installed files. The four packaged executable
+JavaScript files and the packaged `.d.mts` file also match their archive bytes.
+The package omits README and three `.d.ts` files. Its manifest differs from
+the archive. These checks read archive entries in memory without extraction
+or execution. They establish byte identity, not original compilation provenance.
+
+No supplement mapping changes. This notice gap needs an accepted upstream
+notice covering 1.4.0 or a separately approved dependency change. No upstream
+issue, PR comment, or other external write occurs. The four unresolved source
+notice entries and the unchanged signed package's five entries remain open.
+
 ## Modified fonts
 
 The pinned MFixx README identifies the font as an optimized MFizz derivative.
@@ -344,6 +548,94 @@ do not, by themselves, establish the terms for these modified fonts.
 Octicons source-release identity, the copied Font Awesome font's terms, icon
 design rights, and Codicons trademark review stay open. No new font mapping
 is proposed. This review does not install a WOFF2 reader.
+
+### Modified-font source notice follow-up: 2026-10-08
+
+The complete recursive trees at the two shipped-font source revisions contain
+229 MFixx entries and 402 DevOpicons entries. Neither tree has a license,
+copying, notice, or author filename. Review of each README, Makefile,
+`icomoon.json`, and distributed SVG font finds no complete font notice. The
+IcoMoon font metadata identifies only the family and version. Its generation
+credit remains separate from permission. This named-file review does not claim
+to inspect every glyph or Illustrator source file.
+
+MFixx's current `master` revision is
+`aabb5badb3fbf70ea2446794126e4247e184d653`. It has a complete MIT notice added
+at `0f9c9d3c205a076013999687a3cfb504af76d165` on 2025-10-11. The immutable
+[notice](https://raw.githubusercontent.com/file-icons/MFixx/0f9c9d3c205a076013999687a3cfb504af76d165/LICENSE.md)
+contains 1,098 bytes with SHA-256
+`57abe9ead45bf48ce801bcb033ee2ab3da96f5fcbcd8d6a387d81a716ab53b90`.
+It names Fizzed, Inc. for 2013–2015 and John Gardner for 2016–2025.
+
+The comparison from the shipped source to that notice addition contains three
+commits. Before the notice addition, a font re-export changes all five files
+in `dist/`, `icomoon.json`, and the character map. The later complete notice
+therefore does not have the unchanged-source connection used for the approved
+Once supplement. Its applicability to the earlier shipped font remains open.
+No modified-font mapping changes from this comparison alone.
+
+DevOpicons's current `master` revision is
+`2c2bf2bdb6507b8e4bfe695c1d54d639fbfed479`. Its complete tree still has 402
+entries and no notice filename. In
+[issue 5](https://github.com/file-icons/DevOpicons/issues/5#issuecomment-720269956),
+the maintainer points to the original Devicons project's MIT manifest metadata
+and states that its repository lacks a license file. That statement does not
+supply complete terms and required copyright notices for the modified font.
+The issue's closed state is not evidence of a complete distributed notice.
+
+Both modified-font notice gates remain open. No font replacement, notice
+mapping, dependency install, app build, GUI launch, or publication occurs.
+
+## Octicons release-source match: 2026-10-08
+
+The installed and signed-package File Icons JS Octicons font has 20,248 bytes
+and SHA-256
+`256719a0ef15b92047b9eb3e3557509b9bf8177c5b76c6f4614004344bc333b9`.
+Direct public downloads match both copies exactly at these original upstream
+releases:
+
+| Tag | Commit | Font path |
+| --- | --- | --- |
+| `v4.3.0` | `8ebdd11def514478a355837621e83a2f8e7ef06c` | `build/font/octicons.woff2` |
+| `v4.4.0` | `62c672732695b6429678bcd321520c41af109475` | `build/font/octicons.woff2` |
+
+Both trees identify Git blob `69e7b2a4044aab1229fb72eee8379df10f82e4cf`.
+The complete reviewed trees for `v4.0.0`, `v4.1.0`, `v4.1.1`, `v4.2.0`, and
+`v4.2.1` contain different font blobs. The match identifies original upstream
+release counterparts, not a unique originating release or reproducible build.
+The annotated `v4.4.0` tag object
+`bbfe39fc1a8c9998221a331ece2c788998a04730` resolves to the listed commit.
+Its signature is unverified because the tag is unsigned.
+
+The exact 4.4.0 README supplies a copyright declaration for GitHub, Inc. for
+2012–2016. It assigns SIL OFL 1.1 to all font and SVG files. It assigns the root
+MIT notice to all other files. The manifest's `(OFL-1.1 OR MIT)` metadata does
+not establish a choice of MIT for this font in conflict with that specific
+declaration. The README also refers to GitHub's logo guidelines.
+
+The retained README is
+`applications/electron/resources/third-party/font-metadata/octicons-4.4.0-readme.txt`.
+It preserves all 2,992 upstream bytes with SHA-256
+`86005d3639cb81f162a69b4a6cbe648515ad0ff356403e9b9307cef30f55471c`.
+A file-specific Git whitespace rule preserves its original Markdown line endings.
+The offline regression verifies those bytes, file-specific terms, both release
+identities, and the absence of a production font-source mapping. The existing
+font metadata checks still verify missing embedded copyright and license fields.
+
+The exact `octicons@4.4.0` npm archive passes its public registry SHA-512 value.
+This is registry evidence, not a workspace lockfile check: AI1 has no direct
+Octicons dependency. The archive has 944,733 bytes, 368 entries, and SHA-256
+`aa4b336e5a7200851dfa2ec17c2e794b3591dcece6b7c9ceb0afaee693842d85`.
+Its `gitHead` matches the 4.4.0 commit. The font, README, and root code-license
+bytes match the reviewed public source. The only notice-named archive candidates
+are README and the root MIT license. Neither supplies complete OFL text.
+The read-only check reads archive entries in memory without extraction or execution.
+
+This result narrows the earlier unidentified-original-source gap. Complete
+matching font notices, original compilation inputs, glyph rights, and GitHub
+logo conditions remain open. Do not use the root code license as a font notice.
+No font replacement, production notice mapping, dependency change, app build,
+GUI launch, installed-app change, or binary publication occurs.
 
 ## FFmpeg source and patch evidence
 

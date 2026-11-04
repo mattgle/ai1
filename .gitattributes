@@ -1,3 +1,4 @@
 applications/electron/resources/third-party/theia/LICENSE-MIT.txt whitespace=-blank-at-eol
 applications/electron/resources/third-party/tokenizer/LICENSE-README.txt whitespace=-blank-at-eof
 applications/electron/resources/third-party/ffmpeg-source/link_with_loader_path.patch whitespace=-blank-at-eol
+applications/electron/resources/third-party/font-metadata/octicons-4.4.0-readme.txt whitespace=-blank-at-eol

@@ -1,9 +1,9 @@
 # Remaining dependency findings
 
-Current review: 2026-10-07. After the approved MCP SDK 1.31.0 update, the read-only
-npm audit reports four low, 47 moderate, and 12 high package findings. It reports
-no critical finding. The 63 entries
-include packages affected through a dependency. They are not 64 separate app exploits.
+Current review: 2026-10-13. After the compatible HTTP Cache Semantics 4.3.0 update,
+the read-only npm audit reports four low, 47 moderate, and 11 high package
+findings. It reports no critical finding. The 62 entries include packages
+affected through a dependency. They are not 62 separate app exploits.
 This review does not clear the release gate.
 
 The 2026-10-06 audit after the compatible Proxy Addr update has 63 findings.
@@ -24,8 +24,49 @@ The earlier reviewed lockfile SHA-256 is
 `342a306b284db3a3abee540b42c0672d8cd3387b57adfec4dc1e8c9dba1b6305`.
 The lockfile SHA-256 before the MCP SDK update is
 `8ba12b3fd93f741b38188eff099509b032dca1b463ccda5e4ddcdd9759537f1c`.
-The current lockfile SHA-256 is
+The lockfile SHA-256 before the October 13 cache update is
 `87c7cfba94e870ca6cb29d0b1b10caa28f3e482007c92a1486656f76816c0832`.
+The current lockfile SHA-256 is
+`e99e6d90e4cae465c7ba8197b13b473d8d2fd9f0b4a397122fa70f1b147da8d9`.
+
+## HTTP Cache Semantics update: 2026-10-13
+
+Version 4.3.0 now meets the configured seven-day release-age rule. Registry
+publication remains `2026-10-04T02:56:05.593Z`. Cacheable Request's existing
+`^4.0.0` range accepts the update. Npm 12.2.0 changes only the version,
+resolved URL, and integrity fields for this package. A parsed lockfile comparison
+preserves every other package and field. Installation disables lifecycle scripts.
+Its preview and actual result both report one change with no additions or removals.
+
+The package-lock-only command updates npm's hidden cache before installed files.
+The review preserves that cache in its temporary directory before the install
+preview. All four installed archive files then match the SHA-512-verified
+registry archive. Installed `index.js` has 35,882 bytes and SHA-256
+`ede1cc404a492fa348eb9d97a3007a0d72aa717bd22cd86a56bd0824c19729ca`.
+
+The earlier assumption that 4.3.0 fixes the cookie/max-stale fixtures is incorrect.
+The verified archive diff changes `Vary` matching and response status reporting.
+Both versions already contain the same `must-revalidate` check. The direct
+comparison shows 4.2.0 reuses responses with `Vary: accept-encoding, *` or
+`Vary:  * `. Version 4.3.0 rejects those responses. The ordinary matching-header
+control still permits reuse. A policy regression and both real loopback caller
+fixtures pass the new wildcard checks with 4.3.0.
+
+All three cookie/max-stale checks still fail: policy, Cacheable Request, and
+Got's downloader stream. Both caller fixtures make one origin request and reuse
+the first cookie response. The tests remove the obsolete release-age pending
+markers and keep these failures as hard failures. No app cache policy changes.
+The package remains a development dependency with no recorded bundle contribution.
+This does not establish the safety of arbitrary shared-cache configurations.
+
+The complete strict dependency and sanitizer suite has 42 passes and three hard
+failures across 45 checks, with no skips or pending tests. The full audit no
+longer lists HTTP Cache Semantics. The production-only lockfile audit has three
+low and 38 moderate findings, with no high or critical finding. Neither audit
+clears the behavioral failures. The separate proxy cancellation suite still has
+six passes and six hard failures in CONNECT and SOCKS handshake cancellation.
+
+Lint, workspace types, all 144 release-script checks, and whitespace checks pass.
 
 ## Approved MCP credential guard: 2026-10-07
 

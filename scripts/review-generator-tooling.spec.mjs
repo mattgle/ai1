@@ -13,10 +13,12 @@ import {
   boundedFile,
   reviewedGenerators,
   reviewedPackages,
+  reviewLocalPkgComputedRequire,
   reviewGeneratorTooling,
   verifyCandidateArchive,
   verifyGeneratorReport,
   verifyResolution,
+  verifySanitizerGeneratorReport,
 } from "./review-generator-tooling.mjs";
 
 const workspace = fileURLToPath(new URL("../", import.meta.url));
@@ -29,7 +31,7 @@ const record = (file, bytes) => ({
 });
 
 function fixtureRoot(t) {
-  const root = fs.mkdtempSync(path.join(temporaryRoot, "ai1-generator-test-"));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(temporaryRoot, "ai1-generator-test-")));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   return root;
 }
@@ -227,6 +229,105 @@ test("generator checks reject local mutation, changed identity, capture drift, a
   assert.throws(() => verifyGeneratorReport(root, report), /SHA-256/);
 });
 
+test("sanitizer generator review distinguishes old reports and rejects changed captures", (t) => {
+  const root = fixtureRoot(t);
+  const file = "scripts/dompurify-build-plugin.cjs";
+  const bytes = fs.readFileSync(path.join(workspace, file));
+  write(root, file, bytes);
+  const input = {
+    path: "node_modules/@theia/monaco-editor-core/esm/vs/base/browser/dompurify/dompurify.js",
+    bytes: 6,
+    loadedSource: {
+      status: "captured-transformation",
+      bytes: 6,
+      sha256: "0".repeat(64),
+    },
+  };
+  const report = { builds: [{ name: "browser", inputs: [input] }] };
+  const run = (value = report) => verifySanitizerGeneratorReport(root, value);
+  assert.equal(run().productionReportIdentity, "not-recorded");
+  Object.assign(input.loadedSource, {
+    status: "captured-plugin-load",
+    plugin: "ai1-monaco-dompurify",
+    loader: "js",
+    generator: { status: "on-disk", ...record(file, bytes), package: null },
+  });
+  assert.equal(run().productionReportIdentity, "recorded-byte-match");
+  for (const mutate of [
+    (value) => {
+      value.builds[0].name = "node";
+    },
+    (value) => value.builds[0].inputs.push(value.builds[0].inputs[0]),
+    (value) => {
+      value.builds[0].inputs[0].path = "other.js";
+    },
+    (value) => {
+      value.builds[0].inputs[0].loadedSource.plugin = "other";
+    },
+    (value) => {
+      value.builds[0].inputs[0].loadedSource.status = "captured-transformation";
+    },
+    (value) => {
+      value.builds[0].inputs[0].loadedSource.loader = "text";
+    },
+    (value) => {
+      value.builds[0].inputs[0].loadedSource.bytes = 7;
+    },
+    (value) => {
+      value.builds[0].inputs[0].loadedSource.sha256 = "invalid";
+    },
+    (value) => {
+      value.builds[0].inputs[0].loadedSource.generator.path = "../outside";
+    },
+    (value) => {
+      value.builds[0].inputs[0].loadedSource.generator.bytes++;
+    },
+    (value) => {
+      value.builds[0].inputs[0].loadedSource.generator.sha256 = "0".repeat(64);
+    },
+    (value) => {
+      value.builds[0].inputs[0].loadedSource.generator.package = { name: "other" };
+    },
+  ]) {
+    const changed = JSON.parse(JSON.stringify(report));
+    mutate(changed);
+    assert.throws(() => run(changed), /sanitizer generator/);
+  }
+  write(root, file, Buffer.from("Changed generator"));
+  assert.throws(() => run(), /sanitizer generator/);
+});
+
+test("the reviewed local-pkg computed require selects only the url builtin without execution", (t) => {
+  const root = fixtureRoot(t);
+  const file = "node_modules/local-pkg/dist/index.cjs";
+  const source = "throw new Error('Must not execute'); require('u' + 'rl');";
+  write(root, file, source);
+  const result = reviewLocalPkgComputedRequire(root);
+  assert.equal(result.expression, "'u' + 'rl'");
+  assert.equal(result.specifier, "url");
+  assert.equal(result.resolved, "url");
+  assert.equal(result.parent, file);
+  assert.equal(result.parentBytes, Buffer.byteLength(source));
+  assert.equal(result.parentSha256, createHash("sha256").update(source).digest("hex"));
+  assert.deepEqual(result.source, { status: "not-captured", kind: "node-runtime" });
+  assert.equal(result.branchExecuted, false);
+  for (const changed of [
+    "// require('u' + 'rl');",
+    "const text = \"require('u' + 'rl')\";",
+    "require(name);",
+    "require('f' + 's');",
+    "require('u' + 'rl', extra);",
+    "require('u' + 'rl'); require('u' + 'rl');",
+    "require(`url`);",
+    "require('u' + run());",
+  ]) {
+    write(root, file, changed);
+    assert.throws(() => reviewLocalPkgComputedRequire(root), /computed require changes/);
+  }
+  write(root, file, fs.readFileSync(path.join(workspace, file)));
+  assert.equal(reviewLocalPkgComputedRequire(root).resolved, "url");
+});
+
 test(
   "full offline review preserves production assertions with synthetic archives",
   {
@@ -273,6 +374,8 @@ test(
     assert.equal(result.staticModuleCandidates, 33);
     assert.equal(result.hostEsbuild.executed, false);
     assert.equal(result.sanitizerGenerator.productionReportIdentity, "not-recorded");
+    assert.equal(result.computedRequire.resolved, "url");
+    assert.equal(result.computedRequire.branchExecuted, false);
     assert.equal(result.unresolved.length, 2);
     assert.ok(
       result.resolutions.some(

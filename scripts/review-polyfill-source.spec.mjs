@@ -123,7 +123,7 @@ test("archive comparison rejects missing, changed, duplicate, and linked source 
 });
 
 test("nested reconstruction matches default output and rejects changed production bytes", async (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-polyfill-test-"));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ai1-polyfill-test-")));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const entry = path.join(root, "entry.js");
   fs.writeFileSync(entry, 'export { value } from "./value.js";\n');
@@ -150,7 +150,7 @@ test("nested reconstruction matches default output and rejects changed productio
 });
 
 test("nested reconstruction rejects out-of-workspace and external inputs", async (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ai1-polyfill-boundary-"));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ai1-polyfill-boundary-")));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const entry = path.join(root, "entry.js");
   const options = {

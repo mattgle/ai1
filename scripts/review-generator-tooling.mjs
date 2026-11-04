@@ -1,7 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
-import { createRequire } from "node:module";
+import { createRequire, isBuiltin } from "node:module";
+import { parse } from "acorn";
 import { fileURLToPath, URL } from "node:url";
 import { gunzipSync } from "node:zlib";
 import { readReviewedTarFiles, verifySourceBytes } from "./review-ffmpeg-source.mjs";
@@ -250,6 +251,106 @@ export function verifyGeneratorReport(root, report) {
   return reviewedGenerators;
 }
 
+export function verifySanitizerGeneratorReport(root, report) {
+  const generatorPath = "scripts/dompurify-build-plugin.cjs";
+  const bytes = fs.readFileSync(boundedFile(root, generatorPath));
+  const identity = { path: generatorPath, bytes: bytes.length, sha256: hash(bytes) };
+  const inputPath = n("@theia/monaco-editor-core", "esm/vs/base/browser/dompurify/dompurify.js");
+  const plugin = "ai1-monaco-dompurify";
+  const captures = report.builds.flatMap((build) =>
+    build.inputs
+      .filter((input) => input.path === inputPath || input.loadedSource?.plugin === plugin)
+      .map((input) => ({ build: build.name, input })),
+  );
+  if (
+    !captures.length ||
+    (captures.length === 1 &&
+      captures[0].input.loadedSource?.status === "captured-transformation" &&
+      !captures[0].input.loadedSource.generator &&
+      !captures[0].input.loadedSource.plugin)
+  )
+    return { ...identity, productionReportIdentity: "not-recorded" };
+  if (captures.length !== 1) throw new Error("The sanitizer generator capture count changes.");
+  const { build, input } = captures[0];
+  const loaded = input.loadedSource;
+  const generator = loaded?.generator;
+  if (
+    build !== "browser" ||
+    input.path !== inputPath ||
+    loaded?.plugin !== plugin ||
+    loaded.status !== "captured-plugin-load" ||
+    loaded.loader !== "js" ||
+    !Number.isSafeInteger(loaded.bytes) ||
+    loaded.bytes < 0 ||
+    loaded.bytes !== input.bytes ||
+    !/^[a-f0-9]{64}$/.test(loaded.sha256 ?? "") ||
+    generator?.status !== "on-disk" ||
+    generator.path !== identity.path ||
+    generator.bytes !== identity.bytes ||
+    generator.sha256 !== identity.sha256 ||
+    generator.package !== null
+  )
+    throw new Error("The sanitizer generator identity or capture record changes.");
+  return { ...identity, productionReportIdentity: "recorded-byte-match" };
+}
+
+export function reviewLocalPkgComputedRequire(root) {
+  const parent = n("local-pkg", "dist/index.cjs");
+  const file = boundedFile(root, parent);
+  const bytes = fs.readFileSync(file);
+  const source = bytes.toString("utf8");
+  const pending = [parse(source, { ecmaVersion: "latest", sourceType: "script" })];
+  const computed = [];
+  while (pending.length) {
+    const node = pending.pop();
+    if (
+      node.type === "CallExpression" &&
+      node.callee.type === "Identifier" &&
+      node.callee.name === "require" &&
+      !(
+        node.arguments.length === 1 &&
+        node.arguments[0].type === "Literal" &&
+        typeof node.arguments[0].value === "string"
+      )
+    )
+      computed.push(node);
+    for (const value of Object.values(node)) {
+      for (const child of Array.isArray(value) ? value : [value]) {
+        if (child && typeof child === "object" && typeof child.type === "string") pending.push(child);
+      }
+    }
+  }
+  const call = computed[0];
+  const argument = call?.arguments[0];
+  if (
+    computed.length !== 1 ||
+    call.arguments.length !== 1 ||
+    argument?.type !== "BinaryExpression" ||
+    argument.operator !== "+" ||
+    argument.left.type !== "Literal" ||
+    argument.left.value !== "u" ||
+    argument.right.type !== "Literal" ||
+    argument.right.value !== "rl"
+  )
+    throw new Error("The reviewed local-pkg computed require changes.");
+  const specifier = argument.left.value + argument.right.value;
+  const resolved = createRequire(file).resolve(specifier);
+  if (!isBuiltin(specifier) || resolved !== "url")
+    throw new Error("The reviewed local-pkg builtin resolution changes.");
+  return {
+    parent,
+    parentBytes: bytes.length,
+    parentSha256: hash(bytes),
+    expression: source.slice(argument.start, argument.end),
+    specifier,
+    resolved,
+    source: { status: "not-captured", kind: "node-runtime" },
+    branchExecuted: false,
+    scope:
+      "One direct require specifier only. PnP branches, require binding, dynamic resolver targets, and Node runtime bytes are not verified.",
+  };
+}
+
 function regularDirectory(folder) {
   if (!fs.lstatSync(folder).isDirectory()) throw new Error("A regular input directory is required.");
   return fs.realpathSync(folder);
@@ -263,7 +364,9 @@ export async function reviewGeneratorTooling(root, archiveFolder, buildReportPat
   const reportDirectory = regularDirectory(path.dirname(path.resolve(buildReportPath)));
   const reportFile = boundedFile(reportDirectory, path.basename(buildReportPath));
   const reportBytes = fs.readFileSync(reportFile);
-  const generators = verifyGeneratorReport(root, JSON.parse(reportBytes));
+  const report = JSON.parse(reportBytes);
+  const generators = verifyGeneratorReport(root, report);
+  const sanitizerGenerator = verifySanitizerGeneratorReport(root, report);
   const lock = JSON.parse(fs.readFileSync(boundedFile(root, "package-lock.json")));
   const packages = [];
   const candidates = new Set();
@@ -305,13 +408,13 @@ export async function reviewGeneratorTooling(root, archiveFolder, buildReportPat
   const resolutions = reviewedResolutions.map(([parent, specifier, expected]) =>
     verifyResolution(root, parent, specifier, expected),
   );
+  const computedRequire = reviewLocalPkgComputedRequire(root);
   const hostBinary = verifyResolution(
     root,
     n("esbuild", "lib/main.js"),
     "@esbuild/darwin-arm64/bin/esbuild",
     n("@esbuild/darwin-arm64", "bin/esbuild"),
   );
-  const sanitizerBytes = fs.readFileSync(boundedFile(root, "scripts/dompurify-build-plugin.cjs"));
   const unresolved = [n("esbuild", "lib/main.js"), r("index")].map((parent) => {
     try {
       createRequire(boundedFile(root, parent)).resolve("pnpapi");
@@ -332,6 +435,7 @@ export async function reviewGeneratorTooling(root, archiveFolder, buildReportPat
     generators,
     packages: packages.filter((entry) => entry.name !== hostPackage.name),
     resolutions,
+    computedRequire,
     hostEsbuild: {
       ...hostBinary,
       ...packages.find((entry) => entry.name === hostPackage.name),
@@ -340,19 +444,16 @@ export async function reviewGeneratorTooling(root, archiveFolder, buildReportPat
       originalBuildBinarySelectionVerified: false,
     },
     conditionalLinuxCandidate: { package: "detect-libc", branchExecuted: false },
-    sanitizerGenerator: {
-      path: "scripts/dompurify-build-plugin.cjs",
-      bytes: sanitizerBytes.length,
-      sha256: hash(sanitizerBytes),
-      productionReportIdentity: "not-recorded",
-    },
+    sanitizerGenerator,
     unresolved,
     remainingGaps: [
       "Absent optional pnpapi imports do not establish runtime safety or unreachable caller branches.",
-      "local-pkg has nonliteral require('u' + 'rl'); this expression is not resolved by the static candidate check.",
+      "The reviewed local-pkg computed require selects the url builtin, but its conditional branch, require binding, dynamic target resolution, and Node runtime source are not verified.",
       "Dynamic require.resolve paths, environment overrides, Node runtime bytes, resolver branches, importer manifests, and copied inputs are not a complete tooling closure.",
       "The original tooling environment, loaded dependency bytes, host binary selection, and default-loader snapshots remain unrecorded.",
-      "The sanitizer generator identity is not recorded in the production report.",
+      ...(sanitizerGenerator.productionReportIdentity === "not-recorded"
+        ? ["The sanitizer generator identity is not recorded in the production report."]
+        : []),
       "Complete compilation provenance, corresponding source, and license duties remain open.",
     ],
   };

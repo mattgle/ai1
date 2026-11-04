@@ -756,18 +756,14 @@ for (const [label, module] of [
   ["shared cache wrapper", "cacheable-request"],
   ["downloader stream", "got"],
 ]) {
-  test(
-    `the ${label} revalidates cookie responses despite max-stale`,
-    {
-      skip: Boolean(process.env.AI1_PACKAGED_RESOURCES),
-      todo:
-        !requireSecurityFixes &&
-        createRequire(import.meta.url)("http-cache-semantics/package.json").version === "4.2.0"
-          ? "The npm release-age guard blocks the 4.3.0 update."
-          : false,
-    },
-    () => {
-      const script = `const http = require("node:http");
+  for (const responseKind of ["cookie", "Vary wildcard"]) {
+    test(
+      `the ${label} revalidates ${responseKind} responses despite max-stale`,
+      {
+        skip: Boolean(process.env.AI1_PACKAGED_RESOURCES),
+      },
+      () => {
+        const script = `const http = require("node:http");
     const library = require(process.argv[1]);
     const useStream = process.argv[2] === "true";
     let stored;
@@ -778,7 +774,8 @@ for (const [label, module] of [
     let requests = 0;
     const server = http.createServer((request, response) => {
       requests++;
-      response.setHeader("Set-Cookie", "fixture=value");
+      if (process.argv[3] === "cookie") response.setHeader("Set-Cookie", "fixture=value");
+      else response.setHeader("Vary", "accept-encoding, *");
       response.setHeader("Cache-Control", "max-age=600");
       response.end("Fixture response " + requests);
     });
@@ -821,35 +818,31 @@ for (const [label, module] of [
         server.close();
       }
     });`;
-      const result = spawnSync(
-        process.execPath,
-        ["-e", script, require.resolve(module), String(module === "got")],
-        {
-          encoding: "utf8",
-          timeout: 8000,
-          maxBuffer: 4096,
-        },
-      );
-      assert.equal(result.error, undefined);
-      assert.equal(result.status, 0);
-      assert.equal(result.stderr, "");
-      const record = JSON.parse(result.stdout);
-      assert.deepEqual(record.first, { body: "Fixture response 1", fromCache: false });
-      assert.equal(record.originRequests, 2);
-      assert.deepEqual(record.second, { body: "Fixture response 2", fromCache: false });
-    },
-  );
+        const result = spawnSync(
+          process.execPath,
+          ["-e", script, require.resolve(module), String(module === "got"), responseKind],
+          {
+            encoding: "utf8",
+            timeout: 8000,
+            maxBuffer: 4096,
+          },
+        );
+        assert.equal(result.error, undefined);
+        assert.equal(result.status, 0);
+        assert.equal(result.stderr, "");
+        const record = JSON.parse(result.stdout);
+        assert.deepEqual(record.first, { body: "Fixture response 1", fromCache: false });
+        assert.equal(record.originRequests, 2);
+        assert.deepEqual(record.second, { body: "Fixture response 2", fromCache: false });
+      },
+    );
+  }
 }
 
 test(
   "shared caches reject max-stale requests for security-zeroed cookie responses",
   {
     skip: Boolean(process.env.AI1_PACKAGED_RESOURCES),
-    todo:
-      !requireSecurityFixes &&
-      createRequire(import.meta.url)("http-cache-semantics/package.json").version === "4.2.0"
-        ? "The npm release-age guard blocks the 4.3.0 update."
-        : false,
   },
   () => {
     const CachePolicy = createRequire(import.meta.url)("http-cache-semantics");
@@ -875,6 +868,40 @@ test(
       headers: { "cache-control": "public, max-age=600" },
     });
     assert.equal(publicPolicy.satisfiesWithoutRevalidation(request), true);
+  },
+);
+
+test(
+  "shared caches reject a Vary wildcard inside a field list or surrounding whitespace",
+  {
+    skip: Boolean(process.env.AI1_PACKAGED_RESOURCES),
+  },
+  () => {
+    const CachePolicy = createRequire(import.meta.url)("http-cache-semantics");
+    const request = {
+      url: "https://example.invalid/resource",
+      method: "GET",
+      headers: { host: "example.invalid", "accept-encoding": "gzip" },
+    };
+    for (const vary of ["accept-encoding, *", " * ", "*, accept-encoding"]) {
+      const policy = new CachePolicy(request, {
+        status: 200,
+        headers: { "cache-control": "public, max-age=600", vary },
+      });
+      assert.equal(policy.satisfiesWithoutRevalidation(request), false, vary);
+    }
+    const control = new CachePolicy(request, {
+      status: 200,
+      headers: { "cache-control": "public, max-age=600", vary: "accept-encoding" },
+    });
+    assert.equal(control.satisfiesWithoutRevalidation(request), true);
+    assert.equal(
+      control.satisfiesWithoutRevalidation({
+        ...request,
+        headers: { ...request.headers, "accept-encoding": "br" },
+      }),
+      false,
+    );
   },
 );
 
