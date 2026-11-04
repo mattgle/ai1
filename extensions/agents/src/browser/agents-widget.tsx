@@ -50,7 +50,11 @@ export class AgentsWidget extends TreeWidget {
     @inject(TreeModel) model: TreeModel,
     @inject(ContextMenuRenderer) contextMenuRenderer: ContextMenuRenderer,
   ) {
-    super({ ...props, contextMenuPath: SESSION_CONTEXT_MENU }, model, contextMenuRenderer);
+    super(
+      { ...props, contextMenuPath: SESSION_CONTEXT_MENU, expandOnlyOnExpansionToggleClick: true },
+      model,
+      contextMenuRenderer,
+    );
   }
 
   @postConstruct()
@@ -290,6 +294,8 @@ export class AgentsWidget extends TreeWidget {
     super.tapNode(node);
     if (isSessionNode(node)) {
       this.onOpenSession(node);
+    } else if (isGroupNode(node)) {
+      void this.model.toggleNodeExpansion(node);
     }
   }
 }

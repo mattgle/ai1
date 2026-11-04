@@ -101,6 +101,46 @@ local, not an Apple Developer ID signature. The app is not notarized.
 `/Applications/AI1.app`. Back up an existing copy and quit it before using that
 option. Source builds remain the current macOS distribution method.
 
+### Open a directory from an external terminal
+
+After building the macOS app, run this command from the checkout to install
+`ai1` in `~/.local/bin`:
+
+```sh
+node scripts/install-cli.mjs
+```
+
+If that directory is not on `PATH`, the installer prints the line to add to
+your shell configuration. It does not change the configuration itself. Then
+use the command from any terminal directory:
+
+```sh
+ai1 .
+ai1 src/app
+ai1 "/absolute/path/with spaces"
+```
+
+Relative paths use the terminal's current directory. With no argument, `ai1`
+opens that directory. AI1 opens a new workspace window and keeps existing
+windows open. The command returns control to the terminal. It works when the
+app is closed or already running. A missing path or a regular file gives an
+error. Use `ai1 -- -folder` for a directory name that starts with a dash.
+
+To select an installed app or another command directory, use:
+
+```sh
+node scripts/install-cli.mjs --app /Applications/AI1.app --bin "$HOME/.local/bin"
+```
+
+The command uses the selected app, this checkout, and the current Node
+executable. Keep these paths available. If one moves, remove the installed
+launcher and run the installer again. The installer preserves an existing
+command that it does not recognize. To uninstall, remove only the generated
+`ai1` file from the selected command directory.
+
+This installer is for macOS. The experimental Arch package already provides
+its own `ai1` launcher; native Linux behavior remains unverified.
+
 ## Try Omarchy with your LLM
 
 Paste the text below into an LLM that can read files and run commands on your
@@ -145,10 +185,13 @@ Linux behavior still needs native verification.
 | ⌘1–⌘9          | Focus a numbered tab inside the current center panel.        |
 | ⌘⌃0            | Return to the last focused center panel.                     |
 | ⌘⇧E            | Open and focus Explorer.                                     |
+| Enter          | Rename the selected file or folder while Explorer has focus. |
 | ⌘⌃A / ⌘⌃C      | Open and focus Agents / Changes.                             |
 | ⌘⌃Enter        | Expand the focused terminal or file inside the center area.  |
+| Control+Enter  | Zoom or restore the focused file editor.                     |
 | ⌘B             | Hide or show Explorer.                                       |
 | ⌘F             | Find text in the focused terminal or browser.                |
+| ⌘K             | Clear the focused terminal display.                          |
 | ⌘⌃B            | Open a new browser tab.                                      |
 | ⌘⇧T            | Reopen a closed editor or browser tab.                       |
 | ⌘P / ⌘⇧P       | Find a file / open the command palette.                      |
@@ -156,6 +199,11 @@ Linux behavior still needs native verification.
 | ⌘⌃arrows       | Resize a terminal panel (terminal focus only).               |
 | ⌘⇧Enter        | Toggle terminal zoom (terminal focus only).                  |
 | Escape, Escape | Exit center zoom with two quick presses.                     |
+
+Markdown Open Preview and Open Preview to the Side keep a separate preview for
+each file. Opening another Markdown file does not replace an existing preview.
+Each preview updates when its file changes. Reopening the same file's preview
+in the same preview pane selects its existing tab.
 
 Each visible split is a panel. Panel numbers go from left to right, then from
 top to bottom. Hover a section icon to see its name and registered shortcut.
@@ -172,17 +220,21 @@ search fields, and editor suggestions can use it. The second quick Escape
 exits zoom instead of going to the terminal program.
 Explorer, Agents, and Changes stay visible during center zoom.
 On Linux, center zoom uses Control+Alt+Enter.
+Control+Enter also toggles center zoom when a file editor or its Find box has
+focus. It uses the physical Control key on macOS and Linux.
 AI1 does not bind Command+Shift+W on macOS. Use the menu or the red close button
 to close the window.
 In Changes, Control-click a file row to open its diff in center zoom.
 Control-click its Open File button to open the working file in center zoom.
+In Explorer, Control-click a file to open it in the same center zoom view.
+Folder clicks keep their normal tree behavior.
 In Agents, use the arrow keys to select a session. Press Enter to open a new
 session terminal in the last focused center panel.
 Right-click a session to rename it, open its terminal, or delete it with confirmation.
 Control-click zoom is an extra action, not a requirement. Open a file or diff
 normally, then use **View → Zoom Center Panel** or the zoom shortcut. A normal
 right-click keeps the context menu. Control-click uses AI1's zoom action instead
-of the macOS context menu in Changes.
+of the macOS context menu for files in Changes and Explorer.
 Directional navigation stays terminal-only. Editors keep Cmd+Option+Up/Down
 for multiple text cursors. AI1 does not capture Neovim's Control+W commands.
 
@@ -207,6 +259,8 @@ The tab shows the platform's shortcuts and this example workflow:
 
 Agents marks sessions with a reported parent as **Sub-agent**.
 Child sessions appear below their parent in the same directory group.
+Click a session's chevron to expand or collapse its children. Click its card
+to open the terminal. Chevron clicks only change the tree.
 Hover over the badge to see the parent name.
 Use **Select Parent Session** in the row menu to select the parent without
 opening a terminal. If the parent is unavailable, the badge shows its ID and
@@ -273,14 +327,17 @@ effect after a palette change.
 In the terminal, **Shift+Enter** sends the Ctrl+J newline key for OpenCode.
 **Enter** keeps its normal submit behavior. OpenCode key settings stay unchanged.
 
-On macOS, **Cmd+K, Cmd+W** closes all center tabs as one batch.
+On macOS, **Cmd+K, Cmd+W** closes all center tabs as one batch when focus is
+outside a terminal.
 **Cmd+Shift+T** restores that batch, including editors, browser tabs, and
 persistent terminals. The original tab order and split groups return if no new
 tabs are open. New tabs stay open if you create them before restore. Persistent
 terminals reconnect to their existing shells. Closed batches stay in memory
 until app exit. On other platforms, use **Ctrl** instead of **Cmd**.
-**Cmd+K** now starts the close chord in terminals. Use **Terminal: Clear** in
-the command palette to clear a terminal.
+In a terminal, **Cmd+K** clears the display and its local scrollback. It keeps
+the shell running and preserves unfinished input. Other terminals stay unchanged.
+Persistent terminals use tmux, which keeps its own history. You can also use
+**Terminal: Clear** in the command palette.
 
 The Ghostty palette does not make terminal text rendering identical. AI1 uses
 xterm.js with WebGL. Ghostty uses a different renderer. Font size and bold-color

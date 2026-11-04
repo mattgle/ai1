@@ -6,6 +6,8 @@ import { TheiaApp } from "@theia/playwright";
 export async function openBrowserTab(app: TheiaApp, url: string, profileName?: string): Promise<void> {
   const tabs = app.page.locator(".ai1-browser");
   const count = await tabs.count();
+  // A focused webview receives shortcuts until a click returns focus to Theia.
+  await app.page.locator("#theia-statusBar").click();
   if (profileName) {
     await app.quickCommandPalette.trigger("Browser: New Tab in Profile…", profileName);
   } else {

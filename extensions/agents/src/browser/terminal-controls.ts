@@ -162,6 +162,11 @@ export class TerminalControls
   registerKeybindings(registry: KeybindingRegistry): void {
     registry.registerKeybinding({
       command: "ai1.center.toggleZoom",
+      keybinding: "ctrl+enter",
+      when: "editorFocus",
+    });
+    registry.registerKeybinding({
+      command: "ai1.center.toggleZoom",
       keybinding: isOSX ? "meta+ctrl+enter" : "ctrl+alt+enter",
     });
     registry.registerKeybinding({ command: "ai1.terminal.closeSearch", keybinding: "esc" });

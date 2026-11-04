@@ -309,6 +309,7 @@ test("reopening a closed batch keeps tabs opened after Close All Tabs", async ()
   await app.page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
   const count = await tabs.count();
   const modifier = process.platform === "darwin" ? "Meta" : "Control";
+  await app.page.locator("#files").focus();
   await app.page.keyboard.press(`${modifier}+k`);
   await app.page.keyboard.press(`${modifier}+w`);
   await expect(tabs).toHaveCount(0);

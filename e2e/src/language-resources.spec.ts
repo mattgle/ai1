@@ -81,6 +81,85 @@ for (const [name, directory] of [
   ["development", application],
   ["packaged", packaged],
 ] as const) {
+  for (const language of [
+    {
+      plugin: "vscode.diff",
+      id: "diff",
+      extensions: [".patch", ".diff", ".rej"],
+      lines: [
+        "diff --git a/example.ts b/example.ts",
+        "--- a/example.ts",
+        "+++ b/example.ts",
+        "@@ -1 +1 @@",
+        "-const value = 1;",
+        "+const value = 2;",
+      ],
+      scopePatterns: [/^markup.inserted/, /^markup.deleted/, /^meta.diff.range/],
+    },
+    {
+      plugin: "tintinweb.vscode-solidity-language",
+      id: "solidity",
+      extensions: [".sol"],
+      lines: ["// comment", 'contract Example { string public name = "example"; }'],
+    },
+    {
+      plugin: "vscode.yaml",
+      id: "yaml",
+      extensions: [".yml", ".yaml"],
+      lines: ["# comment", 'name: "example"', "enabled: true"],
+    },
+  ]) {
+    test(`${name} ${language.id} registers file extensions and syntax tokens`, async () => {
+      test.skip(!directory, "Set AI1_PACKAGED_RESOURCES to the packaged app resource directory.");
+      const folder = path.join(directory!, "plugins", language.plugin, "extension");
+      const manifest = JSON.parse(fs.readFileSync(path.join(folder, "package.json"), "utf8"));
+      expect(manifest.contributes.languages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: language.id,
+            extensions: expect.arrayContaining(language.extensions),
+          }),
+        ]),
+      );
+      const entry = manifest.contributes.grammars.find(
+        (grammar: { language: string }) => grammar.language === language.id,
+      );
+      const filename = path.resolve(folder, entry.path);
+      const wasm = fs.readFileSync(requireModule.resolve("vscode-oniguruma/release/onig.wasm"));
+      await loadWASM(Uint8Array.from(wasm).buffer);
+      const registry = new Registry({
+        onigLib: Promise.resolve({
+          createOnigScanner: (patterns) => new OnigScanner(patterns),
+          createOnigString: (text) => new OnigString(text),
+        }),
+        loadGrammar: async (scope) =>
+          scope === entry.scopeName ? parseRawGrammar(fs.readFileSync(filename, "utf8"), filename) : null,
+      });
+      try {
+        const grammar = await registry.loadGrammar(entry.scopeName);
+        expect(grammar).not.toBeNull();
+        let state = INITIAL;
+        const scopes: string[] = [];
+        for (const line of language.lines) {
+          const result = grammar!.tokenizeLine(line, state);
+          state = result.ruleStack;
+          scopes.push(...result.tokens.flatMap((token) => token.scopes));
+        }
+        for (const pattern of language.scopePatterns ?? [
+          /^comment/,
+          /^string/,
+          /^(keyword|storage|entity|constant)/,
+        ]) {
+          expect(
+            scopes.some((scope) => pattern.test(scope)),
+            `Expected syntax scope: ${pattern}`,
+          ).toBe(true);
+        }
+      } finally {
+        registry.dispose();
+      }
+    });
+  }
   test(`${name} SCSS registers its language and tokenizes variables and selectors`, async () => {
     test.skip(!directory, "Set AI1_PACKAGED_RESOURCES to the packaged app resource directory.");
     type GrammarEntry = { scopeName: string; path: string };

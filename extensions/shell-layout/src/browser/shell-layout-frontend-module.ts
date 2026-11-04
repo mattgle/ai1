@@ -23,9 +23,23 @@ import { WorkspaceColors } from "./workspace-colors";
 import { WelcomeWidget } from "./welcome-widget";
 import { WelcomeContribution } from "./welcome-contribution";
 import { SectionShortcuts } from "./section-shortcuts";
+import { createFileNavigatorContainer } from "@theia/navigator/lib/browser/navigator-container";
+import { FileNavigatorWidget } from "@theia/navigator/lib/browser/navigator-widget";
+import { ZoomFileNavigatorWidget } from "./zoom-file-navigator-widget";
+import { ExplorerKeybindings } from "./explorer-keybindings";
+import { PluginContributionHandler } from "@theia/plugin-ext/lib/main/browser/plugin-contribution-handler";
+import { MarkdownPreviewContributionHandler } from "./markdown-preview-contribution-handler";
 import "../../src/browser/welcome.css";
 
 export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
+  bind(ExplorerKeybindings).toSelf().inSingletonScope();
+  bind(KeybindingContribution).toService(ExplorerKeybindings);
+  rebind(PluginContributionHandler).to(MarkdownPreviewContributionHandler).inSingletonScope();
+  rebind(FileNavigatorWidget).toDynamicValue(({ container }) => {
+    const child = createFileNavigatorContainer(container);
+    child.rebind(FileNavigatorWidget).to(ZoomFileNavigatorWidget);
+    return child.get(FileNavigatorWidget);
+  });
   bind(ClosedTabBatchContribution).toSelf().inSingletonScope();
   bind(CommandContribution).toService(ClosedTabBatchContribution);
   bind(FrontendApplicationContribution).toService(ClosedTabBatchContribution);

@@ -510,3 +510,68 @@ test("Shift+Enter sends the OpenCode newline key while Enter retains its submit 
   await expect.poll(() => fs.existsSync(output)).toBe(true);
   expect(JSON.parse(fs.readFileSync(output, "utf8"))).toEqual([10, 13]);
 });
+
+test("Command-K clears only the focused terminal and keeps its pending shell input", async () => {
+  const page = app.page;
+  const contents = (id: string) =>
+    page.evaluate((widgetId) => {
+      type Terminal = {
+        buffer: { length: number; getLines(start: number, count: number, trim: boolean): string[] };
+        dimensions: { rows: number };
+        getTerminal(): { buffer: { active: { type: string } } };
+      };
+      type Container = {
+        _bindingDictionary: { _map: Map<unknown, unknown> };
+        get(key: unknown): { getById(id: string): Terminal };
+      };
+      const container = (window as unknown as { theia: { container: Container } }).theia.container;
+      const key = [...container._bindingDictionary._map.keys()].find(
+        (value) => typeof value === "symbol" && value.description === "TerminalService",
+      );
+      const terminal = container.get(key).getById(widgetId);
+      return {
+        text: terminal.buffer.getLines(0, terminal.buffer.length, true).join("\n"),
+        lines: terminal.buffer.length,
+        rows: terminal.dimensions.rows,
+        bufferType: terminal.getTerminal().buffer.active.type,
+      };
+    }, id);
+  await page.locator("#theia-statusBar").click();
+  await page.keyboard.press("Meta+t");
+  await chooseRepository();
+  const focused = page.locator(".terminal-container", { has: page.locator(".xterm-helper-textarea:focus") });
+  await expect(focused).toHaveCount(1);
+  const first = (await focused.getAttribute("id"))!;
+  await page.keyboard.type("printf 'KEEP_FIRST_TERMINAL\\n'");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await contents(first)).text).toContain("KEEP_FIRST_TERMINAL\n");
+  await page.keyboard.press("Meta+d");
+  await expect.poll(() => focused.getAttribute("id")).not.toBe(first);
+  const second = (await focused.getAttribute("id"))!;
+  await page.keyboard.type(
+    'i=0; while [ "$i" -lt 160 ]; do printf \'CLEAR_SECOND_%s\\n\' "$i"; i=$((i+1)); done',
+  );
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await contents(second)).text).toContain("CLEAR_SECOND_159");
+  expect((await contents(second)).bufferType).toBe("alternate");
+  const firstBefore = await contents(first);
+  const result = path.join(root, "clear-result");
+  await page.keyboard.type("printf kept > ../clear-result");
+  await expect
+    .poll(async () => (await contents(second)).text.replace(/\n/g, ""))
+    .toContain("printf kept > ../clear-result");
+  await page.keyboard.press("Meta+k");
+  await expect.poll(async () => (await contents(second)).text).not.toContain("CLEAR_SECOND_");
+  await expect
+    .poll(async () => {
+      const state = await contents(second);
+      return state.lines === state.rows;
+    })
+    .toBe(true);
+  expect((await contents(first)).text.split("\n").slice(0, -1)).toEqual(
+    firstBefore.text.split("\n").slice(0, -1),
+  );
+  await expect(focused).toHaveAttribute("id", second);
+  await page.keyboard.press("Enter");
+  await expect.poll(() => (fs.existsSync(result) ? fs.readFileSync(result, "utf8") : "")).toBe("kept");
+});

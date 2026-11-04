@@ -18,10 +18,15 @@ let app: TheiaApp;
 async function checkSubagentRows(): Promise<void> {
   const page = app.page;
   const panel = page.locator("#ai1-agents");
-  const parent = server.sessions.find((session) => session.id === "layout_0")!;
+  const parent = {
+    ...server.sessions.find((session) => session.id === "layout_0")!,
+    id: "parent_fixture",
+    title: "Parent fixture",
+  };
   const now = Date.now();
   // Add reported parent links. Titles alone do not identify sub-agents.
   server.sessions.push(
+    parent,
     {
       ...parent,
       id: "child_fixture",
@@ -95,9 +100,18 @@ async function checkSubagentRows(): Promise<void> {
   // Keep a collapsed family closed after the next load.
   await main.locator(".theia-ExpansionToggle").click();
   await expect(child).toHaveCount(0);
+  await expect(page.locator("#theia-main-content-panel .xterm")).toHaveCount(terminals);
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(child).toHaveCount(0);
   await main.locator(".theia-ExpansionToggle").click();
+  await expect(child).toBeVisible();
+  await expect(grandchild).toBeVisible();
+  await expect(page.locator("#theia-main-content-panel .xterm")).toHaveCount(terminals);
+  await child.locator(".theia-ExpansionToggle").click();
+  await expect(grandchild).toHaveCount(0);
+  await child.locator(".theia-ExpansionToggle").click();
+  await expect(grandchild).toBeVisible();
+  await main.locator(".theia-ExpansionToggle").dblclick();
   await expect(child).toBeVisible();
   await expect(grandchild).toBeVisible();
   await expect(page.locator("#theia-main-content-panel .xterm")).toHaveCount(terminals);
@@ -118,6 +132,14 @@ async function checkSubagentRows(): Promise<void> {
       ),
     )
     .toBe(false);
+  await main.locator(".ai1-agents-title").click();
+  await expect(page.locator("#theia-main-content-panel .xterm")).toHaveCount(terminals + 1);
+  await expect(
+    page.locator("#theia-main-content-panel .lm-TabBar-tab.lm-mod-current").filter({ hasText: parent.title }),
+  ).toBeVisible();
+  await expect(page.locator("#theia-main-content-panel .xterm-helper-textarea:focus")).toHaveCount(1);
+  await expect(child).toBeVisible();
+  await expect(grandchild).toBeVisible();
 }
 
 test.beforeAll(async () => {
@@ -477,4 +499,4 @@ test("Enter on an Agents session opens its terminal in the last focused center p
   await expect(page.locator("#theia-main-content-panel .xterm-helper-textarea:focus")).toHaveCount(1);
 });
 
-test("Sub-agent rows show their parent and select it without opening a terminal", checkSubagentRows);
+test("Sub-agent chevrons only toggle children, and session cards open terminals", checkSubagentRows);

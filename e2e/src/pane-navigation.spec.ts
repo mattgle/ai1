@@ -171,7 +171,7 @@ for (const firstSplit of ["right", "down"] as const) {
       await page.locator("#files .theia-TreeNode", { hasText: "zoom-test.txt" }).dblclick();
       await expect(page.locator("#theia-main-content-panel .monaco-editor:visible")).toHaveCount(1);
       const withFile = await layout();
-      await page.keyboard.press("Meta+Control+Enter");
+      await page.keyboard.press("Control+Enter");
       await expect(page.locator("#theia-main-content-panel .lm-TabBar:visible")).toHaveCount(1);
       await expect(
         page.locator("#theia-main-content-panel .lm-TabBar-tab.lm-mod-current", { hasText: "zoom-test.txt" }),
@@ -181,8 +181,66 @@ for (const firstSplit of ["right", "down"] as const) {
       await page.keyboard.press("Escape");
       await page.keyboard.press("Escape");
       await expect.poll(layout).toEqual(withFile);
+      await page.keyboard.press("Meta+f");
+      await expect(page.getByRole("textbox", { name: "Find", exact: true })).toBeFocused();
+      await page.keyboard.press("Control+Enter");
+      await expect(page.locator("#theia-main-content-panel .lm-TabBar:visible")).toHaveCount(1);
+      expect(await sides()).toEqual(beforeSides);
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Escape");
+      await expect.poll(layout).toEqual(withFile);
       await page.keyboard.press("Meta+w");
       await expect(page.locator("#theia-main-content-panel .monaco-editor:visible")).toHaveCount(0);
+      await running.evaluate(({ Menu }) => {
+        Menu.prototype.popup = function () {
+          (globalThis as typeof globalThis & { explorerMenu?: Electron.Menu }).explorerMenu = this;
+        };
+      });
+      const menuLabels = () =>
+        running!.evaluate(() =>
+          (globalThis as typeof globalThis & { explorerMenu?: Electron.Menu }).explorerMenu?.items.map(
+            (item) => item.label,
+          ),
+        );
+      const fileRow = page.locator("#files .theia-TreeNode", { hasText: "zoom-test.txt" });
+      await fileRow.click({ modifiers: ["Control"] });
+      await expect(page.locator("#theia-main-content-panel .lm-TabBar:visible")).toHaveCount(1);
+      await expect(
+        page.locator("#theia-main-content-panel .lm-TabBar-tab", { hasText: "zoom-test.txt" }),
+      ).toHaveCount(1);
+      await expect(page.locator("#theia-main-content-panel .monaco-editor:visible")).toHaveCount(1);
+      expect(await sides()).toEqual(beforeSides);
+      const reopenedTab = page.locator("#theia-main-content-panel .lm-TabBar-tab", {
+        hasText: "zoom-test.txt",
+      });
+      const reopenedId = (await reopenedTab.getAttribute("id"))!;
+      await fileRow.click({ modifiers: ["Control"] });
+      await expect(page.locator("#theia-main-content-panel .lm-TabBar:visible")).toHaveCount(1);
+      await expect(reopenedTab).toHaveAttribute("id", reopenedId);
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Escape");
+      await expect
+        .poll(async () =>
+          (await layout()).map((panel) => ({
+            ...panel,
+            tabs: panel.tabs.filter((id) => id !== reopenedId),
+          })),
+        )
+        .toEqual(beforeZoom);
+      await expect(reopenedTab).toBeVisible();
+      expect(await menuLabels()).toBeUndefined();
+      await fileRow.click({ button: "right" });
+      await expect.poll(menuLabels).toContain("Rename");
+      await reopenedTab.click();
+      await expect(page.getByRole("textbox", { name: "Editor content", exact: true })).toBeFocused();
+      const restoredLayout = await layout();
+      await page.keyboard.press("Control+Enter");
+      await expect(page.locator("#theia-main-content-panel .lm-TabBar:visible")).toHaveCount(1);
+      await page.keyboard.press("Control+Enter");
+      await expect.poll(layout).toEqual(restoredLayout);
+      await page.keyboard.press("Meta+w");
+      await expect(page.locator("#theia-main-content-panel .monaco-editor:visible")).toHaveCount(0);
+      expect(fs.readFileSync(path.join(workspace, "zoom-test.txt"), "utf8")).toBe("Center zoom test\n");
       const lastCenter = await focusedId();
       for (const [keys, id] of [
         ["Meta+Control+a", "ai1-agents"],

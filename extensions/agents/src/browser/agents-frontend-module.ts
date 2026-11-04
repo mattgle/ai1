@@ -24,6 +24,16 @@ import { TerminalThemeService } from "@theia/terminal/lib/browser/terminal-theme
 import { GhosttyTerminalTheme } from "./ghostty-terminal-theme";
 import { TerminalAttentionContribution } from "./terminal-attention-contribution";
 import { TerminalAppearanceContribution } from "./terminal-appearance-contribution";
+import {
+  FileLinkProvider,
+  LocalFileLinkProvider,
+} from "@theia/terminal/lib/browser/terminal-file-link-provider";
+import { FileUriLinkProvider } from "@theia/terminal/lib/browser/terminal-file-uri-link-provider";
+import {
+  LineFragmentFileLinkProvider,
+  LineFragmentLocalFileLinkProvider,
+  LineFragmentFileUriLinkProvider,
+} from "./line-fragment-link-providers";
 import "../../src/browser/style/agents.css";
 import "../../src/browser/style/terminal-appearance.css";
 import "../../src/browser/style/terminal-attention.css";
@@ -37,6 +47,9 @@ function createAgentsWidget(parent: interfaces.Container): AgentsWidget {
 }
 
 export default new ContainerModule((bind, _unbind, _isBound, rebind) => {
+  rebind(FileLinkProvider).to(LineFragmentFileLinkProvider).inSingletonScope();
+  rebind(LocalFileLinkProvider).to(LineFragmentLocalFileLinkProvider).inSingletonScope();
+  rebind(FileUriLinkProvider).to(LineFragmentFileUriLinkProvider).inSingletonScope();
   rebind(TerminalWidget).to(PersistentTerminalWidget).inTransientScope();
   rebind(TerminalThemeService).to(GhosttyTerminalTheme).inSingletonScope();
   bind(FrontendApplicationContribution).toService(TerminalThemeService);

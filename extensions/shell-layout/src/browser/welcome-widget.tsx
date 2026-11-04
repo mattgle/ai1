@@ -34,11 +34,13 @@ export class WelcomeWidget extends ReactWidget {
           ["Cmd+Control+A / C", "Focus Agents / Changes"],
           ["Cmd+B", "Show or hide Explorer"],
           ["Cmd+Control+Enter", "Zoom or restore the center panel"],
+          ["Control+Enter", "Zoom or restore the focused file editor"],
           ["Escape, Escape", "Exit zoom with two quick presses"],
           ["Cmd+Control+B", "Open a browser tab"],
           ["Cmd+Shift+T", "Reopen a closed editor or browser tab"],
           ["Cmd+P / Cmd+Shift+P", "Find a file / command"],
           ["Cmd+F", "Find text in the focused view"],
+          ["Cmd+K", "Clear the focused terminal display"],
         ]
       : [
           ["Control+T", "Open a repository terminal"],
@@ -49,9 +51,11 @@ export class WelcomeWidget extends ReactWidget {
           ["Control+Shift+A / C", "Focus Agents / Changes"],
           ["Control+B", "Show or hide Explorer"],
           ["Control+Alt+Enter", "Zoom or restore the center panel"],
+          ["Control+Enter", "Zoom or restore the focused file editor"],
           ["Escape, Escape", "Exit zoom with two quick presses"],
           ["Control+Shift+T", "Reopen a closed editor or browser tab"],
           ["Control+P / Control+Shift+P", "Find a file / command"],
+          ["Control+K", "Clear the focused terminal display"],
         ];
     return (
       <main>
@@ -77,7 +81,8 @@ export class WelcomeWidget extends ReactWidget {
             for the app profile or this workspace.
           </li>
           <li>
-            Control-click the row or Open File button to open that view in center zoom. Explorer, Agents, and
+            Control-click the row or Open File button to open that view in center zoom. You can also
+            Control-click a file in Explorer or press Control+Enter in a file editor. Explorer, Agents, and
             Changes stay visible.
           </li>
           <li>

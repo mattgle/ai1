@@ -67,16 +67,11 @@ export class ClosedTabBatchContribution implements CommandContribution, Frontend
 
   onStart(): void {
     const keybindings = this.keybindings;
-    keybindings.registerKeybinding({
-      command: "-terminal:clear",
-      keybinding: "ctrlcmd+k",
-      when: "terminalFocus",
-    });
-    keybindings.registerKeybinding({ command: CLOSE_BATCH.id, keybinding: "ctrlcmd+k ctrlcmd+w" });
+    // Command+K clears terminal output instead of starting a close-tabs chord.
     keybindings.registerKeybinding({
       command: CLOSE_BATCH.id,
       keybinding: "ctrlcmd+k ctrlcmd+w",
-      when: "terminalFocus",
+      when: "!terminalFocus",
     });
     keybindings.registerKeybinding({ command: REOPEN_BATCH.id, keybinding: "ctrlcmd+shift+t" });
     keybindings.registerKeybinding({
