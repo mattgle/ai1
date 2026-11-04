@@ -5,6 +5,152 @@ Status: source is public; app release checks remain in progress. This review is
 not a security certification. App distribution still requires the runtime,
 security, and notice checks below.
 
+## Source checkpoint: 2026-11-04
+
+The owner approves a commit and push of the pending source changes to
+`origin/feat/release-readiness`.
+
+Verification passes: 822 workspace unit tests, 144 release-tool tests, seven CLI
+tests, and 24 offline editor checks. Workspace lint, all workspace type checks,
+changed-code formatting, whitespace, and both fully redacted source scans pass.
+The dependency suite has 42 passes and the same three documented cookie-cache
+failures. Those failures remain release blockers.
+
+The separate macOS package at
+`applications/electron/dist/rename-preview/mac-arm64/AI1.app` passes the four
+Explorer rename and Markdown preview checks, 13 language-resource and image
+checks, and strict ad-hoc signature verification. Its production build retains
+two Agents helper warnings and four unresolved notice entries. See the local
+backlog for the feature behavior and test limits. Native Linux input and the
+broader release gates remain open.
+
+## Agents chevron clicks: 2026-10-15
+
+The isolated packaged sub-agent test reproduces a terminal opening after a
+chevron click. Theia's default expansion handler calls the row activation path.
+Agents now uses `expandOnlyOnExpansionToggleClick`. Session cards open terminals;
+directory rows keep their group toggle behavior.
+
+All nine packaged Agents row checks pass in 14.8 seconds. A fresh parent fixture
+prevents an already-open terminal from hiding the failure. The checks cover
+parent and nested chevrons, double-clicks, refresh persistence, card activation,
+keyboard activation, directory groups, row actions, and context menus.
+The build, strict signature verification, six language checks, lint, relevant
+types, focused formatting, whitespace, and both redacted secret scans pass.
+The updated local bundle remains at `applications/electron/dist/mac-arm64/AI1.app`.
+The previous bundle remains in the temporary agent-chevron review directory.
+Native Linux input and the broader release gates remain open.
+
+## Terminal clear shortcut: 2026-10-15
+
+The owner requests Ghostty-style Command+K terminal clearing. The packaged
+regression confirms that the old Close All Tabs override disables Theia's
+terminal clear shortcut. A direct call clears the correct terminal. The fix
+removes the override and limits the close chord to non-terminal focus.
+
+All three packaged clear and batch-restore checks pass in 19.9 seconds. They
+verify real Command+K input, removal of displayed output, an unaffected split,
+execution of unfinished shell input, and both batch-restore cases. Persistent
+terminals use tmux's alternate screen; tmux retains its own history. The fixture
+reads the terminal buffer rather than assuming that tmux output creates local
+xterm scrollback. Temporary diagnostic hooks are removed.
+
+The updated local bundle builds and passes strict signature verification and
+all six language-resource checks. Lint, relevant types, focused formatting,
+whitespace, and both redacted secret scans pass. The bundle remains at
+`applications/electron/dist/mac-arm64/AI1.app`. The previous local bundle is
+retained in the temporary terminal-clear review directory. Native Linux input
+remains unverified. Existing release gates remain open.
+
+## Editor and Explorer center zoom: 2026-10-14
+
+The local macOS bundle now includes Control+Enter for the focused file editor
+and Control-click for Explorer files. Both use the existing center zoom commands.
+The README and Welcome tab describe the controls.
+
+Five focused packaged checks pass in 2.2 minutes. They cover both split
+directions, editor and Find-box focus, repeated Explorer Control-click, tab reuse,
+native context-menu requests, split restoration, unchanged file text, Changes
+zoom, ordinary image and text opening, and Welcome behavior across profiles.
+The tests correct three fixture assumptions: Find uses a textarea, a reopened
+editor gets a new widget ID, and editor focus uses the accessible textbox rather
+than a textarea selector. Native menu requests use the existing Electron test
+capture pattern. The zoom assertions and normal input paths remain intact.
+
+The package build, strict signature check, six language-resource checks, 64
+shell-layout unit tests, lint, relevant types, formatting, whitespace, and both
+redacted secret scans pass. The build retains its two known Agents helper
+warnings and four unresolved notice entries. Native Linux input remains
+unverified. The local bundle is at
+`applications/electron/dist/mac-arm64/AI1.app`. The previous bundle is retained
+in the temporary center-zoom review directory.
+
+## Local daily-use validation: 2026-10-13
+
+The owner asks to prepare the app for personal use and explicitly approves
+isolated GUI checks. These checks use temporary profiles, workspaces, service
+state, and tmux sockets. They preserve the installed app and owner settings.
+
+All 18 tests pass against the previous signed macOS package:
+
+- Five shared-backend and five forked-backend startup and normal-quit cycles.
+- Nested editor imports, hover types, diagnostics, and project-specific save fixes.
+- Terminal attention, isolated hook events, Control+C, and session deletion.
+- A persistent session shell across normal quit and reopen.
+- Terminal split layout, pane sizes, and working shell input after restarts.
+
+The run completes in 2.2 minutes. Strict signature verification also passes.
+These observations do not establish the cause of earlier intermittent native
+crashes or validate live agent login. CONNECT/SOCKS cancellation and the
+development shared-cache cookie behavior remain reproducible failures. See
+`dependency-security-review.md` for the eligible 4.3.0 update and its actual fix.
+
+The previous bundle is retained in the temporary review directory. The standard
+macOS package script then builds and signs a fresh local bundle with npm 12.2.0.
+All six language-resource checks pass. The build retains its two known Agents
+helper `require.resolve` warnings. Its notice inventory has 572 files and four
+unresolved entries. The Once supplement now reaches the package. No installed-app
+replacement or binary publication occurs.
+
+The fresh-bundle run has 57 passes and one failure across 58 checks. All 18
+package-evidence checks pass. Changes settings, editing, both lifecycle modes,
+terminal attention, and terminal restoration pass. The popup-limit test stops
+at the command-palette setup, before popup creation. A two-test reduction passes.
+Adding the preceding real-click agent test reproduces the same timeout. The
+focused webview receives the command-palette shortcut instead of Theia. The
+shared `openBrowserTab` test helper now clicks the status bar before sending
+the shortcut. The same three-test sequence then passes, including the unchanged
+five-popup limit and notice assertion. No app runtime change, forced click,
+retry, or increased timeout occurs. The separate
+background-agent focus-preservation test is excluded because its browser-design
+decision remains open. This is not an all-tests-pass result.
+
+After the helper fix, the complete ordinary browser and profile-restart run
+passes all 24 checks in 2.4 minutes. This includes the previously failing popup
+limit, actual agent clicks, local-file blocking, profile isolation, and the
+user-setting controls for the agent address. The background-agent focus test
+remains excluded and unresolved. The earlier 57-pass run and its failure remain
+historical evidence; no complete 58-test rerun is claimed.
+
+The packaged strict dependency and archive suite has 34 passes and 12 build-only
+skips. All 14 MCP caller checks pass. The packaged dependency directory and
+recorded build inputs contain no HTTP Cache Semantics package. The strict
+development suite retains its three cookie-response failures. The package build
+preserves the narrow cache-only lockfile change.
+
+On October 14 the owner selects "Ready to open" for the first-use handoff and
+reports uncertain proxy use. Leave the fresh bundle ready at
+`applications/electron/dist/mac-arm64/AI1.app`. Do not launch the owner's normal
+profile. Keep the proxy-cancellation limitation visible.
+The fresh signed local bundle is ready for a personal trial. This handoff does
+not clear the remaining runtime, dependency, source, notice, or Omarchy release
+gates. Live agent login and the owner's actual workspace remain unverified.
+
+Final source checks pass: lint, end-to-end types, focused formatting, whitespace,
+and strict app signature verification. The old temporary Gitleaks executable is
+absent. A fresh temporary 8.30.1 copy matches the official release digest and
+checksum file before execution. Both fully redacted secret scans pass.
+
 ## Source push approval: 2026-10-05
 
 The owner approves a source commit and push on `feat/release-readiness`.
@@ -130,8 +276,9 @@ The installed app stays unchanged. No binary is published.
 ## Offline shutdown review: 2026-10-08
 
 The owner stops foreground lifecycle testing because each app launch takes
-keyboard focus and makes the computer unusable. Do not repeat GUI launches
-without separate owner approval. Continue with source review and offline tests.
+keyboard focus and makes the computer unusable. Later approval on October 13
+permits the isolated daily-use checks above. Other GUI runs still need separate
+owner approval. Continue with source review and offline tests outside that scope.
 This restriction does not waive runtime gates or establish a focus fix.
 
 Before that stop, a complete shared-only run passes five five-launch groups.
